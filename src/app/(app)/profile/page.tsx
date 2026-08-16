@@ -5,18 +5,21 @@
  * cerrar sesión (conserva datos offline) y ajustes de la app.
  */
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSession, useSync } from '@/components/providers';
 import { logout } from '@/lib/auth/client';
 import { getDB } from '@/lib/local/db';
+import { seedDemoData } from '@/lib/demo/seed';
 import { Button } from '@/components/ui';
-import { ShareIcon } from '@/components/icons';
+import { ShareIcon, SparklesIcon } from '@/components/icons';
 import Link from 'next/link';
 
 export default function ProfilePage() {
   const router = useRouter();
   const { profile, remoteExpired, refreshProfile } = useSession();
   const { stats, online } = useSync();
+  const [seeding, setSeeding] = useState(false);
 
   const counts = useLiveQuery(async () => {
     if (!profile) return null;
@@ -36,6 +39,17 @@ export default function ProfilePage() {
     await logout();
     await refreshProfile(); // limpia el perfil del contexto (datos locales intactos)
     router.replace('/login');
+  }
+
+  async function handleSeed() {
+    if (!profile || seeding) return;
+    setSeeding(true);
+    try {
+      await seedDemoData(profile);
+      router.push('/wardrobe');
+    } finally {
+      setSeeding(false);
+    }
   }
 
   return (
@@ -104,6 +118,24 @@ export default function ProfilePage() {
       <section className="card-surface p-5">
         <h2 className="mb-3 font-heading text-base">Ajustes</h2>
         <div className="rounded-xl bg-surface-alt p-3">
+          <p className="text-sm font-medium">Datos de ejemplo</p>
+          <p className="mt-1 text-xs text-text-secondary">
+            Añade 10 prendas con fotografía, 2 outfits y una entrada de calendario
+            para probar la aplicación (imágenes Unsplash, uso local).
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-3"
+            size="md"
+            onClick={handleSeed}
+            loading={seeding}
+            data-testid="seed-demo"
+          >
+            <SparklesIcon size={16} />
+            Cargar datos de ejemplo
+          </Button>
+        </div>
+        <div className="mt-3 rounded-xl bg-surface-alt p-3">
           <p className="text-sm font-medium">Notas</p>
           <p className="mt-1 text-xs text-text-secondary">
             Las fotos se procesan en tu dispositivo (WebP ≤ 1080px) antes de guardarse.
