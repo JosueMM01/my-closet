@@ -72,8 +72,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refreshProfile();
-  }, [refreshProfile]);
+    let cancelled = false;
+    void getLocalProfile().then((loaded) => {
+      if (cancelled) return;
+      setProfile(loaded);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Arranque del sync engine + suscripción a su estado.
   useEffect(() => {

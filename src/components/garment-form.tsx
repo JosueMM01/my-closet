@@ -5,7 +5,7 @@
  * (worker → resize → WebP) antes de persistir en IndexedDB.
  */
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   CATEGORY_LABELS,
   GARMENT_CATEGORIES,
