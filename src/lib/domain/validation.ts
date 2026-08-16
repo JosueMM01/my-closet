@@ -10,12 +10,26 @@ const dateOnly = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato esperado YYYY-MM-DD');
 
+/**
+ * Campo de texto opcional: acepta clave ausente, undefined, null o string;
+ * siempre produce `string | null` recortado, o null si queda vacío.
+ * (El wrapper `z.optional` es necesario en Zod 4 para claves ausentes.)
+ */
 const trimmedMax = (max: number) =>
   z
-    .string()
-    .trim()
-    .max(max)
-    .transform((v) => (v.length === 0 ? null : v));
+    .optional(
+      z
+        .union([z.string(), z.null()])
+        .refine((v) => typeof v !== 'string' || v.length <= max, {
+          message: `Máximo ${max} caracteres`,
+        })
+        .transform((v) => {
+          if (typeof v !== 'string') return null;
+          const trimmed = v.trim();
+          return trimmed.length === 0 ? null : trimmed;
+        }),
+    )
+    .transform((v) => v ?? null);
 
 export const garmentCategorySchema = z
   .string()
@@ -38,15 +52,17 @@ export const garmentInputSchema = z.object({
   category: garmentCategorySchema,
   colors: z.array(colorKeySchema).max(LIMITS.maxColorsPerGarment).default([]),
   brand: trimmedMax(LIMITS.brandMax),
-  size: sizeSchema.nullable().transform((v) => (v === null ? null : v)),
+  size: z.optional(sizeSchema.nullish().transform((v) => (v == null ? null : v.trim()))).transform((v) => v ?? null),
   notes: trimmedMax(LIMITS.notesMax),
   washingInstructions: trimmedMax(LIMITS.washingInstructionsMax),
-  dateAcquired: dateOnly.nullable(),
-  archived: z.boolean().default(false),
-  photoId: z.string().uuid().nullable(),
+  dateAcquired: z.optional(dateOnly.nullable().transform((v) => v ?? null)).transform((v) => v ?? null),
+  archived: z.boolean().optional().default(false),
+  photoId: z.optional(z.string().uuid().nullable()).transform((v) => v ?? null),
 });
 
-export type GarmentInput = z.infer<typeof garmentInputSchema>;
+export type GarmentInput = z.output<typeof garmentInputSchema>;
+/** Forma aceptada por formularios y repositorios (campos opcionales). */
+export type GarmentInputDraft = z.input<typeof garmentInputSchema>;
 
 export const outfitSlotSchema = z.object({
   category: garmentCategorySchema,
@@ -59,16 +75,18 @@ export const outfitInputSchema = z.object({
   slots: z.array(outfitSlotSchema).max(16).default([]),
 });
 
-export type OutfitInput = z.infer<typeof outfitInputSchema>;
+export type OutfitInput = z.output<typeof outfitInputSchema>;
+export type OutfitInputDraft = z.input<typeof outfitInputSchema>;
 
 export const calendarEntryInputSchema = z.object({
   date: dateOnly,
   outfitId: z.string().uuid(),
   notes: trimmedMax(LIMITS.notesMax),
-  wornAt: isoDateTime.nullable(),
+  wornAt: z.optional(isoDateTime.nullable().transform((v) => v ?? null)).transform((v) => v ?? null),
 });
 
-export type CalendarEntryInput = z.infer<typeof calendarEntryInputSchema>;
+export type CalendarEntryInput = z.output<typeof calendarEntryInputSchema>;
+export type CalendarEntryInputDraft = z.input<typeof calendarEntryInputSchema>;
 
 export const permissionSchema = z.enum(['VIEW', 'MANAGE']);
 
