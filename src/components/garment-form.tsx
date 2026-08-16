@@ -139,10 +139,13 @@ export function GarmentForm({
     try {
       if (garment) {
         await updateGarment(garment.id, input);
+        router.push(`/wardrobe/${garment.id}`);
       } else {
-        await createGarment(userId, input);
+        const created = await createGarment(userId, input);
+        // Offline: la ruta dinámica de detalle puede no estar en caché del
+        // SW; la lista (shell precacheado) siempre está disponible.
+        router.push(navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe');
       }
-      router.push(garment ? `/wardrobe/${garment.id}` : '/wardrobe');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar la prenda');
       setSaving(false);

@@ -4,10 +4,13 @@ const isProd = process.env.NODE_ENV === 'production';
 
 /**
  * Cabeceras de seguridad aplicadas a todas las respuestas.
- * La CSP permite los orígenes estrictamente necesarios:
- *  - self: app shell, assets y fuentes self-hosted (next/font);
- *  - data:/blob: imágenes procesadas en el navegador;
- *  - Cloudinary solo si está configurado (img-src).
+ *
+ * Nota CSP: Next.js App Router necesita scripts inline para el bootstrap de
+ * hidratación (self.__next_f). Se permite 'unsafe-inline' en script-src como
+ * compromiso documentado (docs/SECURITY.md): la protección XSS principal
+ * viene del escapado de React (sin dangerouslySetInnerHTML en el código) y
+ * del resto de directivas. Con nonce por middleware las páginas dejarían de
+ * ser estáticas; se evaluará en producción real.
  */
 function securityHeaders(): Record<string, string> {
   const cloudinaryHost = process.env.CLOUDINARY_CLOUD_NAME
@@ -15,7 +18,7 @@ function securityHeaders(): Record<string, string> {
     : '';
   const csp = [
     "default-src 'self'",
-    "script-src 'self'" + (isProd ? '' : " 'unsafe-eval'"),
+    "script-src 'self' 'unsafe-inline'" + (isProd ? '' : " 'unsafe-eval'"),
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: http://localhost:* https://localhost:*${cloudinaryHost}`,
     "font-src 'self' data:",

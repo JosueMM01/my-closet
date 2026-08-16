@@ -9,7 +9,7 @@ import { useSession } from '@/components/providers';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { profile, loading } = useSession();
+  const { profile, loading, refreshProfile } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +33,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login({ email, password });
+      await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
       router.replace('/');
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'No se pudo iniciar sesión');

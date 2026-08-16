@@ -18,7 +18,11 @@ export function ServiceWorkerRegister() {
     }
 
     let refreshing = false;
+    // Solo recargar en ACTUALIZACIONES (ya había un SW controlando);
+    // la primera instalación no debe recargar la página a media carga.
+    const hadController = Boolean(navigator.serviceWorker.controller);
     const onControllerChange = () => {
+      if (!hadController) return;
       if (refreshing) return;
       refreshing = true;
       window.location.reload();

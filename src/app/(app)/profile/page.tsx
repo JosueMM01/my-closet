@@ -15,7 +15,7 @@ import Link from 'next/link';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { profile, remoteExpired } = useSession();
+  const { profile, remoteExpired, refreshProfile } = useSession();
   const { stats, online } = useSync();
 
   const counts = useLiveQuery(async () => {
@@ -34,6 +34,7 @@ export default function ProfilePage() {
 
   async function handleLogout() {
     await logout();
+    await refreshProfile(); // limpia el perfil del contexto (datos locales intactos)
     router.replace('/login');
   }
 

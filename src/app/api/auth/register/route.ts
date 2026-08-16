@@ -7,12 +7,15 @@ import { createUser, userExists } from '@/server/repositories/users-repository';
 
 export const runtime = 'nodejs';
 
+/** Límite ajustable por entorno (tests lo elevan). */
+const REGISTER_LIMIT = Number(process.env.AUTH_RATE_LIMIT_REGISTER ?? 10);
+
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-  if (!rateLimit(`register:${ip}`, 10, 60_000)) {
+  if (!rateLimit(`register:${ip}`, REGISTER_LIMIT, 60_000)) {
     return jsonError(429, 'Demasiados intentos; espera un momento');
   }
 
