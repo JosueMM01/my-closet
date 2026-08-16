@@ -13,10 +13,6 @@ export function useImageUrl(imageId: string | null): string | null {
 
   useEffect(() => {
     let cancelled = false;
-    if (!imageId) {
-      setUrl(null);
-      return;
-    }
     void resolveImageUrl(imageId).then((resolved) => {
       if (!cancelled) setUrl(resolved);
     });

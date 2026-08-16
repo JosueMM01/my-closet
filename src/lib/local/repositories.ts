@@ -61,7 +61,7 @@ async function persistAndEnqueue<E extends SyncedEntity>(
   return entity;
 }
 
-function baseEntity(userId: string): Pick<SyncEntity, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'deletedAt' | 'syncStatus'> {
+function baseEntity(): Pick<SyncEntity, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'deletedAt' | 'syncStatus'> {
   const now = new Date().toISOString();
   return {
     id: uuid(),
@@ -80,7 +80,7 @@ function baseEntity(userId: string): Pick<SyncEntity, 'id' | 'createdAt' | 'upda
 export async function createGarment(userId: string, input: GarmentInputDraft): Promise<Garment> {
   const data = garmentInputSchema.parse(input);
   const garment: Garment = {
-    ...baseEntity(userId),
+    ...baseEntity(),
     userId,
     shareableId: uuid(),
     name: data.name,
@@ -181,7 +181,6 @@ export async function markEntitySynced(
   entityId: string,
   version: number,
 ): Promise<void> {
-  const db = getDB();
   const entity = await getEntity(entityType, entityId);
   if (!entity || entity.version !== version) return;
   await putEntity(entityType, { ...entity, syncStatus: 'synced' });
@@ -229,7 +228,7 @@ async function putEntity(entityType: OutboxEntityType, entity: SyncEntity): Prom
 export async function createOutfit(userId: string, input: OutfitInputDraft): Promise<Outfit> {
   const data = outfitInputSchema.parse(input);
   const outfit: Outfit = {
-    ...baseEntity(userId),
+    ...baseEntity(),
     userId,
     shareableId: uuid(),
     name: data.name,
@@ -296,7 +295,7 @@ export async function createCalendarEntry(
 ): Promise<CalendarEntry> {
   const data = calendarEntryInputSchema.parse(input);
   const entry: CalendarEntry = {
-    ...baseEntity(userId),
+    ...baseEntity(),
     userId,
     date: data.date,
     outfitId: data.outfitId,
@@ -366,7 +365,7 @@ export async function createWardrobeShare(
 ): Promise<WardrobeShare> {
   const data = permissionSchema.parse(permission);
   const share: WardrobeShare = {
-    ...baseEntity(userId),
+    ...baseEntity(),
     grantorId: userId,
     granteeId: null,
     granteeEmail,

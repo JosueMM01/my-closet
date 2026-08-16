@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Fraunces, Manrope } from 'next/font/google';
 import { AppProviders } from '@/components/providers';
+import { ServiceWorkerRegister } from '@/components/sw-register';
 import './globals.css';
 
 const heading = Fraunces({
@@ -22,6 +23,10 @@ export const metadata: Metadata = {
   },
   description: 'Tu armario digital: prendas, outfits y calendario, siempre disponible.',
   applicationName: 'My Closet',
+  icons: {
+    icon: [{ url: '/icon-192.png', type: 'image/png' }],
+    apple: [{ url: '/apple-touch-icon.png' }],
+  },
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
@@ -42,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" className={`${heading.variable} ${body.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-text-primary font-body">
         <AppProviders>{children}</AppProviders>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

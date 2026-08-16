@@ -72,7 +72,6 @@ interface PullResponse {
 }
 
 async function pushBatch(ops: OutboxOperation[]): Promise<void> {
-  const db = getDB();
   const response = await fetch('/api/sync/push', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
