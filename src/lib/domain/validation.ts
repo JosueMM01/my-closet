@@ -133,3 +133,77 @@ export const syncPullSchema = z.object({
   since: isoDateTime.nullable(),
   entityType: z.enum(['garment', 'outfit', 'calendarEntry', 'wardrobeShare']).optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Validación de entidades completas (payloads de sync push, lado servidor)
+// ---------------------------------------------------------------------------
+
+const syncFields = {
+  id: z.string().uuid(),
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+  version: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+  deletedAt: isoDateTime.nullable(),
+  syncStatus: z.enum(['pending', 'syncing', 'synced', 'failed']),
+};
+
+export const garmentEntitySchema = z.object({
+  ...syncFields,
+  userId: z.string().uuid(),
+  shareableId: z.string().uuid(),
+  name: z.string().nullable(),
+  category: garmentCategorySchema,
+  colors: z.array(colorKeySchema).max(LIMITS.maxColorsPerGarment),
+  brand: z.string().nullable(),
+  size: z.string().nullable(),
+  notes: z.string().nullable(),
+  washingInstructions: z.string().nullable(),
+  dateAcquired: dateOnly.nullable(),
+  archived: z.boolean(),
+  photoId: z.string().uuid().nullable(),
+});
+
+export const outfitEntitySchema = z.object({
+  ...syncFields,
+  userId: z.string().uuid(),
+  shareableId: z.string().uuid(),
+  name: z.string().nullable(),
+  notes: z.string().nullable(),
+  slots: z.array(outfitSlotSchema).max(16),
+});
+
+export const calendarEntryEntitySchema = z.object({
+  ...syncFields,
+  userId: z.string().uuid(),
+  date: dateOnly,
+  outfitId: z.string().uuid(),
+  wornAt: isoDateTime.nullable(),
+  notes: z.string().nullable(),
+});
+
+export const wardrobeShareEntitySchema = z.object({
+  ...syncFields,
+  grantorId: z.string().uuid(),
+  granteeId: z.string().uuid().nullable(),
+  granteeEmail: z.email().nullable(),
+  permission: permissionSchema,
+  inviteToken: z.string().min(16).max(64),
+  acceptedAt: isoDateTime.nullable(),
+});
+
+/** Valida un payload de sync según el tipo de entidad. */
+export function validateEntityPayload(
+  entityType: 'garment' | 'outfit' | 'calendarEntry' | 'wardrobeShare',
+  payload: Record<string, unknown>,
+): { ok: true; entity: Record<string, unknown> } | { ok: false } {
+  const schema =
+    entityType === 'garment'
+      ? garmentEntitySchema
+      : entityType === 'outfit'
+        ? outfitEntitySchema
+        : entityType === 'calendarEntry'
+          ? calendarEntryEntitySchema
+          : wardrobeShareEntitySchema;
+  const result = schema.safeParse(payload);
+  return result.success ? { ok: true, entity: result.data } : { ok: false };
+}
