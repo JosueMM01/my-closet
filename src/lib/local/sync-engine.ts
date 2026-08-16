@@ -15,6 +15,7 @@ import type {
   WardrobeShare,
 } from '@/lib/domain/types';
 import { getDB, readSyncStats, writeLastSyncedAt } from './db';
+import { getLocalProfile } from './kv';
 import {
   claimPendingOperations,
   markOperationFailed,
@@ -198,6 +199,8 @@ async function pull(): Promise<void> {
 export async function runSync(): Promise<void> {
   if (running) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
+  if (!(await getLocalProfile())) return;
   running = true;
   notify();
   try {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Garment, Outfit } from '@/lib/domain/types';
-import { closeServerDB, getServerDB } from '@/server/db';
+import { closeServerDB } from '@/server/db';
 import {
   OwnershipError,
   pullAll,
