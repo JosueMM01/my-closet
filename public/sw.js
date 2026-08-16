@@ -13,13 +13,21 @@
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
 const OFFLINE_URL = '/offline';
 
+// Shell offline: páginas principales (el contenido real vive en IndexedDB).
 const PRECACHE_URLS = [
+  '/',
+  '/wardrobe',
+  '/wardrobe/new',
+  '/outfits',
+  '/outfits/new',
+  '/calendar',
+  '/profile',
   OFFLINE_URL,
   '/icon-192.png',
   '/icon-512.png',
@@ -30,7 +38,17 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(STATIC_CACHE);
-      await cache.addAll(PRECACHE_URLS);
+      // Best-effort por URL: un fallo puntual no rompe la instalación.
+      await Promise.all(
+        PRECACHE_URLS.map(async (url) => {
+          try {
+            const response = await fetch(url);
+            if (response.ok) await cache.put(url, response);
+          } catch {
+            /* sin conexión en install: se completará en runtime */
+          }
+        }),
+      );
     })(),
   );
 });
@@ -93,9 +111,12 @@ async function networkFirstNavigation(request) {
     }
     return response;
   } catch {
-    const cached = await cache.match(request, { ignoreSearch: true });
+    // Caché runtime, luego shell precacheado, luego /offline.
+    const cached =
+      (await cache.match(request, { ignoreSearch: true })) ??
+      (await caches.match(request, { ignoreSearch: true, cacheName: STATIC_CACHE }));
     if (cached) return cached;
-    const offline = await cache.match(OFFLINE_URL);
+    const offline = await caches.match(OFFLINE_URL);
     return (
       offline ??
       new Response('Sin conexión', { status: 503, headers: { 'content-type': 'text/plain' } })

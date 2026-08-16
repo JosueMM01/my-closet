@@ -9,7 +9,7 @@ import { useSession } from '@/components/providers';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { profile, loading } = useSession();
+  const { profile, loading, refreshProfile } = useSession();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,6 +32,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await register({ displayName, email, password });
+      await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
       router.replace('/');
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'No se pudo crear la cuenta');
