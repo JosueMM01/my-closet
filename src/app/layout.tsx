@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Fraunces, Manrope } from 'next/font/google';
+import { AppProviders } from '@/components/providers';
 import './globals.css';
 
 const heading = Fraunces({
@@ -40,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={`${heading.variable} ${body.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-text-primary font-body">
-        {children}
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );
