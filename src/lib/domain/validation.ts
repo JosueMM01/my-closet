@@ -60,7 +60,9 @@ export const garmentInputSchema = z.object({
   photoId: z.optional(z.string().uuid().nullable()).transform((v) => v ?? null),
 });
 
-export type GarmentInput = z.infer<typeof garmentInputSchema>;
+export type GarmentInput = z.output<typeof garmentInputSchema>;
+/** Forma aceptada por formularios y repositorios (campos opcionales). */
+export type GarmentInputDraft = z.input<typeof garmentInputSchema>;
 
 export const outfitSlotSchema = z.object({
   category: garmentCategorySchema,
@@ -73,7 +75,8 @@ export const outfitInputSchema = z.object({
   slots: z.array(outfitSlotSchema).max(16).default([]),
 });
 
-export type OutfitInput = z.infer<typeof outfitInputSchema>;
+export type OutfitInput = z.output<typeof outfitInputSchema>;
+export type OutfitInputDraft = z.input<typeof outfitInputSchema>;
 
 export const calendarEntryInputSchema = z.object({
   date: dateOnly,
@@ -82,7 +85,8 @@ export const calendarEntryInputSchema = z.object({
   wornAt: z.optional(isoDateTime.nullable().transform((v) => v ?? null)).transform((v) => v ?? null),
 });
 
-export type CalendarEntryInput = z.infer<typeof calendarEntryInputSchema>;
+export type CalendarEntryInput = z.output<typeof calendarEntryInputSchema>;
+export type CalendarEntryInputDraft = z.input<typeof calendarEntryInputSchema>;
 
 export const permissionSchema = z.enum(['VIEW', 'MANAGE']);
 

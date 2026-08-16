@@ -7,11 +7,12 @@ import {
   calendarEntryInputSchema,
   outfitInputSchema,
   permissionSchema,
-  type CalendarEntryInput,
-  type GarmentInput,
-  type OutfitInput,
+  type CalendarEntryInputDraft,
+  type GarmentInputDraft,
+  type OutfitInputDraft,
 } from '@/lib/domain/validation';
 import { nextWrite, shouldApplyRemote } from '@/lib/domain/conflict';
+import type { GarmentInput } from '@/lib/domain/validation';
 import { inviteToken, uuid } from '@/lib/domain/ids';
 import type {
   CalendarEntry,
@@ -25,7 +26,7 @@ import type {
 import { getDB } from './db';
 import { enqueueOperation } from './outbox';
 
-type SyncedEntity = SyncEntity & { userId: string };
+type SyncedEntity = SyncEntity;
 
 /**
  * Transacción local: persistir entidad + encolar outbox atómicamente.
@@ -76,7 +77,7 @@ function baseEntity(userId: string): Pick<SyncEntity, 'id' | 'createdAt' | 'upda
 // Garments
 // ---------------------------------------------------------------------------
 
-export async function createGarment(userId: string, input: GarmentInput): Promise<Garment> {
+export async function createGarment(userId: string, input: GarmentInputDraft): Promise<Garment> {
   const data = garmentInputSchema.parse(input);
   const garment: Garment = {
     ...baseEntity(userId),
@@ -96,7 +97,7 @@ export async function createGarment(userId: string, input: GarmentInput): Promis
   return persistAndEnqueue('garment', garment, 'upsert');
 }
 
-export async function updateGarment(id: string, patch: Partial<GarmentInput>): Promise<Garment | null> {
+export async function updateGarment(id: string, patch: Partial<GarmentInputDraft>): Promise<Garment | null> {
   const db = getDB();
   const existing = await db.garments.get(id);
   if (!existing || existing.deletedAt) return null;
@@ -225,7 +226,7 @@ async function putEntity(entityType: OutboxEntityType, entity: SyncEntity): Prom
 // Outfits
 // ---------------------------------------------------------------------------
 
-export async function createOutfit(userId: string, input: OutfitInput): Promise<Outfit> {
+export async function createOutfit(userId: string, input: OutfitInputDraft): Promise<Outfit> {
   const data = outfitInputSchema.parse(input);
   const outfit: Outfit = {
     ...baseEntity(userId),
@@ -238,7 +239,7 @@ export async function createOutfit(userId: string, input: OutfitInput): Promise<
   return persistAndEnqueue('outfit', outfit, 'upsert');
 }
 
-export async function updateOutfit(id: string, patch: Partial<OutfitInput>): Promise<Outfit | null> {
+export async function updateOutfit(id: string, patch: Partial<OutfitInputDraft>): Promise<Outfit | null> {
   const db = getDB();
   const existing = await db.outfits.get(id);
   if (!existing || existing.deletedAt) return null;
@@ -291,7 +292,7 @@ export async function applyRemoteOutfit(remote: Outfit): Promise<boolean> {
 
 export async function createCalendarEntry(
   userId: string,
-  input: CalendarEntryInput,
+  input: CalendarEntryInputDraft,
 ): Promise<CalendarEntry> {
   const data = calendarEntryInputSchema.parse(input);
   const entry: CalendarEntry = {
@@ -307,7 +308,7 @@ export async function createCalendarEntry(
 
 export async function updateCalendarEntry(
   id: string,
-  patch: Partial<CalendarEntryInput>,
+  patch: Partial<CalendarEntryInputDraft>,
 ): Promise<CalendarEntry | null> {
   const db = getDB();
   const existing = await db.calendarEntries.get(id);

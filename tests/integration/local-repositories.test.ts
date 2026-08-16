@@ -89,6 +89,8 @@ describe('repositorio local de prendas', () => {
       photoId: '33333333-3333-4333-8333-333333333333',
     });
     const clone = await cloneGarment(original.id);
+    expect(clone).not.toBeNull();
+    if (!clone) return;
 
     expect(clone.id).not.toBe(original.id);
     expect(clone.name).toBe('Blazer (copia)');
