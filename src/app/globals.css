@@ -1,26 +1,98 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  Design system — Soft Editorial Closet
+  Cálido, elegante, minimalista, mobile-first, fotografías protagonistas.
+*/
+@theme {
+  /* Paleta */
+  --color-background: #f8f5f2;
+  --color-surface: #fffdfc;
+  --color-surface-alt: #f2ece6;
+  --color-border: #e8ded6;
+  --color-primary: #b05c78;
+  --color-primary-hover: #9c4f69;
+  --color-primary-soft: #f4e3e9;
+  --color-text-primary: #232323;
+  --color-text-secondary: #756e69;
+  --color-text-muted: #a79f99;
+  --color-success: #4a7c59;
+  --color-warning: #b07d2a;
+  --color-danger: #b04a4a;
+
+  /* Tipografía */
+  --font-heading: var(--font-heading), Georgia, serif;
+  --font-body: var(--font-body), system-ui, sans-serif;
+
+  /* Sombras suaves con tinte cálido */
+  --shadow-soft: 0 1px 2px rgb(35 35 35 / 0.04), 0 4px 16px rgb(35 35 35 / 0.06);
+  --shadow-card: 0 2px 4px rgb(35 35 35 / 0.03), 0 8px 24px rgb(35 35 35 / 0.07);
+  --shadow-dock: 0 -4px 24px rgb(35 35 35 / 0.08);
+
+  /* Radios */
+  --radius-card: 1.25rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+}
+
+/* Respeto a reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Foco visible y consistente */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbar discreta en desktop */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Utilidades del design system */
+@utility card-surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px));
+}
+
+@utility safe-top {
+  padding-top: calc(env(safe-area-inset-top, 0px));
 }
