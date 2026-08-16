@@ -22,10 +22,13 @@ importers:
         version: 4.4.0(dexie@4.4.5)(react@19.2.8)
       drizzle-orm:
         specifier: 0.45.2
-        version: 0.45.2(better-sqlite3@13.0.3)
+        version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(postgres@3.4.9)
       next:
         specifier: 16.3.1
         version: 16.3.1(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.62.1)(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -42,6 +45,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.3.3
+      '@types/better-sqlite3':
+        specifier: 7.6.13
+        version: 7.6.13
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
@@ -1143,6 +1149,9 @@ packages:
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
+
+  '@types/better-sqlite3@7.6.13':
+    resolution: {integrity: sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2606,6 +2615,10 @@ packages:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -3790,6 +3803,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/better-sqlite3@7.6.13':
+    dependencies:
+      '@types/node': 24.13.3
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -4278,9 +4295,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.12
 
-  drizzle-orm@0.45.2(better-sqlite3@13.0.3):
+  drizzle-orm@0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(postgres@3.4.9):
     optionalDependencies:
+      '@types/better-sqlite3': 7.6.13
       better-sqlite3: 13.0.3
+      postgres: 3.4.9
 
   dunder-proto@1.0.1:
     dependencies:
@@ -5351,6 +5370,8 @@ snapshots:
       nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres@3.4.9: {}
 
   prelude-ls@1.2.1: {}
 

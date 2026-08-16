@@ -1,0 +1,99 @@
+/**
+ * Sesiones server-side: token aleatorio en cookie HttpOnly; en la base de
+ * datos solo se guarda sha256(token). El token lleva un HMAC con AUTH_SECRET
+ * para rechazar valores falsificados sin consultar la base.
+ */
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { cookies } from 'next/headers';
+import { and, eq, gt } from 'drizzle-orm';
+import { getAuthSecret, isProduction } from '@/server/env';
+import { getSqlite, sqliteSchema } from '@/server/db';
+
+export const SESSION_COOKIE = 'mc_session';
+const SESSION_TTL_DAYS = 30;
+
+export interface SessionUser {
+  userId: string;
+  email: string;
+  displayName: string;
+}
+
+function hmac(value: string): string {
+  return createHmac('sha256', getAuthSecret()).update(value).digest('base64url');
+}
+
+function tokenId(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
+/** Emite `id.hmac(id)` — el cliente solo ve el token firmado. */
+function signToken(id: string): string {
+  return `${id}.${hmac(id)}`;
+}
+
+function parseToken(cookieValue: string | undefined): string | null {
+  if (!cookieValue) return null;
+  const dot = cookieValue.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const id = cookieValue.slice(0, dot);
+  const mac = cookieValue.slice(dot + 1);
+  if (!safeEqual(mac, hmac(id))) return null;
+  return id;
+}
+
+export async function createSession(userId: string): Promise<void> {
+  const token = randomBytes(32).toString('base64url');
+  const id = tokenId(token);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const sqlite = await getSqlite();
+  await sqlite
+    .insert(sqliteSchema.sessions)
+    .values({ id, userId, expiresAt: expiresAt.toISOString() });
+
+  const store = await cookies();
+  store.set(SESSION_COOKIE, signToken(id), {
+    httpOnly: true,
+    secure: isProduction(),
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_TTL_DAYS * 24 * 60 * 60,
+  });
+}
+
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const store = await cookies();
+  const id = parseToken(store.get(SESSION_COOKIE)?.value);
+  if (!id) return null;
+
+  const sqlite = await getSqlite();
+  const rows = await sqlite
+    .select({
+      userId: sqliteSchema.users.id,
+      email: sqliteSchema.users.email,
+      displayName: sqliteSchema.users.displayName,
+    })
+    .from(sqliteSchema.sessions)
+    .innerJoin(sqliteSchema.users, eq(sqliteSchema.users.id, sqliteSchema.sessions.userId))
+    .where(
+      and(eq(sqliteSchema.sessions.id, id), gt(sqliteSchema.sessions.expiresAt, new Date().toISOString())),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function destroySession(): Promise<void> {
+  const store = await cookies();
+  const id = parseToken(store.get(SESSION_COOKIE)?.value);
+  if (id) {
+    const sqlite = await getSqlite();
+    await sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.id, id));
+  }
+  store.delete(SESSION_COOKIE);
+}
