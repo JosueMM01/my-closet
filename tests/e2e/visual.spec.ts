@@ -28,6 +28,8 @@ test.describe('Capturas visuales', () => {
   });
 
   test('home con datos + armario + detalle', async ({ page }) => {
+    // Recorrido largo con 3 prendas + 7 capturas: margen amplio en móvil.
+    test.setTimeout(120_000);
     await registerAndLogin(page);
     await createGarment(page, 'Blusa de lino', 'Partes de arriba');
     await createGarment(page, 'Vestido midi', 'Vestidos');
