@@ -6,31 +6,31 @@
 */
 @theme {
   /* Paleta */
-  --color-background: #f8f5f2;
-  --color-surface: #fffdfc;
-  --color-surface-alt: #f2ece6;
-  --color-border: #e8ded6;
-  --color-primary: #b05c78;
-  --color-primary-hover: #9c4f69;
-  --color-primary-soft: #f4e3e9;
-  --color-text-primary: #232323;
-  --color-text-secondary: #756e69;
-  --color-text-muted: #a79f99;
-  --color-success: #4a7c59;
-  --color-warning: #b07d2a;
-  --color-danger: #b04a4a;
+  --color-background: #FAF8F6;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #F3EFEA;
+  --color-border: #EAE3DE;
+  --color-primary: #8F5B66;
+  --color-primary-hover: #7A4D57;
+  --color-primary-soft: #F6F1F2;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #6B6562;
+  --color-text-muted: #9E9692;
+  --color-success: #4A7C59;
+  --color-warning: #B07D2A;
+  --color-danger: #B04A4A;
 
   /* Tipografía */
   --font-heading: var(--font-heading), Georgia, serif;
   --font-body: var(--font-body), system-ui, sans-serif;
 
   /* Sombras suaves con tinte cálido */
-  --shadow-soft: 0 1px 2px rgb(35 35 35 / 0.04), 0 4px 16px rgb(35 35 35 / 0.06);
-  --shadow-card: 0 2px 4px rgb(35 35 35 / 0.03), 0 8px 24px rgb(35 35 35 / 0.07);
-  --shadow-dock: 0 -4px 24px rgb(35 35 35 / 0.08);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.03), 0 8px 32px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.05), 0 16px 48px rgba(0, 0, 0, 0.06);
+  --shadow-dock: 0 -4px 24px rgba(0, 0, 0, 0.04);
 
   /* Radios */
-  --radius-card: 1.25rem;
+  --radius-card: 1.5rem;
 }
 
 html {

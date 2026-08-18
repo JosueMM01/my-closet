@@ -39,67 +39,68 @@ export default function WardrobePage() {
 
   return (
     <div>
-      {/* Búsqueda + toggle filtros */}
-      <div className="mb-4 flex gap-2">
-        <div className="relative flex-1">
-          <SearchIcon
-            size={18}
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted"
-          />
-          <TextInput
-            type="search"
-            placeholder="Buscar por nombre, marca, nota…"
-            value={filters.keyword}
-            onChange={(e) => update({ keyword: e.target.value })}
-            className="pl-10"
-            aria-label="Buscar prendas"
-            data-testid="wardrobe-search"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowFilters((v) => !v)}
-          aria-expanded={showFilters}
-          aria-label="Filtros"
-          data-testid="wardrobe-filters-toggle"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-text-secondary hover:bg-surface-alt"
-        >
-          <span className="relative">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-              <path d="M4 6h16M7 12h10M10 18h4" />
-            </svg>
+      {/* Encabezado */}
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-4xl font-semibold tracking-tight text-text-primary">Closet</h1>
+        <div className="flex gap-3 text-text-primary">
+          <button
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+            aria-label="Filtros"
+            className="flex items-center justify-center relative hover:text-primary transition-colors"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
             {filterCount > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white">
-                {filterCount}
-              </span>
+              <span className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-primary" />
             )}
-          </span>
-        </button>
+          </button>
+          <button type="button" aria-label="Vista de cuadrícula" className="flex items-center justify-center hover:text-primary transition-colors">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          </button>
+        </div>
       </div>
 
-      {/* Panel de filtros */}
-      {showFilters && (
-        <div className="card-surface mb-4 space-y-4 p-4" data-testid="wardrobe-filters-panel">
-          <FilterRow label="Categoría">
-            <Chip
-              active={!filters.category}
-              onClick={() => update({ category: null })}
-            >
-              Todas
-            </Chip>
-            {options.categories.map((category) => (
-              <Chip
-                key={category}
-                active={filters.category === category}
-                onClick={() =>
-                  update({ category: filters.category === category ? null : category })
-                }
-              >
-                {CATEGORY_LABELS[category] ?? category}
-              </Chip>
-            ))}
-          </FilterRow>
+      {/* Búsqueda */}
+      <div className="mb-5 relative">
+        <SearchIcon
+          size={20}
+          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
+        />
+        <TextInput
+          type="search"
+          placeholder="Search my closet"
+          value={filters.keyword}
+          onChange={(e) => update({ keyword: e.target.value })}
+          className="pl-12 bg-surface-alt border-transparent rounded-full h-12 shadow-none focus:bg-surface focus:border-border"
+          aria-label="Buscar prendas"
+          data-testid="wardrobe-search"
+        />
+      </div>
 
+      {/* Quick category pills */}
+      <div className="no-scrollbar mb-6 flex gap-2 overflow-x-auto pb-1">
+        <Chip
+          active={!filters.category}
+          onClick={() => update({ category: null })}
+          className={!filters.category ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt'}
+        >
+          All
+        </Chip>
+        {options.categories.map((category) => (
+          <Chip
+            key={category}
+            active={filters.category === category}
+            onClick={() => update({ category: filters.category === category ? null : category })}
+            className={filters.category === category ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt'}
+          >
+            {CATEGORY_LABELS[category] ?? category}
+          </Chip>
+        ))}
+      </div>
+
+      {/* Panel de filtros avanzado */}
+      {showFilters && (
+        <div className="card-surface mb-6 space-y-4 p-5 rounded-2xl" data-testid="wardrobe-filters-panel">
           {options.colors.length > 0 && (
             <FilterRow label="Color">
               <Chip active={!filters.color} onClick={() => update({ color: null })}>
@@ -172,62 +173,30 @@ export default function WardrobePage() {
             </Chip>
           </FilterRow>
 
-          {filterCount > 0 && (
+          {filterCount > (filters.category ? 1 : 0) && (
             <button
               type="button"
-              onClick={() => setFilters({ ...EMPTY_FILTERS, showArchived: filters.showArchived })}
+              onClick={() => setFilters({ ...EMPTY_FILTERS, showArchived: filters.showArchived, category: filters.category })}
               className="text-sm font-semibold text-primary hover:text-primary-hover"
             >
-              Limpiar filtros
+              Limpiar filtros adicionales
             </button>
           )}
         </div>
       )}
 
-      {/* Pills activos */}
-      {filterCount > 0 && (
-        <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto">
-          {filters.category && (
-            <ActivePill
-              label={CATEGORY_LABELS[filters.category] ?? filters.category}
-              onRemove={() => update({ category: null })}
-            />
-          )}
-          {filters.color && (
-            <ActivePill
-              label={COLOR_LABELS[filters.color] ?? filters.color}
-              onRemove={() => update({ color: null })}
-            />
-          )}
-          {filters.size && (
-            <ActivePill
-              label={SIZE_LABELS[filters.size] ?? filters.size!}
-              onRemove={() => update({ size: null })}
-            />
-          )}
-          {filters.brand && (
-            <ActivePill label={filters.brand} onRemove={() => update({ brand: null })} />
-          )}
-        </div>
-      )}
-
-      {/* Contador */}
-      <p className="mb-3 text-sm text-text-secondary" data-testid="wardrobe-count">
-        {filtered.length} {filtered.length === 1 ? 'prenda' : 'prendas'}
-      </p>
-
       {/* Grid */}
       {garments === undefined ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="card-surface aspect-[4/6] animate-pulse" />
+            <div key={i} className="card-surface aspect-[4/5] animate-pulse rounded-2xl" />
           ))}
         </div>
       ) : !hasAny ? (
         <EmptyState
-          icon={<HangerIcon size={28} />}
+          icon={<HangerIcon size={32} />}
           title="Tu armario está vacío"
-          description="Añade tu primera prenda para empezar a crear outfits y planificarlos en el calendario."
+          description="Añade tu primera prenda para empezar a crear outfits."
           action={
             <Link href="/wardrobe/new">
               <Button data-testid="empty-add-garment">
@@ -239,13 +208,13 @@ export default function WardrobePage() {
         />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={<SearchIcon size={28} />}
+          icon={<SearchIcon size={32} />}
           title="Sin resultados"
           description="Prueba con otra búsqueda o quita algunos filtros."
         />
       ) : (
         <div
-          className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+          className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
           data-testid="wardrobe-grid"
         >
           {filtered.map((garment) => (
@@ -263,21 +232,5 @@ function FilterRow({ label, children }: { label: string; children: React.ReactNo
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">{children}</div>
     </div>
-  );
-}
-
-function ActivePill({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary-soft pl-3 pr-1.5 text-xs font-semibold text-primary">
-      {label}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Quitar filtro ${label}`}
-        className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-primary/15"
-      >
-        <XIcon size={12} />
-      </button>
-    </span>
   );
 }

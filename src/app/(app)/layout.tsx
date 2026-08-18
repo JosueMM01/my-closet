@@ -10,7 +10,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { useSession } from '@/components/providers';
-import { CalendarIcon, HangerIcon, PlusIcon, SparklesIcon } from '@/components/icons';
+import { CalendarIcon, HangerIcon, PlusIcon, SparklesIcon, UserIcon, HomeIcon } from '@/components/icons';
 import { SyncBadge } from '@/components/ui';
 
 function initials(name: string): string {
@@ -23,9 +23,11 @@ function initials(name: string): string {
 }
 
 const DOCK_ITEMS = [
-  { href: '/wardrobe', label: 'Armario', icon: HangerIcon, testId: 'nav-wardrobe' },
-  { href: '/outfits', label: 'Outfits', icon: SparklesIcon, testId: 'nav-outfits' },
-  { href: '/calendar', label: 'Calendario', icon: CalendarIcon, testId: 'nav-calendar' },
+  { href: '/', label: 'Home', icon: HomeIcon, testId: 'nav-home' },
+  { href: '/wardrobe', label: 'Closet', icon: HangerIcon, testId: 'nav-wardrobe' },
+  { href: '/wardrobe/new', label: 'Create', icon: PlusIcon, isCreate: true, testId: 'nav-create' },
+  { href: '/calendar', label: 'Calendar', icon: CalendarIcon, testId: 'nav-calendar' },
+  { href: '/profile', label: 'Profile', icon: UserIcon, testId: 'nav-profile' },
 ] as const;
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -50,72 +52,45 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-dvh pb-24 md:pb-8">
-      <header className="safe-top sticky top-0 z-30 border-b border-border/70 bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
-          <Link
-            href="/profile"
-            className="flex min-w-0 items-center gap-3"
-            aria-label="Ver perfil"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-primary">
-              {initials(profile.displayName)}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-text-primary">
-                {profile.displayName}
-              </span>
-              <span className="block truncate text-xs text-text-muted">{profile.email}</span>
-            </span>
+    <div className="min-h-dvh pb-28">
+      {/* Top Header with Brand */}
+      <header className="safe-top sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border/30">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
+          <Link href="/" className="font-heading text-2xl font-bold tracking-tight text-primary">
+            My-Closet
           </Link>
           <SyncBadge />
         </div>
-
-        {/* Dock horizontal en desktop */}
-        <nav className="mx-auto hidden max-w-5xl gap-1 px-4 pb-2 md:flex" aria-label="Principal">
-          {DOCK_ITEMS.map((item) => {
-            const active = pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                data-testid={item.testId}
-                aria-current={active ? 'page' : undefined}
-                className={clsx(
-                  'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-colors',
-                  active
-                    ? 'bg-primary-soft text-primary'
-                    : 'text-text-secondary hover:bg-surface-alt',
-                )}
-              >
-                <item.icon size={18} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl px-4 py-5 md:py-8">{children}</main>
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8">{children}</main>
 
-      {/* FAB */}
-      <Link
-        href="/wardrobe/new"
-        data-testid="fab-add-garment"
-        aria-label="Añadir prenda"
-        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-card transition-colors hover:bg-primary-hover md:bottom-8 md:right-8"
-      >
-        <PlusIcon size={26} />
-      </Link>
-
-      {/* Dock inferior móvil */}
+      {/* Dock inferior universal (tanto en web escritorio como en móvil) */}
       <nav
         aria-label="Principal"
-        className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-surface/95 shadow-dock backdrop-blur md:hidden"
+        className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-surface/95 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] backdrop-blur"
       >
-        <div className="mx-auto grid max-w-md grid-cols-3">
+        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between px-4 sm:px-12 md:px-20">
           {DOCK_ITEMS.map((item) => {
-            const active = pathname.startsWith(item.href);
+            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            
+            if (item.isCreate) {
+              return (
+                <div key={item.href} className="flex h-full items-center justify-center">
+                  <Link
+                    href={item.href}
+                    data-testid={item.testId}
+                    className="flex flex-col items-center justify-center gap-1 transition-transform hover:scale-105 active:scale-95"
+                  >
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white shadow-soft transition-colors hover:bg-primary-hover">
+                      <item.icon size={22} />
+                    </div>
+                    <span className="text-[11px] font-medium text-text-muted">{item.label}</span>
+                  </Link>
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={item.href}
@@ -123,12 +98,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 data-testid={item.testId}
                 aria-current={active ? 'page' : undefined}
                 className={clsx(
-                  'flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors',
-                  active ? 'text-primary' : 'text-text-muted',
+                  'flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors py-2 px-3',
+                  active ? 'text-primary' : 'text-text-muted hover:text-text-secondary',
                 )}
               >
-                <item.icon size={24} />
-                {item.label}
+                <item.icon size={22} />
+                <span>{item.label}</span>
               </Link>
             );
           })}

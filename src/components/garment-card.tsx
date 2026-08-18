@@ -3,49 +3,50 @@
 import Link from 'next/link';
 import clsx from 'clsx';
 import type { Garment } from '@/lib/domain/types';
-import { CATEGORY_LABELS, COLOR_HEX } from '@/lib/domain/constants';
+import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
 import { GarmentPhoto } from './garment-photo';
+import { HeartIcon } from './icons';
 
 export function GarmentCard({ garment }: { garment: Garment }) {
-  const label =
-    CATEGORY_LABELS[garment.category] ?? garment.category.charAt(0).toUpperCase() + garment.category.slice(1);
+  const categoryLabel = CATEGORY_LABELS[garment.category] ?? garment.category.charAt(0).toUpperCase() + garment.category.slice(1);
+  const colorLabel = garment.colors.length > 0 ? (COLOR_LABELS[garment.colors[0]!] ?? garment.colors[0]) : categoryLabel;
 
   return (
     <Link
       href={`/wardrobe/${garment.id}`}
       data-testid="garment-card"
-      className="card-surface group block overflow-hidden transition-shadow hover:shadow-card"
+      className="group block"
     >
-      <div className="aspect-[4/5] w-full overflow-hidden">
+      <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-surface-alt relative mb-3">
         <GarmentPhoto
           imageId={garment.photoId}
-          alt={garment.name ?? label}
-          rounded="rounded-none"
+          alt={garment.name ?? categoryLabel}
+          rounded="rounded-2xl"
           className={clsx(
             'h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]',
             garment.archived && 'opacity-50',
           )}
           iconSize={32}
         />
+        <button
+          type="button"
+          className="absolute top-2.5 right-2.5 p-1.5 rounded-full bg-white/70 backdrop-blur-sm text-text-secondary hover:text-primary transition-colors"
+          aria-label="Like"
+          onClick={(e) => {
+            e.preventDefault();
+            // TODO: implement like
+          }}
+        >
+          <HeartIcon size={16} />
+        </button>
       </div>
-      <div className="p-3">
-        <p className="truncate text-sm font-semibold text-text-primary">
+      <div className="px-1">
+        <p className="truncate text-[13px] font-semibold text-text-primary">
           {garment.name ?? 'Sin nombre'}
         </p>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="truncate text-xs text-text-secondary">{label}</span>
-          {garment.colors.length > 0 && (
-            <span className="flex shrink-0 gap-1" aria-label={`Colores: ${garment.colors.join(', ')}`}>
-              {garment.colors.slice(0, 3).map((color) => (
-                <span
-                  key={color}
-                  className="h-3 w-3 rounded-full border border-border"
-                  style={{ background: COLOR_HEX[color] ?? '#A79F99' }}
-                />
-              ))}
-            </span>
-          )}
-        </div>
+        <p className="mt-0.5 truncate text-[11px] text-text-muted capitalize">
+          {colorLabel}
+        </p>
         {garment.archived && (
           <span className="mt-1.5 inline-block rounded-full bg-surface-alt px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
             Archivada

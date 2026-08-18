@@ -43,73 +43,118 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-6 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-soft">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#B05C78" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <main className="flex min-h-dvh flex-col bg-[#F3EFEA] relative overflow-hidden">
+      {/* Background Image Area (Top Half) */}
+      <div 
+        className="absolute top-0 left-0 right-0 h-[55vh] bg-cover bg-center" 
+        style={{ backgroundImage: 'url(/login-bg.jpg)' }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-transparent pointer-events-none" />
+      </div>
+      
+      {/* Logo and Title overlapping the background image slightly higher */}
+      <div className="relative z-10 w-full px-6 pt-12 pb-6">
+        <div className="mb-2">
+          <div className="mb-4 flex items-center">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M12 7a2.2 2.2 0 1 1 2.2-2.2" />
               <path d="M12 7v2.5L3.6 15.3a1.6 1.6 0 0 0 .9 2.9h15a1.6 1.6 0 0 0 .9-2.9L12 9.5" />
             </svg>
           </div>
-          <h1 className="font-heading text-3xl text-text-primary">My Closet</h1>
-          <p className="mt-2 text-sm text-text-secondary">
-            Tu armario digital, siempre contigo
+          <h1 className="font-heading text-4xl text-text-primary tracking-tight mb-1">My Closet</h1>
+          <p className="text-lg text-text-secondary leading-snug">
+            Your personal<br />digital wardrobe.
           </p>
         </div>
+      </div>
 
-        <form onSubmit={handleSubmit} className="card-surface space-y-4 p-6" noValidate>
-          <Field label="Correo electrónico">
-            <TextInput
-              type="email"
-              name="email"
-              autoComplete="email"
-              inputMode="email"
-              placeholder="tu@correo.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Contraseña">
-            <TextInput
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </Field>
-          {error && (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          )}
-          <Button type="submit" size="lg" className="w-full" loading={submitting}>
-            Entrar
-          </Button>
-          {googleEnabled && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="lg"
-              className="w-full"
-              disabled
-              title="Configura GOOGLE_CLIENT_ID para habilitarlo"
-            >
-              Continuar con Google
-            </Button>
-          )}
-        </form>
+      {/* Bottom Sheet Card */}
+      <div className="relative z-20 mt-auto w-full bg-surface rounded-t-[2.5rem] shadow-[0_-8px_32px_rgba(0,0,0,0.08)] px-6 pt-8 pb-10">
+        <div className="max-w-md mx-auto">
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            <div className="mb-6">
+              <h2 className="text-2xl font-semibold text-text-primary mb-1">Welcome back</h2>
+              <p className="text-sm text-text-secondary">Sign in to continue to your closet.</p>
+            </div>
 
-        <p className="mt-6 text-center text-sm text-text-secondary">
-          ¿Primera vez?{' '}
-          <Link href="/register" className="font-semibold text-primary hover:text-primary-hover">
-            Crea tu cuenta
-          </Link>
-        </p>
+            <Field label="Email">
+              <div className="relative">
+                <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7l8 5 8-5M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </span>
+                <TextInput
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  inputMode="email"
+                  placeholder="you@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="pl-10"
+                  required
+                />
+              </div>
+            </Field>
+            <Field label="Password">
+              <div className="relative">
+                <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </span>
+                <TextInput
+                  type="password"
+                  name="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pl-10 pr-10"
+                  required
+                />
+              </div>
+            </Field>
+            {error && (
+              <p role="alert" className="text-sm text-danger font-medium">
+                {error}
+              </p>
+            )}
+            
+            <div className="pt-2 flex flex-col gap-3">
+              <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
+                Sign in
+              </Button>
+              <Link href="/register" className="w-full">
+                <Button type="button" variant="secondary" size="lg" className="w-full bg-transparent font-medium text-[15px] border-border hover:bg-surface-alt">
+                  Create account
+                </Button>
+              </Link>
+            </div>
+
+            {googleEnabled && (
+              <>
+                <div className="relative flex items-center py-2">
+                  <div className="flex-grow border-t border-border"></div>
+                  <span className="mx-4 text-xs font-medium text-text-muted">OR</span>
+                  <div className="flex-grow border-t border-border"></div>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="lg"
+                  className="w-full bg-transparent font-medium text-[15px] border-border hover:bg-surface-alt"
+                  disabled
+                >
+                  Continue with Google
+                </Button>
+              </>
+            )}
+          </form>
+
+          <div className="mt-6 text-center">
+            <Link href="#" className="text-sm font-medium text-primary hover:text-primary-hover transition-colors">
+              Forgot password?
+            </Link>
+          </div>
+        </div>
       </div>
     </main>
   );

@@ -38,7 +38,6 @@ import { Button, EmptyState } from '@/components/ui';
 export default function CalendarPage() {
   const router = useRouter();
   const { profile } = useSession();
-  const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string>(today());
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
   const [entryToDelete, setEntryToDelete] = useState<CalendarEntry | null>(null);
@@ -57,7 +56,6 @@ export default function CalendarPage() {
     [profile?.userId],
   );
 
-  const days = useMemo(() => weekDays(addDays(new Date(), weekOffset * 7)), [weekOffset]);
   const entries = ((data?.entries ?? []) as CalendarEntry[]).filter((e) => !e.deletedAt);
   const outfits = ((data?.outfits ?? []) as Outfit[]).filter((o) => !o.deletedAt);
   const garments = (data?.garments ?? []) as Garment[];
@@ -72,95 +70,104 @@ export default function CalendarPage() {
     return map;
   }, [entries]);
 
-  const selectedEntries = entriesByDate.get(selectedDate) ?? [];
-  const wornHistory = entries.filter((e) => e.wornAt).slice(-8).reverse();
-
   if (!profile) return null;
 
-  const monthMatrix = buildMonthMatrix(monthAnchor);
-  const datesWithEntries = new Set(entriesByDate.keys());
+  const monthMatrixFull = buildFullMonthMatrix(monthAnchor);
+  
+  // Upcoming looks logic
+  const selectedDateObj = parseDateOnly(selectedDate);
+  const upcomingEntries = entries
+    .filter(e => {
+      const d = parseDateOnly(e.date);
+      return d.getTime() >= selectedDateObj.getTime();
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="font-heading text-2xl">Calendario</h1>
-        <Link href="/outfits/new">
-          <Button data-testid="new-from-calendar">
-            <PlusIcon size={18} />
-            Outfit
-          </Button>
-        </Link>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-text-primary">Calendar</h1>
       </div>
 
-      {/* Vista semanal */}
-      <section className="card-surface p-4" data-testid="week-view">
-        <div className="mb-3 flex items-center justify-between">
+      {/* Mes navegable */}
+      <section>
+        <div className="mb-4 flex items-center justify-between px-2">
           <button
             type="button"
-            onClick={() => setWeekOffset((w) => w - 1)}
-            aria-label="Semana anterior"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
+            onClick={() => setMonthAnchor((d) => addDays(d, -30))}
+            aria-label="Mes anterior"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text-secondary hover:bg-surface-alt transition-colors"
           >
-            <ChevronLeftIcon size={18} />
+            <ChevronLeftIcon size={20} />
           </button>
-          <p className="text-sm font-semibold">
-            {weekOffset === 0
-              ? 'Esta semana'
-              : weekOffset === -1
-                ? 'Semana pasada'
-                : weekOffset === 1
-                  ? 'Próxima semana'
-                  : `${days[0]!.getDate()}–${days[6]!.getDate()}`}
+          <p className="text-lg font-semibold tracking-wide text-text-primary">
+            {monthYearLabel(monthAnchor)}
           </p>
           <button
             type="button"
-            onClick={() => setWeekOffset((w) => w + 1)}
-            aria-label="Semana siguiente"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
+            onClick={() => setMonthAnchor((d) => addDays(d, 30))}
+            aria-label="Mes siguiente"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text-secondary hover:bg-surface-alt transition-colors"
           >
-            <ChevronRightIcon size={18} />
+            <ChevronRightIcon size={20} />
           </button>
         </div>
-        <div className="grid grid-cols-7 gap-1.5">
-          {days.map((day) => {
-            const dateOnly = toDateOnly(day);
+
+        <div className="grid grid-cols-7 gap-1.5 md:gap-2">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, i) => (
+            <div key={i} className="py-2 text-center text-xs font-semibold uppercase tracking-wider text-text-muted">
+              {label}
+            </div>
+          ))}
+          
+          {monthMatrixFull.map((cell, idx) => {
+            if (!cell.dateOnly) {
+              return <div key={`empty-${idx}`} className="aspect-square rounded-2xl" />;
+            }
+            
+            const dateOnly = cell.dateOnly;
             const dayEntries = entriesByDate.get(dateOnly) ?? [];
             const isToday = dateOnly === today();
             const isSelected = dateOnly === selectedDate;
+            
+            let coverPhotoId = null;
+            if (dayEntries.length > 0) {
+              const outfit = outfits.find(o => o.id === dayEntries[0]!.outfitId);
+              if (outfit && outfit.slots.length > 0) {
+                const g = garments.find(g => g.id === outfit.slots[0]!.garmentId);
+                if (g) coverPhotoId = g.photoId;
+              }
+            }
+
             return (
               <button
                 key={dateOnly}
                 type="button"
                 onClick={() => setSelectedDate(dateOnly)}
                 aria-pressed={isSelected}
-                aria-label={`${longDateLabel(dateOnly)}, ${dayEntries.length} outfits`}
-                data-testid="calendar-day"
-                data-date={dateOnly}
-                className={`flex min-h-[4.5rem] flex-col items-center gap-1 rounded-xl border p-1.5 transition-colors ${
+                className={`relative flex aspect-square flex-col items-center justify-center rounded-2xl border transition-all overflow-hidden ${
                   isSelected
-                    ? 'border-primary bg-primary-soft'
-                    : 'border-border/60 bg-surface hover:bg-surface-alt'
+                    ? 'border-primary bg-primary-soft ring-2 ring-primary/20 scale-105 z-10 shadow-soft'
+                    : 'border-border/50 bg-surface hover:border-border hover:bg-surface-alt'
                 }`}
               >
-                <span className={`text-[10px] font-semibold uppercase ${isSelected ? 'text-primary' : 'text-text-muted'}`}>
-                  {dayLabel(day)}
-                </span>
                 <span
-                  className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${
-                    isToday ? 'bg-primary text-white' : isSelected ? 'text-primary' : 'text-text-primary'
+                  className={`absolute top-1.5 left-2 text-[11px] font-semibold ${
+                    isToday ? 'flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white -ml-1 -mt-0.5' : isSelected ? 'text-primary' : 'text-text-primary'
                   }`}
                 >
-                  {day.getDate()}
+                  {cell.day}
                 </span>
-                {dayEntries.length > 0 && (
-                  <span className="flex gap-0.5">
-                    {dayEntries.slice(0, 3).map((entry) => (
-                      <span
-                        key={entry.id}
-                        className={`h-1.5 w-1.5 rounded-full ${entry.wornAt ? 'bg-success' : 'bg-primary'}`}
-                      />
-                    ))}
-                  </span>
+                
+                {coverPhotoId && (
+                  <div className="absolute inset-0 top-4 pt-1 px-1.5 pb-0.5 pointer-events-none">
+                    <GarmentPhoto
+                      imageId={coverPhotoId}
+                      alt="Outfit"
+                      className="w-full h-full object-contain"
+                      iconSize={16}
+                    />
+                  </div>
                 )}
               </button>
             );
@@ -168,85 +175,73 @@ export default function CalendarPage() {
         </div>
       </section>
 
-      {/* Detalle del día */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-heading text-lg">{longDateLabel(selectedDate)}</h2>
+      {/* Upcoming looks */}
+      <section className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-text-primary">Upcoming looks</h2>
           <Link
             href={`/outfits/new?date=${selectedDate}`}
-            className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary-hover"
-            data-testid="build-outfit-for-day"
+            className="flex items-center justify-center h-10 w-10 rounded-full bg-primary text-white hover:bg-primary-hover shadow-soft transition-colors"
           >
-            <PlusIcon size={16} />
-            Añadir outfit
+            <PlusIcon size={20} />
           </Link>
         </div>
-        {selectedEntries.length === 0 ? (
+
+        {upcomingEntries.length === 0 ? (
           <EmptyState
-            icon={<CalendarIcon size={28} />}
-            title="Nada planeado"
-            description="Programa un outfit para este día."
-            action={
-              <Link href={`/outfits/new?date=${selectedDate}`}>
-                <Button>Crear outfit</Button>
-              </Link>
-            }
+            icon={<CalendarIcon size={32} />}
+            title="No upcoming looks"
+            description="Plan an outfit for the selected day."
           />
         ) : (
-          <div className="space-y-3" data-testid="day-entries">
-            {selectedEntries.map((entry) => {
+          <div className="space-y-4">
+            {upcomingEntries.slice(0, 5).map((entry) => {
               const outfit = outfits.find((o) => o.id === entry.outfitId);
               if (!outfit) return null;
+              
               const slotGarments = outfit.slots
                 .map((slot) => garments.find((g) => g.id === slot.garmentId && !g.deletedAt))
                 .filter((g): g is Garment => Boolean(g));
+                
+              const d = parseDateOnly(entry.date);
+              const dayStr = dayLabel(d).substring(0, 3).toUpperCase();
+              
               return (
-                <div key={entry.id} className="card-surface flex items-center gap-3 p-3">
-                  <div className="flex -space-x-3">
-                    {slotGarments.slice(0, 4).map((garment) => (
-                      <GarmentPhoto
-                        key={garment.id}
-                        imageId={garment.photoId}
-                        alt={garment.name ?? ''}
-                        className="h-14 w-14 border-2 border-surface object-cover"
-                        iconSize={18}
-                      />
-                    ))}
+                <div key={entry.id} className="card-surface p-4 flex gap-4 transition-shadow hover:shadow-card group">
+                  <div className="flex flex-col items-center justify-center shrink-0 w-12 pt-2 border-r border-border pr-4">
+                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{dayStr}</span>
+                    <span className="text-2xl font-semibold text-text-primary">{d.getDate()}</span>
                   </div>
+                  
                   <button
                     type="button"
                     onClick={() => router.push(`/outfits/${outfit.id}`)}
-                    className="min-w-0 flex-1 text-left"
+                    className="flex-1 flex gap-3 items-center text-left min-w-0"
                   >
-                    <p className="truncate text-sm font-semibold">{outfit.name ?? 'Outfit'}</p>
-                    <p className="text-xs text-text-secondary">
-                      {slotGarments.length} {slotGarments.length === 1 ? 'prenda' : 'prendas'}
-                    </p>
+                    <div className="flex -space-x-3 shrink-0">
+                      {slotGarments.slice(0, 3).map((garment) => (
+                        <GarmentPhoto
+                          key={garment.id}
+                          imageId={garment.photoId}
+                          alt={garment.name ?? ''}
+                          className="h-16 w-16 rounded-xl border-2 border-surface object-cover bg-surface-alt"
+                          iconSize={18}
+                        />
+                      ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-semibold text-text-primary">{outfit.name ?? 'Untitled Outfit'}</p>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        {slotGarments.length} {slotGarments.length === 1 ? 'item' : 'items'}
+                      </p>
+                    </div>
                   </button>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void updateCalendarEntry(entry.id, {
-                          wornAt: entry.wornAt ? null : new Date().toISOString(),
-                        })
-                      }
-                      aria-label={entry.wornAt ? 'Desmarcar vestido' : 'Marcar como vestido'}
-                      data-testid="toggle-worn"
-                      className={`flex h-10 items-center gap-1 rounded-full px-3 text-xs font-bold transition-colors ${
-                        entry.wornAt
-                          ? 'bg-success/15 text-success'
-                          : 'bg-surface-alt text-text-secondary hover:bg-primary-soft hover:text-primary'
-                      }`}
-                    >
-                      <CheckIcon size={16} />
-                      {entry.wornAt ? 'Vestido' : 'Vestir'}
-                    </button>
+                  
+                  <div className="flex flex-col justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
                       onClick={() => setEntryToDelete(entry)}
-                      aria-label="Quitar del calendario"
-                      className="flex h-10 w-10 items-center justify-center rounded-full text-danger hover:bg-danger/10"
+                      className="p-2 rounded-full text-danger hover:bg-danger/10"
                     >
                       <TrashIcon size={18} />
                     </button>
@@ -258,97 +253,11 @@ export default function CalendarPage() {
         )}
       </section>
 
-      {/* Mini mes + historial */}
-      <div className="grid gap-5 md:grid-cols-2">
-        <section className="card-surface p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setMonthAnchor((d) => addDays(d, -30))}
-              aria-label="Mes anterior"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
-            >
-              <ChevronLeftIcon size={16} />
-            </button>
-            <p className="text-sm font-semibold">{monthYearLabel(monthAnchor)}</p>
-            <button
-              type="button"
-              onClick={() => setMonthAnchor((d) => addDays(d, 30))}
-              aria-label="Mes siguiente"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
-            >
-              <ChevronRightIcon size={16} />
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((label, i) => (
-              <span key={i} className="py-1 text-[10px] font-semibold uppercase text-text-muted">
-                {label}
-              </span>
-            ))}
-            {monthMatrix.map((dateOnly) => {
-              const has = datesWithEntries.has(dateOnly);
-              const isToday = dateOnly === today();
-              const isSelected = dateOnly === selectedDate;
-              return (
-                <button
-                  key={dateOnly}
-                  type="button"
-                  onClick={() => {
-                    setSelectedDate(dateOnly);
-                    const date = parseDateOnly(dateOnly);
-                    const currentMonday = startOfWeek(new Date());
-                    const targetMonday = startOfWeek(date);
-                    const diff = Math.round(
-                      (targetMonday.getTime() - currentMonday.getTime()) / (7 * 24 * 60 * 60 * 1000),
-                    );
-                    setWeekOffset(diff);
-                  }}
-                  className={`flex h-9 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
-                    isSelected
-                      ? 'bg-primary text-white'
-                      : isToday
-                        ? 'text-primary'
-                        : 'text-text-primary hover:bg-surface-alt'
-                  }`}
-                >
-                  {dateOnly.slice(-2)}
-                  {has && !isSelected && (
-                    <span className="ml-0.5 h-1 w-1 rounded-full bg-primary" aria-hidden />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="card-surface p-4">
-          <h3 className="mb-3 font-heading text-base">Usados recientemente</h3>
-          {wornHistory.length === 0 ? (
-            <p className="text-sm text-text-secondary">
-              Marca un outfit como «vestido» para verlo aquí.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {wornHistory.map((entry) => {
-                const outfit = outfits.find((o) => o.id === entry.outfitId);
-                return (
-                  <li key={entry.id} className="flex items-center justify-between text-sm">
-                    <span className="truncate">{outfit?.name ?? 'Outfit'}</span>
-                    <span className="ml-2 shrink-0 text-xs text-text-muted">{entry.date}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </div>
-
       <ConfirmDialog
         open={entryToDelete !== null}
-        title="¿Quitar del calendario?"
-        message="El outfit deja de estar programado para ese día, pero no se elimina."
-        confirmLabel="Quitar"
+        title="Remove from calendar?"
+        message="The outfit will no longer be scheduled for this day, but it will not be deleted."
+        confirmLabel="Remove"
         onConfirm={() => entryToDelete && void deleteCalendarEntry(entryToDelete.id)}
         onClose={() => setEntryToDelete(null)}
       />
@@ -356,14 +265,34 @@ export default function CalendarPage() {
   );
 }
 
-function buildMonthMatrix(anchor: Date): string[] {
+function buildFullMonthMatrix(anchor: Date): { dateOnly: string | null; day: number | null }[] {
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
   const first = new Date(year, month, 1);
-  const monday = startOfWeek(first);
-  return Array.from({ length: 42 }, (_, i) => {
-    const day = addDays(monday, i);
-    // Solo celdas del mes visible para compactar el mini-calendario.
-    return day.getMonth() === month ? toDateOnly(day) : `__pad_${i}`;
-  }).filter((value) => !value.startsWith('__pad_'));
+  const last = new Date(year, month + 1, 0);
+  
+  const firstDayOfWeek = (first.getDay() === 0 ? 7 : first.getDay()) - 1; // 0 for Monday
+  
+  const cells = [];
+  
+  // Pad beginning
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    cells.push({ dateOnly: null, day: null });
+  }
+  
+  // Fill days
+  for (let i = 1; i <= last.getDate(); i++) {
+    const d = new Date(year, month, i);
+    cells.push({ dateOnly: toDateOnly(d), day: i });
+  }
+  
+  // Pad end to complete weeks
+  const remainder = cells.length % 7;
+  if (remainder > 0) {
+    for (let i = 0; i < 7 - remainder; i++) {
+      cells.push({ dateOnly: null, day: null });
+    }
+  }
+  
+  return cells;
 }
