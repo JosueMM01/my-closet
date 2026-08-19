@@ -33,7 +33,7 @@ export default function OutfitsPage() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="font-heading text-2xl">Outfits</h1>
+        <h1 className="font-heading text-2xl">Conjuntos</h1>
         <Link href="/outfits/new">
           <Button data-testid="new-outfit">
             <PlusIcon size={18} />
@@ -51,11 +51,11 @@ export default function OutfitsPage() {
       ) : outfits.length === 0 ? (
         <EmptyState
           icon={<SparklesIcon size={28} />}
-          title="Aún no hay outfits"
-          description="Combina tus prendas en looks completos y reutilízalos cuando quieras."
+          title="Aún no hay conjuntos"
+          description="Combina tus prendas y reutiliza tus combinaciones cuando quieras."
           action={
             <Link href="/outfits/new">
-              <Button data-testid="empty-new-outfit">Crear outfit</Button>
+              <Button data-testid="empty-new-outfit">Crear conjunto</Button>
             </Link>
           }
         />
@@ -89,7 +89,7 @@ export default function OutfitsPage() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{outfit.name ?? 'Outfit sin nombre'}</p>
+                  <p className="truncate font-semibold">{outfit.name ?? 'Conjunto sin nombre'}</p>
                   <p className="text-xs text-text-secondary">
                     {outfit.slots.length} {outfit.slots.length === 1 ? 'prenda' : 'prendas'}
                   </p>

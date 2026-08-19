@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createGarment, registerAndLogin, waitForHydration } from './helpers';
 
-test.describe('Wardrobe', () => {
+test.describe('Armario', () => {
   test('crear prenda y verla en el armario', async ({ page }) => {
     await registerAndLogin(page);
     await createGarment(page, 'Blusa de lino');

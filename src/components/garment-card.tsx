@@ -3,9 +3,8 @@
 import Link from 'next/link';
 import clsx from 'clsx';
 import type { Garment } from '@/lib/domain/types';
-import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
+import { CATEGORY_LABELS, COLOR_LABELS } from '@/lib/domain/constants';
 import { GarmentPhoto } from './garment-photo';
-import { HeartIcon } from './icons';
 
 export function GarmentCard({ garment }: { garment: Garment }) {
   const categoryLabel = CATEGORY_LABELS[garment.category] ?? garment.category.charAt(0).toUpperCase() + garment.category.slice(1);
@@ -28,17 +27,6 @@ export function GarmentCard({ garment }: { garment: Garment }) {
           )}
           iconSize={32}
         />
-        <button
-          type="button"
-          className="absolute top-2.5 right-2.5 p-1.5 rounded-full bg-white/70 backdrop-blur-sm text-text-secondary hover:text-primary transition-colors"
-          aria-label="Like"
-          onClick={(e) => {
-            e.preventDefault();
-            // TODO: implement like
-          }}
-        >
-          <HeartIcon size={16} />
-        </button>
       </div>
       <div className="px-1">
         <p className="truncate text-[13px] font-semibold text-text-primary">

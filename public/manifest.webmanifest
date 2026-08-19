@@ -1,7 +1,7 @@
 {
   "name": "My Closet — Tu armario digital",
   "short_name": "My Closet",
-  "description": "Organiza prendas, crea outfits y planifica qué llevar con My Closet. Funciona sin conexión.",
+  "description": "Organiza prendas, crea conjuntos y planifica qué ponerte con My Closet. Funciona sin conexión.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -44,14 +44,14 @@
       "description": "Ver todas tus prendas"
     },
     {
-      "name": "Outfits",
+      "name": "Conjuntos",
       "url": "/outfits",
       "description": "Tus combinaciones"
     },
     {
       "name": "Añadir prenda",
       "url": "/wardrobe/new",
-      "description": "Photograph y guarda una prenda nueva"
+      "description": "Fotografía y guarda una prenda nueva"
     }
   ]
 }

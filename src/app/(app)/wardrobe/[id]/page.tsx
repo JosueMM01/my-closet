@@ -10,7 +10,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useSession } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
 import { archiveGarment, cloneGarment, deleteGarment } from '@/lib/local/repositories';
-import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS, SIZE_LABELS } from '@/lib/domain/constants';
+import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
 import { GarmentPhoto } from '@/components/garment-photo';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui';
@@ -147,12 +147,6 @@ export default function GarmentDetailPage() {
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
             {garment.brand && (
               <Detail label="Marca" value={garment.brand} />
-            )}
-            {garment.size && (
-              <Detail label="Talla" value={SIZE_LABELS[garment.size] ?? garment.size} />
-            )}
-            {garment.dateAcquired && (
-              <Detail label="Adquirida" value={garment.dateAcquired} />
             )}
             {garment.washingInstructions && (
               <Detail label="Cuidados" value={garment.washingInstructions} />

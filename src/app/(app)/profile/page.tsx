@@ -83,7 +83,7 @@ export default function ProfilePage() {
         <h2 className="mb-3 font-heading text-base">Tus datos en este dispositivo</h2>
         <dl className="grid grid-cols-3 gap-3 text-center">
           <Count label="Prendas" value={counts?.garments ?? 0} />
-          <Count label="Outfits" value={counts?.outfits ?? 0} />
+          <Count label="Conjuntos" value={counts?.outfits ?? 0} />
           <Count label="Entradas" value={counts?.entries ?? 0} />
         </dl>
         <div className="mt-4 rounded-xl bg-surface-alt p-3 text-sm text-text-secondary">
@@ -120,7 +120,7 @@ export default function ProfilePage() {
         <div className="rounded-xl bg-surface-alt p-3">
           <p className="text-sm font-medium">Datos de ejemplo</p>
           <p className="mt-1 text-xs text-text-secondary">
-            Añade 10 prendas con fotografía, 2 outfits y una entrada de calendario
+            Añade 10 prendas con fotografía, 2 conjuntos y una entrada de calendario
             para probar la aplicación (imágenes Unsplash, uso local).
           </p>
           <Button

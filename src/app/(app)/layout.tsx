@@ -10,24 +10,15 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { useSession } from '@/components/providers';
-import { CalendarIcon, HangerIcon, PlusIcon, SparklesIcon, UserIcon, HomeIcon } from '@/components/icons';
+import { CalendarIcon, HangerIcon, PlusIcon, UserIcon, HomeIcon } from '@/components/icons';
 import { SyncBadge } from '@/components/ui';
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]!.toUpperCase())
-    .join('');
-}
-
 const DOCK_ITEMS = [
-  { href: '/', label: 'Home', icon: HomeIcon, testId: 'nav-home' },
-  { href: '/wardrobe', label: 'Closet', icon: HangerIcon, testId: 'nav-wardrobe' },
-  { href: '/wardrobe/new', label: 'Create', icon: PlusIcon, isCreate: true, testId: 'nav-create' },
-  { href: '/calendar', label: 'Calendar', icon: CalendarIcon, testId: 'nav-calendar' },
-  { href: '/profile', label: 'Profile', icon: UserIcon, testId: 'nav-profile' },
+  { href: '/', label: 'Inicio', icon: HomeIcon, testId: 'nav-home' },
+  { href: '/wardrobe', label: 'Armario', icon: HangerIcon, testId: 'nav-wardrobe' },
+  { href: '/wardrobe/new', label: 'Añadir', icon: PlusIcon, isCreate: true, testId: 'nav-create' },
+  { href: '/calendar', label: 'Calendario', icon: CalendarIcon, testId: 'nav-calendar' },
+  { href: '/profile', label: 'Perfil', icon: UserIcon, testId: 'nav-profile' },
 ] as const;
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -57,7 +48,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <header className="safe-top sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border/30">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <Link href="/" className="font-heading text-2xl font-bold tracking-tight text-primary">
-            My-Closet
+            My Closet
           </Link>
           <SyncBadge />
         </div>
@@ -74,7 +65,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {DOCK_ITEMS.map((item) => {
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             
-            if (item.isCreate) {
+            if ('isCreate' in item && item.isCreate) {
               return (
                 <div key={item.href} className="flex h-full items-center justify-center">
                   <Link

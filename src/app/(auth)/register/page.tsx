@@ -47,7 +47,7 @@ export default function RegisterPage() {
         <div className="mb-8 text-center">
           <h1 className="font-heading text-3xl text-text-primary">Crear cuenta</h1>
           <p className="mt-2 text-sm text-text-secondary">
-            Tu armario, tus outfits, tu calendario
+            Tu armario, tus conjuntos, tu calendario
           </p>
         </div>
 

@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     default: 'My Closet',
     template: '%s · My Closet',
   },
-  description: 'Tu armario digital: prendas, outfits y calendario, siempre disponible.',
+  description: 'Tu armario digital: prendas, conjuntos y calendario, siempre disponible.',
   applicationName: 'My Closet',
   icons: {
     icon: [{ url: '/icon-192.png', type: 'image/png' }],

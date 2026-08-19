@@ -1,22 +1,16 @@
 'use client';
 
-/**
- * Outfit Builder: filas por categoría con ciclado ‹ › de prendas,
- * orden editable y campos nombre/notas/fecha opcional.
- */
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSession } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
-import { createOutfit, createCalendarEntry } from '@/lib/local/repositories';
-import {
-  CATEGORY_LABELS,
-  GARMENT_CATEGORIES,
-} from '@/lib/domain/constants';
+import { createCalendarEntry, createOutfit } from '@/lib/local/repositories';
+import { CATEGORY_LABELS, GARMENT_CATEGORIES } from '@/lib/domain/constants';
 import type { Garment, OutfitSlot } from '@/lib/domain/types';
 import { GarmentPhoto } from '@/components/garment-photo';
 import {
+  CalendarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusIcon,
@@ -24,16 +18,30 @@ import {
   TrashIcon,
   XIcon,
 } from '@/components/icons';
-import { Button, Chip, Field, TextArea, TextInput } from '@/components/ui';
+import { Button, Field, TextArea, TextInput } from '@/components/ui';
 
 const EMPTY_GARMENTS: Garment[] = [];
+const CATEGORY_ORDER = new Map<string, number>(
+  GARMENT_CATEGORIES.map((category, index) => [category, index]),
+);
 
 export default function OutfitBuilderPage() {
+  return (
+    <Suspense
+      fallback={<div className="card-surface mx-auto h-96 max-w-2xl animate-pulse" aria-label="Cargando editor" />}
+    >
+      <OutfitBuilder />
+    </Suspense>
+  );
+}
+
+function OutfitBuilder() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { profile } = useSession();
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
-  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleDate, setScheduleDate] = useState(() => searchParams.get('date') ?? '');
   const [slots, setSlots] = useState<OutfitSlot[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +50,7 @@ export default function OutfitBuilderPage() {
     async () =>
       profile
         ? (await getDB().garments.where('userId').equals(profile.userId).toArray()).filter(
-            (g) => !g.deletedAt && !g.archived,
+            (garment) => !garment.deletedAt && !garment.archived,
           )
         : [],
     [profile?.userId],
@@ -52,40 +60,30 @@ export default function OutfitBuilderPage() {
   const byCategory = useMemo(() => {
     const map = new Map<string, Garment[]>();
     for (const garment of garmentList) {
-      const list = map.get(garment.category) ?? [];
-      list.push(garment);
-      map.set(garment.category, list);
+      const candidates = map.get(garment.category) ?? [];
+      candidates.push(garment);
+      map.set(garment.category, candidates);
     }
     return map;
   }, [garmentList]);
 
-  // If slots are empty, initialize with some default categories if available
-  if (slots.length === 0 && garmentList.length > 0) {
-    const defaultCategories = ['tops', 'bottoms', 'shoes'];
-    const initialSlots: OutfitSlot[] = [];
-    defaultCategories.forEach(cat => {
-      const candidates = byCategory.get(cat) ?? [];
-      if (candidates.length > 0) {
-        initialSlots.push({ category: cat, garmentId: candidates[0]!.id });
-      }
-    });
-    if (initialSlots.length > 0) {
-      setSlots(initialSlots);
-    }
-  }
-
-  const usedCategories = new Set(slots.map((s) => s.category));
-  const availableCategories = [
-    ...GARMENT_CATEGORIES.filter((c) => !usedCategories.has(c)),
-    ...[...byCategory.keys()].filter((c) => !GARMENT_CATEGORIES.includes(c as never) && !usedCategories.has(c)),
-  ].sort();
+  const usedCategories = new Set(slots.map((slot) => slot.category));
+  const availableCategories = [...byCategory.keys()]
+    .filter((category) => !usedCategories.has(category))
+    .sort(
+      (left, right) =>
+        (CATEGORY_ORDER.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (CATEGORY_ORDER.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right),
+    );
 
   function addRow(category: string) {
-    const candidates = byCategory.get(category) ?? [];
-    setSlots((current) => [
-      ...current,
-      { category, garmentId: candidates[0]?.id ?? null },
-    ]);
+    const firstGarment = byCategory.get(category)?.[0];
+    if (!firstGarment) return;
+    setSlots((current) => [...current, { category, garmentId: firstGarment.id }]);
+  }
+
+  function removeRow(index: number) {
+    setSlots((current) => current.filter((_, currentIndex) => currentIndex !== index));
   }
 
   function cycle(index: number, direction: -1 | 1) {
@@ -93,28 +91,31 @@ export default function OutfitBuilderPage() {
       const row = current[index];
       if (!row) return current;
       const candidates = byCategory.get(row.category) ?? [];
-      if (candidates.length === 0) return current;
-      const currentPos = candidates.findIndex((g) => g.id === row.garmentId);
-      const nextPos = (currentPos + direction + candidates.length * 2) % candidates.length;
-      const next = candidates[nextPos]!;
-      const copy = [...current];
-      copy[index] = { ...row, garmentId: next.id };
-      return copy;
+      if (candidates.length < 2) return current;
+      const currentPosition = candidates.findIndex((garment) => garment.id === row.garmentId);
+      const nextPosition =
+        (currentPosition + direction + candidates.length * 2) % candidates.length;
+      const nextGarment = candidates[nextPosition]!;
+      const nextSlots = [...current];
+      nextSlots[index] = { ...row, garmentId: nextGarment.id };
+      return nextSlots;
     });
   }
 
-  async function handleSave() {
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!profile) return;
     setError(null);
     if (slots.length === 0) {
-      setError('Añade al menos una prenda al outfit');
+      setError('Añade al menos una prenda al conjunto');
       return;
     }
+
     setSaving(true);
     try {
       const outfit = await createOutfit(profile.userId, {
-        name: name || 'My New Outfit',
-        notes: notes || null,
+        name: name.trim() || null,
+        notes: notes.trim() || null,
         slots,
       });
       if (scheduleDate) {
@@ -126,142 +127,192 @@ export default function OutfitBuilderPage() {
         });
       }
       router.push(`/outfits/${outfit.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el outfit');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudo guardar el conjunto');
       setSaving(false);
     }
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] -mx-4 md:mx-0 overflow-hidden">
-      <div className="flex items-center justify-between px-4 mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-text-primary">Create Outfit</h1>
+    <div className="mx-auto max-w-2xl">
+      <div className="mb-5 flex items-center justify-between">
+        <h1 className="font-heading text-3xl font-semibold tracking-tight text-text-primary">
+          Crear conjunto
+        </h1>
         <button
           type="button"
           onClick={() => router.push('/outfits')}
           aria-label="Cancelar"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
         >
-          <XIcon size={24} />
+          <XIcon size={22} />
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col px-4 space-y-6 overflow-y-auto no-scrollbar pb-24">
-        {/* Collage Area */}
-        <div className="relative aspect-[3/4] md:aspect-square w-full rounded-[2rem] bg-[#F3EFEA] overflow-hidden flex flex-col shadow-soft border border-border/50">
-          <div className="absolute top-4 right-4 z-20 flex gap-2">
-            <button className="h-10 px-4 rounded-full bg-white/70 backdrop-blur text-sm font-semibold text-text-primary shadow-sm flex items-center gap-1">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-              Shuffle
-            </button>
-          </div>
-          
-          <div className="flex-1 relative w-full h-full p-4 flex items-center justify-center">
+      <form onSubmit={handleSave} className="space-y-6">
+        <div className="card-surface overflow-hidden p-4 sm:p-6">
+          <div className="grid min-h-72 grid-cols-2 gap-3 rounded-3xl bg-surface-alt p-4 sm:min-h-96">
             {slots.length === 0 ? (
-              <div className="text-text-muted flex flex-col items-center">
-                <SparklesIcon size={48} className="mb-2 opacity-50" />
-                <p className="font-medium">No items selected</p>
+              <div className="col-span-2 flex flex-col items-center justify-center text-center text-text-muted">
+                <SparklesIcon size={44} className="mb-3 opacity-50" />
+                <p className="font-semibold">Aún no has seleccionado prendas</p>
+                <p className="mt-1 max-w-xs text-sm">
+                  Añade una categoría para empezar a combinar tu armario.
+                </p>
               </div>
             ) : (
-              <div className="w-full h-full relative">
-                {slots.map((slot, i) => {
-                  const garment = garments?.find((g) => g.id === slot.garmentId);
-                  if (!garment) return null;
-                  
-                  // Simple collage positioning based on index
-                  let positionClass = "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2/3 h-2/3 z-10";
-                  if (slots.length > 1) {
-                    if (i === 0) positionClass = "top-[10%] left-[10%] w-[55%] h-[50%] z-20"; // Usually tops
-                    else if (i === 1) positionClass = "bottom-[10%] right-[10%] w-[55%] h-[50%] z-10"; // Usually bottoms
-                    else if (i === 2) positionClass = "top-[40%] right-[5%] w-[40%] h-[40%] z-30"; // Usually accessories/shoes
-                    else positionClass = `top-[${(i+1)*10}%] left-[${(i+1)*10}%] w-1/3 h-1/3 z-[${30+i}]`;
-                  }
-                  
-                  return (
-                    <div key={`${slot.category}-${i}`} className={`absolute ${positionClass} transition-all duration-500`}>
-                       <GarmentPhoto
-                        imageId={garment.photoId}
-                        alt={garment.name ?? slot.category}
-                        className="w-full h-full object-contain filter drop-shadow-md"
-                        iconSize={32}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="absolute bottom-4 left-0 right-0 px-4 flex justify-between gap-3 z-20">
-            <Button
-              className="flex-1 bg-white text-text-primary hover:bg-white/90 border border-border"
-              onClick={() => {}}
-            >
-              <CalendarIcon size={18} className="mr-1" /> Plan It
-            </Button>
-            <Button
-              className="flex-1"
-              loading={saving}
-              onClick={handleSave}
-            >
-              Save Outfit
-            </Button>
-          </div>
-        </div>
-
-        {/* Categories Carousel */}
-        <div className="no-scrollbar flex gap-4 overflow-x-auto pb-4 pt-2 -mx-4 px-4 snap-x">
-          {slots.map((slot, index) => {
-            const garment = garments?.find((g) => g.id === slot.garmentId);
-            return (
-              <div key={`${slot.category}-${index}`} className="flex flex-col items-center gap-2 snap-center w-24 shrink-0">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
-                  {CATEGORY_LABELS[slot.category] ?? slot.category}
-                </p>
-                <div className="relative group">
-                  <div className="h-24 w-24 rounded-2xl bg-surface-alt border border-border overflow-hidden relative shadow-sm">
+              slots.map((slot, index) => {
+                const garment = garmentList.find((candidate) => candidate.id === slot.garmentId);
+                return (
+                  <div
+                    key={`${slot.category}-${index}`}
+                    className="relative min-h-32 overflow-hidden rounded-2xl bg-surface"
+                  >
                     <GarmentPhoto
                       imageId={garment?.photoId ?? null}
-                      alt={garment?.name ?? slot.category}
-                      className="h-full w-full object-cover"
-                      iconSize={24}
+                      alt={garment?.name ?? CATEGORY_LABELS[slot.category] ?? slot.category}
+                      className="h-full w-full object-contain p-2"
+                      iconSize={30}
                     />
                   </div>
-                  <div className="absolute -left-3 top-1/2 -translate-y-1/2">
-                    <button onClick={() => cycle(index, -1)} className="h-6 w-6 rounded-full bg-white shadow flex items-center justify-center text-text-secondary hover:text-primary">
-                      <ChevronLeftIcon size={14} />
-                    </button>
-                  </div>
-                  <div className="absolute -right-3 top-1/2 -translate-y-1/2">
-                    <button onClick={() => cycle(index, 1)} className="h-6 w-6 rounded-full bg-white shadow flex items-center justify-center text-text-secondary hover:text-primary">
-                      <ChevronRightIcon size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          
-          {/* Add Category Button */}
-          {availableCategories.length > 0 && (
-            <div className="flex flex-col items-center justify-center gap-2 snap-center shrink-0 pl-2">
-              <button
-                type="button"
-                onClick={() => addRow(availableCategories[0]!)}
-                className="h-24 w-16 rounded-2xl border-2 border-dashed border-border flex items-center justify-center text-text-muted hover:border-primary hover:text-primary transition-colors"
-              >
-                <PlusIcon size={24} />
-              </button>
-            </div>
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
-        
-        {error && (
-          <p role="alert" className="text-sm text-danger text-center">
+
+        <section aria-labelledby="selected-categories-title">
+          <h2 id="selected-categories-title" className="mb-3 font-heading text-lg">
+            Prendas del conjunto
+          </h2>
+          {slots.length > 0 ? (
+            <div className="space-y-3">
+              {slots.map((slot, index) => {
+                const candidates = byCategory.get(slot.category) ?? [];
+                const garment = garmentList.find((candidate) => candidate.id === slot.garmentId);
+                const categoryLabel = CATEGORY_LABELS[slot.category] ?? slot.category;
+                return (
+                  <div
+                    key={`${slot.category}-${index}`}
+                    className="card-surface flex items-center gap-3 p-3"
+                  >
+                    <GarmentPhoto
+                      imageId={garment?.photoId ?? null}
+                      alt={garment?.name ?? categoryLabel}
+                      className="h-16 w-16 shrink-0 object-cover"
+                      iconSize={20}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                        {categoryLabel}
+                      </p>
+                      <p className="truncate text-sm font-semibold">
+                        {garment?.name ?? 'Sin prenda'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => cycle(index, -1)}
+                      disabled={candidates.length < 2}
+                      aria-label={`Prenda anterior de ${categoryLabel}`}
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt disabled:opacity-30"
+                    >
+                      <ChevronLeftIcon size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => cycle(index, 1)}
+                      disabled={candidates.length < 2}
+                      aria-label={`Prenda siguiente de ${categoryLabel}`}
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt disabled:opacity-30"
+                    >
+                      <ChevronRightIcon size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(index)}
+                      aria-label={`Quitar ${categoryLabel}`}
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-danger hover:bg-danger/10"
+                    >
+                      <TrashIcon size={18} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+
+        <section aria-labelledby="add-category-title">
+          <h2 id="add-category-title" className="mb-3 font-heading text-lg">
+            Añadir categoría
+          </h2>
+          {garments === undefined ? (
+            <div className="card-surface h-16 animate-pulse" aria-label="Cargando prendas" />
+          ) : availableCategories.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {availableCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => addRow(category)}
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-text-secondary transition-colors hover:border-primary hover:text-primary"
+                >
+                  <PlusIcon size={16} />
+                  {CATEGORY_LABELS[category] ?? category}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="card-surface p-4 text-sm text-text-secondary">
+              Añade prendas a tu armario para crear nuevas combinaciones.
+            </p>
+          )}
+        </section>
+
+        <div className="card-surface space-y-4 p-5">
+          <Field label="Nombre" hint="Opcional">
+            <TextInput
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={80}
+              placeholder="Por ejemplo, oficina"
+            />
+          </Field>
+          <Field label="Notas" hint="Opcional">
+            <TextArea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              maxLength={2000}
+              placeholder="Añade detalles sobre este conjunto"
+            />
+          </Field>
+          <Field label="Programar en el calendario" hint="Opcional">
+            <div className="relative">
+              <CalendarIcon
+                size={18}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted"
+              />
+              <TextInput
+                type="date"
+                value={scheduleDate}
+                onChange={(event) => setScheduleDate(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </Field>
+        </div>
+
+        {error ? (
+          <p role="alert" className="text-center text-sm text-danger">
             {error}
           </p>
-        )}
-      </div>
+        ) : null}
+
+        <Button type="submit" size="lg" className="w-full" loading={saving} data-testid="save-outfit">
+          Guardar conjunto
+        </Button>
+      </form>
     </div>
   );
 }
