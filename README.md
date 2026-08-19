@@ -1,6 +1,6 @@
 # My Closet
 
-Tu armario digital: prendas, outfits y calendario — **una PWA offline-first**
+Tu armario digital: prendas, conjuntos y calendario, **una PWA offline-first**
 que funciona siempre, con o sin conexión.
 
 Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-closet)
@@ -9,8 +9,8 @@ Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-clo
 ```
 UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──► backend
                                                                         │
-                                                    SQLite (hoy) / Neon PostgreSQL (preparado)
-                                                    imágenes: local (hoy) / Cloudinary (preparado)
+                                                    SQLite (hoy) / Neon PostgreSQL (contrato futuro)
+                                                    imágenes: local (hoy) / Cloudinary (contrato futuro)
 ```
 
 ## Requisitos
@@ -31,7 +31,7 @@ SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. Regístrate
 con cualquier email/contraseña (cuenta local).
 
 ¿Quieres datos con foto al instante? Perfil → **«Cargar datos de ejemplo»**
-(10 prendas + 2 outfits + calendario; fotos Unsplash de uso local).
+(10 prendas + 2 conjuntos + calendario; fotos Unsplash de uso local).
 
 ## Scripts principales
 
@@ -51,7 +51,9 @@ PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chr
 
 ## Funciona sin servicios externos
 
-Neon, Cloudinary, Google Sign-In y Vercel están **preparados y desactivados**.
+Neon, Cloudinary, Google Sign-In y Vercel tienen selectores y contratos
+**preparados y desactivados**. Los adaptadores externos no se activan solo por
+encontrar credenciales y siguen pendientes de implementación/verificación.
 La app completa (auth local, sync contra SQLite, imágenes, PWA, offline)
 se desarrolla, prueba y demuestra sin ninguna cuenta externa. Para
 activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
@@ -70,6 +72,8 @@ activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
 | better-sqlite3 | 13.0.3 |
 | dexie / dexie-react-hooks | 4.4.5 / 4.4.0 |
 | zod | 4.4.3 |
+| @imgly/background-removal | 1.7.0 |
+| onnxruntime-web | 1.21.0 |
 | @playwright/test | 1.62.1 |
 | vitest | 4.1.10 |
 
