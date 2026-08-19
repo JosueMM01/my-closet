@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 3100;
+const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -8,7 +9,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: externalBaseUrl ?? `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -17,7 +18,7 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  webServer: {
+  webServer: externalBaseUrl ? undefined : {
     command: 'npx -y pnpm@11.22.0 exec next start -p ' + PORT,
     port: PORT,
     timeout: 120_000,
