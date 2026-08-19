@@ -1,41 +1,87 @@
-/**
- * Web Worker de procesamiento de imágenes: descarga el trabajo pesado
- * (decode + resize + encode WebP) del hilo principal de la UI.
- */
+/** Web Worker de una sola operación. El cliente lo termina al recibir resultado. */
+import { BACKGROUND_REMOVAL_PUBLIC_PATH } from './background-removal';
 import { decodeImageFile, encodeBitmapToWebp } from './processor';
+import {
+  imageWorkerMessageSchema,
+  imageWorkerRequestSchema,
+  type ImageProgress,
+  type ImageWorkerFailureCode,
+  type ImageWorkerMessage,
+} from './worker-protocol';
 
-export interface WorkerRequest {
-  id: number;
-  file: Blob;
+function post(message: ImageWorkerMessage): void {
+  self.postMessage(imageWorkerMessageSchema.parse(message));
 }
 
-export type WorkerResponse =
-  | { id: number; ok: true; blob: Blob; width: number; height: number; mimeType: 'image/webp' }
-  | { id: number; ok: false; error: string };
+function report(id: string, progress: ImageProgress): void {
+  post({ type: 'progress', id, progress });
+}
 
-self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
-  const { id, file } = event.data;
+function readableError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Error procesando imagen';
+  return message.slice(0, 500) || 'Error procesando imagen';
+}
+
+self.addEventListener('message', (event: MessageEvent<unknown>) => {
+  const parsed = imageWorkerRequestSchema.safeParse(event.data);
+  if (!parsed.success) return;
+  const { id, file, operation } = parsed.data;
   void (async () => {
+    let bitmap: ImageBitmap | null = null;
+    let failureCode: ImageWorkerFailureCode = 'processing';
     try {
-      const { bitmap, width, height } = await decodeImageFile(file);
-      const processed = await encodeBitmapToWebp(bitmap, width, height);
-      bitmap.close();
-      const response: WorkerResponse = {
+      report(id, { stage: 'Preparando imagen', current: null, total: null });
+      const decoded = await decodeImageFile(file);
+      bitmap = decoded.bitmap;
+      const resized = await encodeBitmapToWebp(bitmap, decoded.width, decoded.height);
+
+      if (operation.type === 'resize') {
+        report(id, { stage: 'Codificando WebP', current: null, total: null });
+        post({ type: 'success', id, ...resized });
+        return;
+      }
+
+      failureCode = 'resource';
+      const { removeBackground } = await import('@imgly/background-removal');
+      const publicPath = new URL(BACKGROUND_REMOVAL_PUBLIC_PATH, self.location.origin).toString();
+      const result = await removeBackground(resized.blob, {
+        publicPath,
+        device: operation.device,
+        model: operation.model,
+        proxyToWorker: false,
+        fetchArgs: { credentials: 'same-origin' },
+        output: { format: 'image/webp', quality: 0.82 },
+        progress: (key: string, current: number, total: number) => {
+          if (key.startsWith('fetch:')) {
+            report(id, { stage: 'Descargando modelo local', current, total });
+            return;
+          }
+          failureCode = 'inference';
+          const stage = key === 'compute:mask'
+            ? 'Aplicando transparencia'
+            : key === 'compute:encode'
+              ? 'Codificando WebP'
+              : 'Eliminando fondo';
+          report(id, { stage, current: null, total: null });
+        },
+      });
+      post({
+        type: 'success',
         id,
-        ok: true,
-        blob: processed.blob,
-        width: processed.width,
-        height: processed.height,
-        mimeType: processed.mimeType,
-      };
-      self.postMessage(response);
+        blob: result,
+        width: resized.width,
+        height: resized.height,
+        mimeType: 'image/webp',
+      });
     } catch (error) {
-      const response: WorkerResponse = {
+      post({
+        type: 'failure',
         id,
-        ok: false,
-        error: error instanceof Error ? error.message : 'Error procesando imagen',
-      };
-      self.postMessage(response);
+        code: failureCode,
+        error: readableError(error),
+      });
+    } finally {
+      bitmap?.close();
     }
   })();
 });

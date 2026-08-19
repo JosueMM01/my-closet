@@ -20,6 +20,9 @@
 # production
 /build
 
+# generated browser inference assets
+/public/vendor/background-removal/
+
 # misc
 .DS_Store
 *.pem

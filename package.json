@@ -7,11 +7,15 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
+    "prepare:background-removal": "node scripts/prepare-background-removal-assets.mjs",
+    "predev": "pnpm prepare:background-removal",
     "dev": "next dev",
+    "prebuild": "pnpm prepare:background-removal",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm prepare:background-removal",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -21,12 +25,15 @@
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@imgly/background-removal": "1.7.0",
+    "@imgly/background-removal-data": "https://staticimgly.com/@imgly/background-removal-data/1.7.0/package.tgz",
     "better-sqlite3": "13.0.3",
     "clsx": "2.1.1",
     "dexie": "4.4.5",
     "dexie-react-hooks": "4.4.0",
     "drizzle-orm": "0.45.2",
     "next": "16.3.1",
+    "onnxruntime-web": "1.21.0",
     "postgres": "3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -1,81 +1,173 @@
-/**
- * API de imágenes del cliente: procesar, persistir localmente y exponer URLs.
- * Intenta procesar en Web Worker; cae al hilo principal si no está disponible.
- */
+/** API de procesamiento y persistencia local de fotos. */
 import { ALLOWED_IMAGE_MIME_TYPES, LIMITS } from '@/lib/domain/constants';
 import { uuid } from '@/lib/domain/ids';
 import type { ImageRecord } from '@/lib/domain/types';
 import { getDB } from '@/lib/local/db';
 import { maybeSync } from '@/lib/local/sync-engine';
+import { backgroundRemovalAttempts } from './background-removal';
 import { decodeImageFile, encodeBitmapToWebp, type ProcessedImage } from './processor';
+import {
+  imageProgressSchema,
+  imageWorkerMessageSchema,
+  imageWorkerRequestSchema,
+  type ImageProgress,
+  type ImageWorkerFailureCode,
+  type ImageWorkerRequest,
+} from './worker-protocol';
 
-let worker: Worker | null = null;
-let workerBroken = false;
-let requestSeq = 0;
-const pendingWorkerRequests = new Map<
-  number,
-  { resolve: (r: ProcessedImage) => void; reject: (e: Error) => void }
->();
+export const PROCESSED_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 
-function getWorker(): Worker | null {
-  if (workerBroken || typeof window === 'undefined') return null;
-  if (worker) return worker;
-  try {
-    worker = new Worker(new URL('./image-worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    worker.addEventListener('message', (event: MessageEvent) => {
-      const data = event.data as {
-        id: number;
-        ok: boolean;
-        blob?: Blob;
-        width?: number;
-        height?: number;
-        error?: string;
-      };
-      const pending = pendingWorkerRequests.get(data.id);
-      if (!pending) return;
-      pendingWorkerRequests.delete(data.id);
-      if (data.ok && data.blob) {
-        pending.resolve({
-          blob: data.blob,
-          width: data.width ?? 0,
-          height: data.height ?? 0,
-          mimeType: 'image/webp',
-        });
-      } else {
-        pending.reject(new Error(data.error ?? 'Error en worker de imágenes'));
-      }
-    });
-    worker.addEventListener('error', () => {
-      workerBroken = true;
-      worker = null;
-    });
-    return worker;
-  } catch {
-    workerBroken = true;
-    return null;
+export interface SaveGarmentPhotoOptions {
+  removeBackground?: boolean;
+  signal?: AbortSignal;
+  onProgress?: (progress: ImageProgress) => void;
+}
+
+class WorkerProcessingError extends Error {
+  constructor(
+    message: string,
+    readonly code: ImageWorkerFailureCode | 'worker',
+  ) {
+    super(message);
+    this.name = 'WorkerProcessingError';
   }
 }
 
-function processInWorker(file: Blob): Promise<ProcessedImage> | null {
-  const activeWorker = getWorker();
-  if (!activeWorker) return null;
-  const id = ++requestSeq;
+function abortError(): DOMException {
+  return new DOMException('Procesamiento cancelado', 'AbortError');
+}
+
+function report(options: SaveGarmentPhotoOptions, progress: ImageProgress): void {
+  options.onProgress?.(imageProgressSchema.parse(progress));
+}
+
+function runWorker(
+  file: Blob,
+  operation: ImageWorkerRequest['operation'],
+  options: SaveGarmentPhotoOptions,
+): Promise<ProcessedImage> {
+  if (typeof Worker === 'undefined') {
+    return Promise.reject(new WorkerProcessingError('Web Worker no disponible', 'worker'));
+  }
+  if (options.signal?.aborted) return Promise.reject(abortError());
+
   return new Promise<ProcessedImage>((resolve, reject) => {
-    pendingWorkerRequests.set(id, { resolve, reject });
-    activeWorker.postMessage({ id, file });
+    const id = uuid();
+    let worker: Worker;
+    let settled = false;
+
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener('abort', handleAbort);
+      worker.terminate();
+      callback();
+    };
+    const handleAbort = () => finish(() => reject(abortError()));
+
+    try {
+      worker = new Worker(new URL('./image-worker.ts', import.meta.url), { type: 'module' });
+    } catch (error) {
+      reject(new WorkerProcessingError(
+        error instanceof Error ? error.message : 'No se pudo iniciar el worker de imágenes',
+        'worker',
+      ));
+      return;
+    }
+
+    worker.addEventListener('message', (event: MessageEvent<unknown>) => {
+      const parsed = imageWorkerMessageSchema.safeParse(event.data);
+      if (!parsed.success || parsed.data.id !== id) {
+        finish(() => reject(new WorkerProcessingError('Respuesta inválida del worker', 'worker')));
+        return;
+      }
+      const message = parsed.data;
+      if (message.type === 'progress') {
+        report(options, message.progress);
+      } else if (message.type === 'success') {
+        finish(() => resolve(message));
+      } else {
+        finish(() => reject(new WorkerProcessingError(message.error, message.code)));
+      }
+    });
+    worker.addEventListener('error', (event) => {
+      finish(() => reject(new WorkerProcessingError(event.message || 'El worker dejó de responder', 'worker')));
+    });
+    worker.addEventListener('messageerror', () => {
+      finish(() => reject(new WorkerProcessingError('No se pudo leer la respuesta del worker', 'worker')));
+    });
+    options.signal?.addEventListener('abort', handleAbort, { once: true });
+
+    const request = imageWorkerRequestSchema.parse({ type: 'process', id, file, operation });
+    worker.postMessage(request);
   });
 }
 
-async function processOnMainThread(file: Blob): Promise<ProcessedImage> {
+async function processOnMainThread(
+  file: Blob,
+  options: SaveGarmentPhotoOptions,
+): Promise<ProcessedImage> {
+  if (options.signal?.aborted) throw abortError();
+  report(options, { stage: 'Preparando imagen', current: null, total: null });
   const { bitmap, width, height } = await decodeImageFile(file);
-  const processed = await encodeBitmapToWebp(bitmap, width, height);
-  bitmap.close();
-  return processed;
+  try {
+    const processed = await encodeBitmapToWebp(bitmap, width, height);
+    if (options.signal?.aborted) throw abortError();
+    return processed;
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function processWithBackgroundRemoval(
+  file: Blob,
+  options: SaveGarmentPhotoOptions,
+): Promise<ProcessedImage> {
+  const webGpuAvailable = typeof navigator !== 'undefined' && 'gpu' in navigator;
+  const attempts = backgroundRemovalAttempts(webGpuAvailable);
+  let lastError: Error = new Error('No se pudo eliminar el fondo');
+
+  for (const [index, attempt] of attempts.entries()) {
+    if (index > 0) {
+      report(options, {
+        stage: 'Reintentando en modo compatible',
+        current: index,
+        total: attempts.length - 1,
+      });
+    }
+    try {
+      return await runWorker(file, attempt, options);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      lastError = error instanceof Error ? error : lastError;
+    }
+  }
+  throw new ImageProcessingError(`No se pudo eliminar el fondo: ${lastError.message}`);
+}
+
+async function isWebp(blob: Blob): Promise<boolean> {
+  if (blob.type !== 'image/webp' || blob.size < 12) return false;
+  const bytes = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  return (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  );
+}
+
+export async function validateProcessedImage(processed: ProcessedImage): Promise<void> {
+  if (!(await isWebp(processed.blob))) {
+    throw new ImageProcessingError('El navegador no produjo una imagen WebP válida');
+  }
+  if (processed.blob.size > PROCESSED_IMAGE_MAX_BYTES) {
+    throw new ImageProcessingError('La imagen procesada supera el límite de sincronización de 3 MB');
+  }
+  if (processed.width > LIMITS.processedImageMaxDimension || processed.height > LIMITS.processedImageMaxDimension) {
+    throw new ImageProcessingError('La imagen procesada supera 1080 px');
+  }
 }
 
 export class ImageValidationError extends Error {}
+export class ImageProcessingError extends Error {}
 
 /** Valida MIME y tamaño antes de cualquier procesamiento. */
 export function validateImageFile(file: File): void {
@@ -90,16 +182,33 @@ export function validateImageFile(file: File): void {
   }
 }
 
-/** Procesa y persiste la foto de una prenda en IndexedDB (WebP ≤1080px). */
-export async function saveGarmentPhoto(userId: string, file: File): Promise<ImageRecord> {
+/** Procesa y persiste la foto en IndexedDB solo después de validar el resultado. */
+export async function saveGarmentPhoto(
+  userId: string,
+  file: File,
+  options: SaveGarmentPhotoOptions = {},
+): Promise<ImageRecord> {
   validateImageFile(file);
-  const processed =
-    (await processInWorker(file)) ?? (await processOnMainThread(file));
+  let processed: ProcessedImage;
+
+  if (options.removeBackground === true) {
+    processed = await processWithBackgroundRemoval(file, options);
+  } else {
+    try {
+      processed = await runWorker(file, { type: 'resize' }, options);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      processed = await processOnMainThread(file, options);
+    }
+  }
+
+  await validateProcessedImage(processed);
+  if (options.signal?.aborted) throw abortError();
 
   const record: ImageRecord = {
     id: uuid(),
     userId,
-    mimeType: processed.mimeType,
+    mimeType: 'image/webp',
     width: processed.width,
     height: processed.height,
     byteSize: processed.blob.size,
@@ -113,20 +222,15 @@ export async function saveGarmentPhoto(userId: string, file: File): Promise<Imag
   return record;
 }
 
-// Cache de object URLs por id de imagen para evitar fugas y re-creaciones.
 const objectUrls = new Map<string, string>();
 
-/** URL navegable para una foto: blob local → URL remota → null. */
 export async function resolveImageUrl(imageId: string | null): Promise<string | null> {
   if (!imageId) return null;
   const cached = objectUrls.get(imageId);
   if (cached) return cached;
   const record = await getDB().images.get(imageId);
   if (!record) return null;
-  const url =
-    record.blob && record.blob.size > 0
-      ? URL.createObjectURL(record.blob)
-      : record.remoteUrl;
+  const url = record.blob && record.blob.size > 0 ? URL.createObjectURL(record.blob) : record.remoteUrl;
   if (url) objectUrls.set(imageId, url);
   return url;
 }

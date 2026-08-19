@@ -5,18 +5,21 @@
  *  - App shell y estáticos de Next (/_next/static): CacheFirst (inmutables).
  *  - Navegaciones: NetworkFirst con fallback a caché y luego a /offline.
  *  - /api/images/*: CacheFirst (fotos procesadas, inmutables por id).
+ *  - Modelo local IMG.LY: CacheFirst dedicado, no forma parte del precache.
  *  - Otros GET same-origin: StaleWhileRevalidate.
- *  - API de datos (/api/sync, /api/auth): siempre red; el sync engine
+ *  - API de datos (/api/sync, /api/auth) y /api/images/sign: siempre red; el sync engine
  *    reintenta con outbox — nunca se pierden operaciones.
  *
  * Actualización controlada: nueva versión espera SKIP_WAITING (mensaje
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
+const MODEL_CACHE = 'mc-background-removal-1.7.0';
+const MODEL_PATH = '/vendor/background-removal/1.7.0/';
 const OFFLINE_URL = '/offline';
 
 // Shell offline: páginas principales (el contenido real vive en IndexedDB).
@@ -59,7 +62,10 @@ self.addEventListener('activate', (event) => {
       const keys = await caches.keys();
       await Promise.all(
         keys
-          .filter((key) => key.startsWith('mc-') && !key.endsWith(VERSION))
+          .filter(
+            (key) =>
+              key.startsWith('mc-') && key !== MODEL_CACHE && !key.endsWith(VERSION),
+          )
           .map((key) => caches.delete(key)),
       );
       await self.clients.claim();
@@ -135,7 +141,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.startsWith('/api/images/')) {
+  // La firma está autenticada y nunca debe entrar en ninguna caché del SW.
+  if (url.pathname === '/api/images/sign') {
+    return;
+  }
+
+  if (url.pathname.startsWith(MODEL_PATH)) {
+    event.respondWith(cacheFirst(request, MODEL_CACHE));
+    return;
+  }
+
+  if (/^\/api\/images\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(url.pathname)) {
     event.respondWith(cacheFirst(request, IMAGE_CACHE));
     return;
   }
