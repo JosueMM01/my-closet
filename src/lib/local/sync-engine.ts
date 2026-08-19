@@ -14,6 +14,7 @@ import type {
   Outfit,
   WardrobeShare,
 } from '@/lib/domain/types';
+import { z } from 'zod';
 import { getDB, readSyncStats, writeLastSyncedAt } from './db';
 import { getLocalProfile } from './kv';
 import {
@@ -52,6 +53,33 @@ export class SessionExpiredError extends Error {
     super('La sesión remota expiró; los datos locales se conservan.');
     this.name = 'SessionExpiredError';
   }
+}
+
+export class SessionIdentityMismatchError extends Error {
+  constructor() {
+    super('La sesión remota pertenece a otra cuenta; no se sincronizó ningún dato.');
+    this.name = 'SessionIdentityMismatchError';
+  }
+}
+
+const remoteSessionSchema = z.discriminatedUnion('authenticated', [
+  z.object({ authenticated: z.literal(false) }).passthrough(),
+  z.object({
+    authenticated: z.literal(true),
+    profile: z.object({ userId: z.string().uuid() }).passthrough(),
+  }).passthrough(),
+]);
+
+async function assertRemoteSession(userId: string): Promise<void> {
+  const response = await fetch('/api/auth/session', {
+    headers: { 'x-requested-with': 'my-closet' },
+    cache: 'no-store',
+  });
+  if (response.status === 401) throw new SessionExpiredError();
+  if (!response.ok) throw new Error(`session HTTP ${response.status}`);
+  const session = remoteSessionSchema.parse(await response.json());
+  if (!session.authenticated) throw new SessionExpiredError();
+  if (session.profile.userId !== userId) throw new SessionIdentityMismatchError();
 }
 
 interface PushOperationResult {
@@ -145,9 +173,10 @@ async function applyRemote(
   }
 }
 
-async function pushPendingImages(): Promise<void> {
+async function pushPendingImages(userId: string): Promise<void> {
   const db = getDB();
-  const pending = await db.images.where('syncStatus').anyOf(['pending', 'failed']).toArray();
+  const pending = (await db.images.where('syncStatus').anyOf(['pending', 'failed']).toArray())
+    .filter((image) => image.userId === userId);
   for (const image of pending) {
     if (!image.blob) continue;
     const form = new FormData();
@@ -200,20 +229,22 @@ export async function runSync(): Promise<void> {
   if (running) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
-  if (!(await getLocalProfile())) return;
+  const profile = await getLocalProfile();
+  if (!profile) return;
   running = true;
   notify();
   try {
-    await releaseStaleSyncing();
+    await assertRemoteSession(profile.userId);
+    await releaseStaleSyncing(profile.userId);
 
     // Push por lotes hasta agotar la outbox.
     for (;;) {
-      const batch = await claimPendingOperations(50);
+      const batch = await claimPendingOperations(50, profile.userId);
       if (batch.length === 0) break;
       await pushBatch(batch);
     }
 
-    await pushPendingImages();
+    await pushPendingImages(profile.userId);
     await pull();
     await writeLastSyncedAt(new Date().toISOString());
   } finally {

@@ -48,8 +48,11 @@ afterEach(async () => {
 /** Inserta usuarios con ids fijos de prueba. */
 async function seedUsers(): Promise<void> {
   const { getServerDB, sqliteSchema } = await import('@/server/db');
-  const { sqlite } = await getServerDB();
-  await sqlite!.insert(sqliteSchema.users).values([
+  const db = await getServerDB();
+  if (db.dialect !== 'sqlite') {
+    throw new Error('Esta prueba de integracion requiere SQLite');
+  }
+  await db.sqlite.insert(sqliteSchema.users).values([
     { id: USER_A, email: 'ana@test.local', displayName: 'Ana', passwordHash: 'hash-a' },
     { id: USER_B, email: 'beto@test.local', displayName: 'Beto', passwordHash: 'hash-b' },
   ]);

@@ -1,22 +1,32 @@
 /**
- * Fábrica de conexiones Drizzle según dialecto.
+ * Fabrica de conexiones Drizzle segun proveedor.
  *  - SQLite (desarrollo local): better-sqlite3 + DDL idempotente.
- *  - PostgreSQL (producción futura, Neon): postgres.js — se activa solo
- *    cuando DATABASE_URL apunta a postgres://… Sin esa URL nunca se conecta.
+ *  - PostgreSQL: esquema tipado preparado, sin adaptador de repositorios aun.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { drizzle as drizzleSqlite, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { getEnv, getSqliteUrl, type ServerEnv } from '@/server/env';
+import * as pgSchema from './schema-pg';
 import * as sqliteSchema from './schema-sqlite';
 
 export type SqliteDB = BetterSQLite3Database<typeof sqliteSchema>;
+export type PostgresDB = PostgresJsDatabase<typeof pgSchema>;
 
-export interface ServerDB {
-  dialect: 'sqlite' | 'postgres';
-  sqlite?: SqliteDB;
-  raw?: import('better-sqlite3').Database;
+export interface SqliteServerDB {
+  dialect: 'sqlite';
+  sqlite: SqliteDB;
+  raw: import('better-sqlite3').Database;
 }
+
+export interface PostgresServerDB {
+  dialect: 'postgres';
+  postgres: PostgresDB;
+}
+
+export type ServerDB = SqliteServerDB | PostgresServerDB;
 
 let instance: ServerDB | null = null;
 
@@ -27,26 +37,20 @@ function ensureDataDir(sqlitePath: string): void {
   }
 }
 
-export async function getServerDB(): Promise<ServerDB> {
-  if (instance) return instance;
+export class DatabaseProviderNotImplementedError extends Error {
+  constructor(provider: ServerEnv['DATABASE_PROVIDER']) {
+    super(`El proveedor de base de datos "${provider}" no esta implementado`);
+    this.name = 'DatabaseProviderNotImplementedError';
+  }
+}
 
-  const url = process.env.DATABASE_URL;
-  const isPostgres = Boolean(url?.startsWith('postgres://') || url?.startsWith('postgresql://'));
-
-  if (isPostgres && url) {
-    const [{ drizzle }, postgres] = await Promise.all([
-      import('drizzle-orm/postgres-js'),
-      import('postgres'),
-    ]);
-    const client = postgres.default(url, { max: 5 });
-    const db = drizzle(client);
-    instance = { dialect: 'postgres', sqlite: db as unknown as SqliteDB };
-    return instance;
+export async function createServerDB(env: ServerEnv): Promise<ServerDB> {
+  if (env.DATABASE_PROVIDER === 'postgres') {
+    // Debe ocurrir antes de importar un driver o abrir una conexion externa.
+    throw new DatabaseProviderNotImplementedError('postgres');
   }
 
-  const sqlitePath = url?.startsWith('file:')
-    ? url.slice('file:'.length)
-    : './data/my-closet.db';
+  const sqlitePath = getSqliteUrl(env).slice('file:'.length);
   ensureDataDir(sqlitePath);
 
   const { default: Database } = await import('better-sqlite3');
@@ -56,7 +60,13 @@ export async function getServerDB(): Promise<ServerDB> {
 
   const db = drizzleSqlite({ client: raw, schema: sqliteSchema });
   ensureSqliteSchema(db);
-  instance = { dialect: 'sqlite', sqlite: db, raw };
+  return { dialect: 'sqlite', sqlite: db, raw };
+}
+
+export async function getServerDB(): Promise<ServerDB> {
+  if (!instance) {
+    instance = await createServerDB(getEnv());
+  }
   return instance;
 }
 
@@ -155,7 +165,7 @@ function ensureSqliteSchema(db: SqliteDB): void {
 }
 
 export async function closeServerDB(): Promise<void> {
-  if (instance?.raw) {
+  if (instance?.dialect === 'sqlite') {
     instance.raw.close();
   }
   instance = null;
@@ -168,10 +178,10 @@ export async function closeServerDB(): Promise<void> {
  */
 export async function getSqlite(): Promise<SqliteDB> {
   const db = await getServerDB();
-  if (!db.sqlite) {
-    throw new Error('El backend está configurado con PostgreSQL; usa los repositorios PG');
+  if (db.dialect !== 'sqlite') {
+    throw new DatabaseProviderNotImplementedError(db.dialect);
   }
   return db.sqlite;
 }
 
-export { sqliteSchema };
+export { pgSchema, sqliteSchema };

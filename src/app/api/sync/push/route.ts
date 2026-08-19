@@ -30,6 +30,13 @@ export async function POST(request: Request) {
       results.push({ operationId: op.operationId, status: 'invalid' });
       continue;
     }
+    const entityOwnerId = op.entityType === 'wardrobeShare'
+      ? (validated.entity as unknown as WardrobeShare).grantorId
+      : (validated.entity as unknown as Garment | Outfit | CalendarEntry).userId;
+    if (entityOwnerId !== user.userId) {
+      results.push({ operationId: op.operationId, status: 'invalid' });
+      continue;
+    }
     try {
       let outcome:
         | { status: 'applied'; entity: unknown }

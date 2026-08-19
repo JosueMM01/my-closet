@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getDB } from '@/lib/local/db';
-import { countPending } from '@/lib/local/outbox';
+import { claimPendingOperations, countPending } from '@/lib/local/outbox';
 import {
   applyRemoteGarment,
   archiveGarment,
@@ -50,6 +50,7 @@ describe('repositorio local de prendas', () => {
     expect(await countPending()).toBe(1);
     const op = await getDB().outbox.toArray();
     expect(op[0]).toMatchObject({
+      userId: USER,
       entityType: 'garment',
       entityId: garment.id,
       operation: 'upsert',
@@ -155,6 +156,17 @@ describe('repositorio local de prendas', () => {
     const mine = await getDB().garments.where('userId').equals(USER).toArray();
     expect(mine).toHaveLength(1);
     expect(mine[0]?.name).toBe('Mía');
+  });
+
+  it('solo reclama operaciones de la cuenta que sincroniza', async () => {
+    await createGarment(USER, { name: 'Mía', category: 'tops', colors: [] });
+    await createGarment(OTHER, { name: 'Ajena', category: 'tops', colors: [] });
+
+    const claimed = await claimPendingOperations(50, USER);
+
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]?.userId).toBe(USER);
+    expect(await countPending(OTHER)).toBe(1);
   });
 });
 

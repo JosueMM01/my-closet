@@ -5,7 +5,10 @@
  */
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { isCloudinaryEnabled } from '@/server/env';
+import {
+  getCloudinaryCredentials,
+  type CloudinaryCredentials,
+} from '@/server/env';
 import { getSqlite, sqliteSchema } from '@/server/db';
 
 export interface ImagePutInput {
@@ -63,16 +66,10 @@ class LocalImageStorage implements ImageStorage {
 class CloudinaryImageStorage implements ImageStorage {
   readonly kind = 'cloudinary' as const;
 
-  private config(): { cloudName: string; apiKey: string; apiSecret: string } {
-    return {
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME!,
-      apiKey: process.env.CLOUDINARY_API_KEY!,
-      apiSecret: process.env.CLOUDINARY_API_SECRET!,
-    };
-  }
+  constructor(private readonly credentials: CloudinaryCredentials) {}
 
   async put(input: ImagePutInput): Promise<{ url: string }> {
-    const { cloudName, apiKey, apiSecret } = this.config();
+    const { cloudName, apiKey, apiSecret } = this.credentials;
     const timestamp = Math.floor(Date.now() / 1000);
     const folder = `my-closet/${input.userId}`;
     const signature = createHash('sha1')
@@ -107,7 +104,10 @@ let storage: ImageStorage | null = null;
 
 export function getImageStorage(): ImageStorage {
   if (!storage) {
-    storage = isCloudinaryEnabled() ? new CloudinaryImageStorage() : new LocalImageStorage();
+    const cloudinaryCredentials = getCloudinaryCredentials();
+    storage = cloudinaryCredentials
+      ? new CloudinaryImageStorage(cloudinaryCredentials)
+      : new LocalImageStorage();
   }
   return storage;
 }

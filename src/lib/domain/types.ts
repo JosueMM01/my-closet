@@ -89,6 +89,8 @@ export type OutboxEntityType = 'garment' | 'outfit' | 'calendarEntry' | 'wardrob
 
 export interface OutboxOperation {
   operationId: string;
+  /** Propietario local que puede sincronizar esta operación. */
+  userId: string;
   entityType: OutboxEntityType;
   entityId: string;
   operation: OutboxOperationType;

@@ -55,7 +55,10 @@ async function persistAndEnqueue<E extends SyncedEntity>(
           await db.wardrobeShares.put(entity as unknown as WardrobeShare);
           break;
       }
-      await enqueueOperation({ entityType, entityId: entity.id, operation, payload: entity });
+      const userId = entityType === 'wardrobeShare'
+        ? (entity as unknown as WardrobeShare).grantorId
+        : (entity as unknown as Garment | Outfit | CalendarEntry).userId;
+      await enqueueOperation({ userId, entityType, entityId: entity.id, operation, payload: entity });
     },
   );
   return entity;

@@ -35,6 +35,32 @@ export class MyClosetDB extends Dexie {
       outbox: 'operationId, entityType, entityId, status, createdAt',
       kv: 'key',
     });
+    this.version(2)
+      .stores({
+        garments: 'id, userId, syncStatus, category, archived, updatedAt, [userId+archived]',
+        outfits: 'id, userId, syncStatus, updatedAt',
+        calendarEntries: 'id, userId, syncStatus, date, outfitId, [userId+date]',
+        wardrobeShares: 'id, grantorId, inviteToken, syncStatus',
+        images: 'id, userId, syncStatus',
+        outbox: 'operationId, userId, entityType, entityId, status, createdAt, [userId+status]',
+        kv: 'key',
+      })
+      .upgrade(async (transaction) => {
+        type LegacyOperation = Omit<OutboxOperation, 'userId'> & { userId?: string };
+        await transaction
+          .table<LegacyOperation, string>('outbox')
+          .toCollection()
+          .modify((operation) => {
+            const payload = operation.payload;
+            if (typeof payload !== 'object' || payload === null) return;
+            const owner = 'userId' in payload
+              ? payload.userId
+              : 'grantorId' in payload
+                ? payload.grantorId
+                : null;
+            if (typeof owner === 'string') operation.userId = owner;
+          });
+      });
   }
 }
 

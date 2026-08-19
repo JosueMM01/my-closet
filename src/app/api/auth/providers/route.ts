@@ -3,7 +3,7 @@ import { jsonOk } from '@/server/http';
 
 export const runtime = 'nodejs';
 
-/** Proveedores de login disponibles según variables de entorno. */
+/** Capacidades de login implementadas y habilitadas explicitamente. */
 export async function GET() {
   return jsonOk({
     credentials: true,
