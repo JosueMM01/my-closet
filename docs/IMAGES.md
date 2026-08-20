@@ -70,6 +70,12 @@ debe revisar sus obligaciones de licencia antes de publicarse.
 - LocalImageStorage guarda el blob en SQLite y `GET /api/images/[id]` se puede
   cachear como imagen inmutable.
 - `/api/images/sign` es autenticado y el service worker nunca lo cachea.
-- Cloudinary solo se habilita explícitamente con
-  `IMAGE_PROVIDER=cloudinary` y sus credenciales. En ese modo futuro, la subida
-  será directa y la firma seguirá siendo del servidor.
+- El pull incluye metadatos, nunca el binario. Al aplicarlos, IndexedDB conserva
+  el blob ya presente; una imagen solo remota se renderiza con `remoteUrl`.
+  Para prometer imágenes offline tras un cambio de dispositivo se necesita una
+  fase posterior de hidratación de binarios.
+- La foto de perfil utiliza este mismo pipeline de navegador (resize + WebP),
+  siempre con eliminación de fondo desactivada.
+- Cloudinary sigue incompleto y debe permanecer desactivado. Aunque existe la
+  abstracción y la configuración explícita `IMAGE_PROVIDER=cloudinary`, faltan
+  el flujo directo de producción, su finalización y las pruebas de contrato.

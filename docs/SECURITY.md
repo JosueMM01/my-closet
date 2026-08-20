@@ -20,7 +20,8 @@
 
 - Login: 5 intentos/60 s por IP+email. Registro: 10/60 s por IP
   (`AUTH_RATE_LIMIT_REGISTER` ajustable). In-memory: adecuado para una
-  instancia; en multi-instancia mover a almacén compartido (pendiente).
+  instancia; en multi-instancia mover a almacén compartido (bloqueador de
+  producción).
 
 ## Validación y autorización
 
@@ -30,6 +31,14 @@
   → `OwnershipError` → operación `invalid` (test de integración lo cubre).
 - Respuestas de error genéricas («Correo o contraseña incorrectos»);
   nunca stack traces ni detalles internos.
+- Las APIs administrativas vuelven a comprobar en el servidor que la sesión
+  sea `ADMIN` y `ACTIVE`; la caché de roles en IndexedDB nunca concede acceso.
+- Las invitaciones de cuenta usan token aleatorio generado en servidor y solo
+  persisten su hash SHA-256. Se validan correo, expiración, revocación y uso
+  único. No son las invitaciones de compartir armario.
+- No hay borrado duro de cuentas desde la administración. Desactivar una
+  cuenta elimina sus sesiones; las restricciones de base de datos preservan al
+  menos un administrador activo y un máximo de dos.
 
 ## Cabeceras (next.config.ts)
 
@@ -83,6 +92,17 @@ a compilarse fuera de Turbopack, debe retirarse esta excepción.
 - `.env.local` ignorado por Git; `.env.example` sin valores reales.
 - Sin secretos en logs, commits, docs ni fixtures. `AUTH_SECRET` de E2E es
   un valor de prueba local explícito.
+- `SMTP_PASSWORD` es un secreto solo de servidor: nunca lleva prefijo
+  `NEXT_PUBLIC_`, no se expone a la UI ni se escribe en logs.
+
+## Correo y cambios de cuenta
+
+- `EMAIL_PROVIDER=disabled` es el predeterminado y no abre conexiones. El
+  modo `capture` guarda los mensajes para desarrollo/pruebas; solo `smtp`
+  conecta al proveedor configurado.
+- El cambio de correo exige reautenticación con la contraseña actual y rota
+  sesiones, pero aún no confirma la propiedad del nuevo buzón. La verificación
+  de correo es un requisito pendiente para producción.
 
 ## Gestión de errores
 

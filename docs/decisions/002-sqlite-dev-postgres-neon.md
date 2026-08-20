@@ -12,9 +12,10 @@ soporta ambos dialectos pero con APIs de driver distintas.
 - **Desarrollo**: `better-sqlite3` con fichero local `./data/my-closet.db`
   (creado e inicializado automáticamente; DDL idempotente en
   `src/server/db/index.ts`). `DATABASE_URL` vacía o `file:` → SQLite.
-- **Producción futura**: `DATABASE_URL=postgresql://…` (Neon) activa el
-  driver `postgres.js` y el esquema espejo `src/server/db/schema-pg.ts`
-  con migraciones de drizzle-kit.
+- **Producción futura**: `DATABASE_URL=postgresql://…` (Neon) será el
+  contrato del adaptador PostgreSQL y del esquema espejo
+  `src/server/db/schema-pg.ts`. El adaptador, sus migraciones y pruebas de
+  contrato siguen pendientes; configurar la URL hoy no habilita producción.
 - Ambos esquemas almacenan **fechas ISO 8601 como texto** y JSON como texto,
   para que la semántica de comparación de sync sea idéntica en ambos
   dialectos (comparación lexicográfica de `updatedAt`).

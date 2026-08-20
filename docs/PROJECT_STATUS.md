@@ -1,23 +1,23 @@
 # Estado del proyecto
 
-Fecha: 2026-08-19 · Rama base protegida: `main`; integración: `develop`.
+Fecha: 2026-08-20 · Rama base protegida: `main`; integración: `develop`.
 
 ## ✅ Completado
 
 | Área | Estado | Evidencia |
 |---|---|---|
 | Build / TS / Lint | ✅ | `pnpm build`, `pnpm typecheck`, `pnpm lint` en verde |
-| Tests unit + integración | ✅ | 48 tests Vitest, incluidos pipeline de imágenes, assets IMG.LY, proveedores y aislamiento de outbox |
-| Tests E2E | ✅ | 39 Playwright en verde y 3 skips intencionales; el modelo real opt-in pasa aparte en Chromium desktop |
-| Autenticación local | ✅ | registro/login/logout/sesión con cookie HttpOnly firmada; offline sin pérdida de datos |
+| Tests unit + integración | ✅ | 86 pruebas Vitest en verde, incluidas cuentas, administración, mail, imágenes y sync |
+| Tests E2E | ✅ | 53 Playwright aprobadas, 3 skips intencionales; el modelo real opt-in pasó en Chromium desktop |
+| Autenticación local | ✅ | registro/login/logout/sesión con cookie HttpOnly firmada, registro invite-only en producción y bootstrap ADMIN local/test |
 | Armario | ✅ | CRUD, archivar, clonar, búsqueda, filtros, categorías/colores personalizados y notas opcionales; talla/condición retiradas de la UI |
 | Conjuntos | ✅ | editor por categorías con ciclado, nombre/notas opcionales y fecha programable |
 | Calendario | ✅ | mes navegable, día seleccionable, marcar vestido y quitar entradas |
-| Sharing | ✅ | invitaciones VIEW/MANAGE con token, cambio de permiso, revocación; enlaces públicos por shareableId |
-| Perfil | ✅ | datos, estado de sync, sesión expirada, logout sin borrar datos, datos de ejemplo |
+| Sharing | 🟡 | creación, permiso y revocación de enlaces VIEW/MANAGE; la aceptación de la invitación de armario sigue pendiente |
+| Perfil y administración | ✅ | nombre, contraseña, correo, foto WebP sin quitar fondo, cuentas, invitaciones y desactivación desde Perfil |
 | Imágenes | ✅ | EXIF→resize→WebP y eliminación de fondo ONNX opcional en workers one-shot, assets self-hosted, subida local |
 | PWA | ✅ | manifest + iconos + SW (precache shell, estrategias por tipo, actualización controlada, Background Sync) |
-| Offline-first | ✅ | IndexedDB fuente de la UI, outbox, reconexión → «Sincronizado» (E2E) |
+| Offline-first | ✅ | IndexedDB fuente de la UI, outbox y reconexión a estado sincronizado |
 | Seguridad | ✅ | CSP y cabeceras, rate limit, validación Zod, IDOR protegido, secretos fuera de Git |
 | Docs | ✅ | README, AGENTS.md, docs/ completa, 7 ADRs, PRs locales |
 
@@ -30,9 +30,9 @@ desactivados y no se consideran implementados. Ver `docs/EXTERNAL_SERVICES_SETUP
 ## Limitaciones conocidas
 
 1. **Fotos en enlaces públicos**: la página pública `/share/...` muestra los
-   metadatos; las miniaturas requieren que la imagen del propietario esté
-   en el almacenamiento del servidor (sube con el sync online). Con
-   Cloudinary activo quedará completo.
+    metadatos; las miniaturas requieren que la imagen del propietario esté
+    en el almacenamiento del servidor (sube con el sync online). Cloudinary no
+    es una solución disponible aún: permanece desactivado hasta completarse.
 2. **Rate limiting en memoria**: adecuado a una instancia; en multi-instancia
    mover a almacén compartido (documentado en SECURITY.md).
 3. **Adaptador PostgreSQL pendiente**: existe el esquema PG, pero repositorios
@@ -43,6 +43,21 @@ desactivados y no se consideran implementados. Ver `docs/EXTERNAL_SERVICES_SETUP
    certificado y dispositivos con poca memoria pueden finalizar el worker.
 5. **Conflicto por campo**: LWW por entidad (documentado), no merge fino.
 6. **Iconos de notificaciones push**: no implementadas (fuera de alcance).
+7. **Cloudinary**: la abstracción existe, pero la subida directa y finalización
+   de producción no están completadas; permanece desactivado.
+8. **Verificación de correo**: cambiar correo reautentica y rota sesiones, pero
+   aún no confirma la propiedad del nuevo buzón.
+9. **Rate limiting distribuido**: el limitador actual es en memoria y no sirve
+   para múltiples instancias.
+
+## Notas de datos y acceso
+
+- Durante esta funcionalidad se vació intencionalmente la SQLite local. La
+  IndexedDB existente no se limpió: es almacenamiento por origen del navegador
+  y no se borra con una CLI del proyecto.
+- Las invitaciones de cuenta son independientes de los enlaces de compartir
+  armario. Las primeras son server-generated, hasheadas, expiran y son de un
+  uso; las acciones de administración y correo son solo online.
 
 ## Deuda técnica intencional
 

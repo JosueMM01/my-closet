@@ -27,11 +27,19 @@ pnpm dev          # → http://localhost:3000
 ```
 
 **No necesitas configurar nada**: sin variables de entorno la app usa
-SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. Regístrate
-con cualquier email/contraseña (cuenta local).
+SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. En desarrollo
+o pruebas el registro público está permitido por defecto; la primera cuenta de
+una base local vacía recibe el rol `ADMIN` en el slot 1. En producción el
+registro público está cerrado por defecto y solo se abre con
+`PUBLIC_REGISTRATION_ENABLED=true`.
 
-¿Quieres datos con foto al instante? Perfil → **«Cargar datos de ejemplo»**
-(10 prendas + 2 conjuntos + calendario; fotos Unsplash de uso local).
+La base SQLite local se vació intencionalmente durante la funcionalidad de
+cuentas y administración. Esto no borra IndexedDB: esa base pertenece a cada
+origen del navegador y no se limpia mediante la CLI del proyecto.
+
+El perfil permite cambiar nombre, contraseña, correo y foto. La foto se
+redimensiona y convierte a WebP en el navegador, sin eliminación de fondo.
+Ya no hay UI para cargar datos de demostración.
 
 ## Scripts principales
 
@@ -88,6 +96,7 @@ por eslint-config-next) soporta `<6.1.0`; 5.9.3 es la última estable
 - `docs/SYNC.md` — outbox, conflictos, cambio de dispositivo
 - `docs/AUTHENTICATION.md` — sesiones, cookies HttpOnly, offline
 - `docs/IMAGES.md` — pipeline en el navegador, Cloudinary
+- `docs/DEVELOPMENT.md` — entorno local, SQLite e IndexedDB
 - `docs/TESTING.md` — cómo ejecutar y qué cubre cada suite
 - `docs/SECURITY.md` — CSP, CSRF, rate limit, secretos
 - `docs/DEPLOYMENT.md` — checklist Vercel (sin ejecutar)

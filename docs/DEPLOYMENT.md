@@ -11,12 +11,18 @@
 ## Checklist previo a Vercel
 
 1. `pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` en verde.
-2. `DATABASE_URL` apuntando a Neon + migraciones aplicadas
-   (docs/EXTERNAL_SERVICES_SETUP.md §Neon).
+2. Adaptador Neon PostgreSQL y migraciones aplicadas y probadas; hoy es un
+   bloqueador, no basta con definir `DATABASE_URL`.
 3. `AUTH_SECRET` generado (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`).
 4. `NEXT_PUBLIC_APP_URL` con el dominio final.
-5. Variables opcionales de Cloudinary/Google si se desean.
-6. `git status` limpio; historia en `main` estable.
+5. Subida directa Cloudinary implementada, finalizada y probada si habrá fotos
+   en producción; hoy Cloudinary es un bloqueador y debe permanecer desactivado.
+6. Rate limiting distribuido y verificación de propiedad de correo.
+7. `EMAIL_PROVIDER=smtp` solo tras configurar un proveedor de producción y sus
+   secretos server-only; `disabled` sigue siendo seguro por defecto.
+8. Registro público cerrado, salvo decisión explícita mediante
+   `PUBLIC_REGISTRATION_ENABLED=true`.
+9. `git status` limpio; historia en `main` estable.
 
 ## En Vercel
 
@@ -28,5 +34,6 @@
 ## Nota
 
 Este proyecto se construyó **completamente local**; no se ha conectado
-ninguna cuenta ni ejecutado ningún deploy. Los pasos exactos están en
-docs/EXTERNAL_SERVICES_SETUP.md.
+ninguna cuenta ni ejecutado ningún deploy. Neon, Cloudinary, rate limiting
+distribuido y verificación de correo son bloqueadores explícitos de producción.
+Los pasos exactos están en docs/EXTERNAL_SERVICES_SETUP.md.
