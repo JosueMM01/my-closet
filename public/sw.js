@@ -14,7 +14,7 @@
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
@@ -29,6 +29,7 @@ const PRECACHE_URLS = [
   '/wardrobe/new',
   '/outfits',
   '/outfits/new',
+  '/outfits/suggestions',
   '/calendar',
   '/profile',
   OFFLINE_URL,

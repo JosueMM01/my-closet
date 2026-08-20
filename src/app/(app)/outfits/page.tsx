@@ -32,14 +32,24 @@ export default function OutfitsPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-heading text-2xl">Conjuntos</h1>
-        <Link href="/outfits/new">
-          <Button data-testid="new-outfit">
-            <PlusIcon size={18} />
-            Nuevo
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/outfits/suggestions"
+            data-testid="outfit-suggestions"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-text-primary hover:bg-surface-alt"
+          >
+            <SparklesIcon size={18} />
+            Inspirarme
+          </Link>
+          <Link href="/outfits/new">
+            <Button data-testid="new-outfit">
+              <PlusIcon size={18} />
+              Nuevo
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {data === undefined ? (
