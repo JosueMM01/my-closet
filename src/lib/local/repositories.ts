@@ -95,6 +95,7 @@ export async function createGarment(userId: string, input: GarmentInputDraft): P
     washingInstructions: data.washingInstructions,
     dateAcquired: data.dateAcquired,
     archived: data.archived,
+    favorite: data.favorite,
     photoId: data.photoId,
   };
   return persistAndEnqueue('garment', garment, 'upsert');
@@ -118,6 +119,16 @@ export async function updateGarment(id: string, patch: Partial<GarmentInputDraft
 
 export async function archiveGarment(id: string, archived: boolean): Promise<Garment | null> {
   return updateGarment(id, { archived });
+}
+
+export async function setGarmentFavorite(id: string, favorite: boolean): Promise<Garment | null> {
+  return updateGarment(id, { favorite });
+}
+
+export async function toggleGarmentFavorite(id: string): Promise<Garment | null> {
+  const existing = await getDB().garments.get(id);
+  if (!existing || existing.deletedAt) return null;
+  return setGarmentFavorite(id, !existing.favorite);
 }
 
 export async function cloneGarment(id: string): Promise<Garment | null> {
@@ -165,6 +176,7 @@ function toGarmentInput(g: Garment): GarmentInput {
     washingInstructions: g.washingInstructions,
     dateAcquired: g.dateAcquired,
     archived: g.archived,
+    favorite: g.favorite,
     photoId: g.photoId,
   };
 }

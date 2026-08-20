@@ -10,10 +10,17 @@
 import type {
   CalendarEntry,
   Garment,
+  ImageRecord,
   OutboxOperation,
   Outfit,
   WardrobeShare,
 } from '@/lib/domain/types';
+import {
+  imageUploadResponseSchema,
+  remoteImageMetadataSchema,
+  syncPullResponseSchema,
+  type RemoteImageMetadata,
+} from '@/lib/domain/validation';
 import { z } from 'zod';
 import { getDB, readSyncStats, writeLastSyncedAt } from './db';
 import { getLocalProfile } from './kv';
@@ -92,14 +99,6 @@ interface PushResponse {
   results: PushOperationResult[];
 }
 
-interface PullResponse {
-  serverTime: string;
-  garments?: Garment[];
-  outfits?: Outfit[];
-  calendarEntries?: CalendarEntry[];
-  wardrobeShares?: WardrobeShare[];
-}
-
 async function pushBatch(ops: OutboxOperation[]): Promise<void> {
   const response = await fetch('/api/sync/push', {
     method: 'POST',
@@ -173,30 +172,53 @@ async function applyRemote(
   }
 }
 
+export async function applyRemoteImageMetadata(remote: RemoteImageMetadata): Promise<boolean> {
+  const db = getDB();
+  const metadata = remoteImageMetadataSchema.parse(remote);
+  const existing = await db.images.get(metadata.id);
+  if (existing && existing.userId !== metadata.userId) return false;
+  const merged: ImageRecord = {
+    ...metadata,
+    blob: existing?.blob ?? null,
+    syncStatus: 'synced',
+  };
+  await db.images.put(merged);
+  return true;
+}
+
+/** Sube una imagen procesada concreta; reutilizable por futuras fotos de perfil. */
+export async function uploadProcessedImage(imageId: string, userId: string): Promise<boolean> {
+  const db = getDB();
+  const image = await db.images.get(imageId);
+  if (!image || image.userId !== userId || !image.blob || image.width === null || image.height === null) {
+    return false;
+  }
+  const form = new FormData();
+  form.append('id', image.id);
+  form.append('width', String(image.width));
+  form.append('height', String(image.height));
+  form.append('file', image.blob, `${image.id}.webp`);
+  const response = await fetch('/api/images', {
+    method: 'POST',
+    headers: { 'x-requested-with': 'my-closet' },
+    body: form,
+  });
+  if (response.status === 401) throw new SessionExpiredError();
+  if (!response.ok) {
+    await db.images.put({ ...image, syncStatus: 'failed' });
+    return false;
+  }
+  const uploaded = imageUploadResponseSchema.parse(await response.json());
+  await applyRemoteImageMetadata(uploaded.image);
+  return true;
+}
+
 async function pushPendingImages(userId: string): Promise<void> {
   const db = getDB();
   const pending = (await db.images.where('syncStatus').anyOf(['pending', 'failed']).toArray())
     .filter((image) => image.userId === userId);
   for (const image of pending) {
-    if (!image.blob) continue;
-    const form = new FormData();
-    form.append('id', image.id);
-    form.append('file', image.blob, `${image.id}.webp`);
-    const response = await fetch('/api/images', {
-      method: 'POST',
-      headers: { 'x-requested-with': 'my-closet' },
-      body: form,
-    });
-    if (response.status === 401) throw new SessionExpiredError();
-    if (!response.ok) {
-      await db.images.put({
-        ...image,
-        syncStatus: 'failed',
-      });
-      continue;
-    }
-    const { remoteUrl } = (await response.json()) as { remoteUrl: string };
-    await db.images.put({ ...image, remoteUrl, syncStatus: 'synced' });
+    await uploadProcessedImage(image.id, userId);
   }
 }
 
@@ -211,11 +233,12 @@ async function pull(): Promise<void> {
   if (response.status === 401) throw new SessionExpiredError();
   if (!response.ok) throw new Error(`pull HTTP ${response.status}`);
 
-  const data = (await response.json()) as PullResponse;
-  for (const garment of data.garments ?? []) await applyRemoteGarment(garment);
-  for (const outfit of data.outfits ?? []) await applyRemoteOutfit(outfit);
-  for (const entry of data.calendarEntries ?? []) await applyRemoteCalendarEntry(entry);
-  for (const share of data.wardrobeShares ?? []) await applyRemoteWardrobeShare(share);
+  const data = syncPullResponseSchema.parse(await response.json());
+  for (const image of data.images) await applyRemoteImageMetadata(image);
+  for (const garment of data.garments) await applyRemoteGarment(garment);
+  for (const outfit of data.outfits) await applyRemoteOutfit(outfit);
+  for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
+  for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
 
   const state = (await db.kv.get('sync-state'))?.value as object | undefined;
   await db.kv.put({
@@ -236,6 +259,7 @@ export async function runSync(): Promise<void> {
   try {
     await assertRemoteSession(profile.userId);
     await releaseStaleSyncing(profile.userId);
+    await pushPendingImages(profile.userId);
 
     // Push por lotes hasta agotar la outbox.
     for (;;) {
@@ -243,8 +267,6 @@ export async function runSync(): Promise<void> {
       if (batch.length === 0) break;
       await pushBatch(batch);
     }
-
-    await pushPendingImages(profile.userId);
     await pull();
     await writeLastSyncedAt(new Date().toISOString());
   } finally {

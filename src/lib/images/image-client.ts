@@ -213,32 +213,14 @@ export async function saveGarmentPhoto(
     height: processed.height,
     byteSize: processed.blob.size,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     blob: processed.blob,
     remoteUrl: null,
+    storageProvider: 'local',
+    storageKey: null,
     syncStatus: 'pending',
   };
   await getDB().images.put(record);
   void maybeSync();
   return record;
-}
-
-const objectUrls = new Map<string, string>();
-
-export async function resolveImageUrl(imageId: string | null): Promise<string | null> {
-  if (!imageId) return null;
-  const cached = objectUrls.get(imageId);
-  if (cached) return cached;
-  const record = await getDB().images.get(imageId);
-  if (!record) return null;
-  const url = record.blob && record.blob.size > 0 ? URL.createObjectURL(record.blob) : record.remoteUrl;
-  if (url) objectUrls.set(imageId, url);
-  return url;
-}
-
-export function releaseImageUrl(imageId: string): void {
-  const url = objectUrls.get(imageId);
-  if (url) {
-    URL.revokeObjectURL(url);
-    objectUrls.delete(imageId);
-  }
 }

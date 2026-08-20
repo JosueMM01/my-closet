@@ -10,10 +10,25 @@ const optionalEnvString = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+const optionalHeaderSafeString = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.string().trim().min(1).max(1024).regex(/^[^\r\n]+$/, 'No se permiten saltos de línea').optional(),
+);
+
+const optionalSmtpPort = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.coerce.number().int().min(1).max(65_535).optional(),
+);
+
 const explicitBoolean = z
   .enum(['true', 'false'])
   .default('false')
   .transform((value) => value === 'true');
+
+const optionalExplicitBoolean = z
+  .enum(['true', 'false'])
+  .optional()
+  .transform((value) => (value === undefined ? undefined : value === 'true'));
 
 export const serverEnvSchema = z
   .object({
@@ -24,10 +39,18 @@ export const serverEnvSchema = z
     CLOUDINARY_API_KEY: optionalEnvString,
     CLOUDINARY_API_SECRET: optionalEnvString,
     GOOGLE_AUTH_ENABLED: explicitBoolean,
+    PUBLIC_REGISTRATION_ENABLED: optionalExplicitBoolean,
     GOOGLE_CLIENT_ID: optionalEnvString,
     GOOGLE_CLIENT_SECRET: optionalEnvString,
     AUTH_SECRET: optionalEnvString,
     NEXT_PUBLIC_APP_URL: optionalEnvString,
+    EMAIL_PROVIDER: z.enum(['disabled', 'capture', 'smtp']).default('disabled'),
+    EMAIL_FROM: optionalHeaderSafeString,
+    SMTP_HOST: optionalHeaderSafeString,
+    SMTP_PORT: optionalSmtpPort,
+    SMTP_SECURE: optionalExplicitBoolean,
+    SMTP_USER: optionalHeaderSafeString,
+    SMTP_PASSWORD: optionalHeaderSafeString,
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   })
   .superRefine((env, context) => {
@@ -84,7 +107,63 @@ export const serverEnvSchema = z
         });
       }
     }
-  });
+
+    const smtpConfiguration = [
+      env.EMAIL_FROM,
+      env.SMTP_HOST,
+      env.SMTP_PORT,
+      env.SMTP_SECURE,
+      env.SMTP_USER,
+      env.SMTP_PASSWORD,
+    ];
+    const smtpConfigurationCount = smtpConfiguration.filter(
+      (value) => value !== undefined,
+    ).length;
+    if (smtpConfigurationCount > 0 && smtpConfigurationCount < smtpConfiguration.length) {
+      context.addIssue({
+        code: 'custom',
+        message: 'La configuración SMTP debe proporcionarse como un grupo completo',
+        path: ['SMTP_HOST'],
+      });
+    }
+    if (env.EMAIL_PROVIDER === 'smtp' && smtpConfigurationCount === 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'EMAIL_PROVIDER=smtp requiere la configuración SMTP',
+        path: ['EMAIL_PROVIDER'],
+      });
+    }
+
+    let appUrlIsValid = false;
+    if (env.NEXT_PUBLIC_APP_URL) {
+      try {
+        const appUrl = new URL(env.NEXT_PUBLIC_APP_URL);
+        appUrlIsValid = appUrl.protocol === 'http:' || appUrl.protocol === 'https:';
+      } catch {
+        appUrlIsValid = false;
+      }
+      if (!appUrlIsValid) {
+        context.addIssue({
+          code: 'custom',
+          message: 'NEXT_PUBLIC_APP_URL debe ser una URL HTTP(S) válida',
+          path: ['NEXT_PUBLIC_APP_URL'],
+        });
+      }
+    }
+    if (env.EMAIL_PROVIDER === 'smtp' && !appUrlIsValid) {
+      context.addIssue({
+        code: 'custom',
+        message: 'EMAIL_PROVIDER=smtp requiere NEXT_PUBLIC_APP_URL',
+        path: ['NEXT_PUBLIC_APP_URL'],
+      });
+    }
+  })
+  .transform((env) => ({
+    ...env,
+    // Contrato: producción es invite-only salvo habilitación explícita.
+    PUBLIC_REGISTRATION_ENABLED:
+      env.PUBLIC_REGISTRATION_ENABLED ?? env.NODE_ENV !== 'production',
+  }));
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type DatabaseDialect = ServerEnv['DATABASE_PROVIDER'];
@@ -124,6 +203,10 @@ export function isGoogleEnabled(env: ServerEnv = getEnv()): boolean {
       env.GOOGLE_CLIENT_ID &&
       env.GOOGLE_CLIENT_SECRET,
   );
+}
+
+export function isPublicRegistrationEnabled(env: ServerEnv = getEnv()): boolean {
+  return env.PUBLIC_REGISTRATION_ENABLED;
 }
 
 export interface CloudinaryCredentials {

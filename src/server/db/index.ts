@@ -59,7 +59,7 @@ export async function createServerDB(env: ServerEnv): Promise<ServerDB> {
   raw.pragma('foreign_keys = ON');
 
   const db = drizzleSqlite({ client: raw, schema: sqliteSchema });
-  ensureSqliteSchema(db);
+  ensureSqliteSchema(db, raw);
   return { dialect: 'sqlite', sqlite: db, raw };
 }
 
@@ -74,14 +74,60 @@ export async function getServerDB(): Promise<ServerDB> {
  * DDL idempotente para SQLite local (equivalente en runtime a las
  * migraciones de drizzle-kit; PostgreSQL usará las migraciones SQL).
  */
-function ensureSqliteSchema(db: SqliteDB): void {
+function ensureSqliteSchema(
+  db: SqliteDB,
+  raw: import('better-sqlite3').Database,
+): void {
   db.run(sql`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    role TEXT NOT NULL DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')),
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISABLED')),
+    admin_slot INTEGER UNIQUE,
+    profile_image_id TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK ((role = 'ADMIN' AND status = 'ACTIVE' AND admin_slot IN (1, 2)) OR ((role <> 'ADMIN' OR status <> 'ACTIVE') AND admin_slot IS NULL))
   )`);
+  const userColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(users)').all().map((column) => column.name),
+  );
+  const missingUserColumns = [
+    ['role', "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'USER'"],
+    ['status', "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ['admin_slot', 'ALTER TABLE users ADD COLUMN admin_slot INTEGER'],
+    ['profile_image_id', 'ALTER TABLE users ADD COLUMN profile_image_id TEXT'],
+  ] as const;
+  for (const [name, ddl] of missingUserColumns) {
+    if (!userColumns.has(name)) raw.exec(ddl);
+  }
+  db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS users_admin_slot_unique ON users(admin_slot)`);
+  db.run(sql`CREATE TRIGGER IF NOT EXISTS users_admin_state_insert
+    BEFORE INSERT ON users
+    WHEN NOT (
+      (NEW.role = 'ADMIN' AND NEW.status = 'ACTIVE' AND NEW.admin_slot IN (1, 2))
+      OR ((NEW.role <> 'ADMIN' OR NEW.status <> 'ACTIVE') AND NEW.admin_slot IS NULL)
+    )
+    BEGIN SELECT RAISE(ABORT, 'Estado administrativo invalido'); END`);
+  db.run(sql`CREATE TRIGGER IF NOT EXISTS users_admin_state_update
+    BEFORE UPDATE OF role, status, admin_slot ON users
+    WHEN NOT (
+      (NEW.role = 'ADMIN' AND NEW.status = 'ACTIVE' AND NEW.admin_slot IN (1, 2))
+      OR ((NEW.role <> 'ADMIN' OR NEW.status <> 'ACTIVE') AND NEW.admin_slot IS NULL)
+    )
+    BEGIN SELECT RAISE(ABORT, 'Estado administrativo invalido'); END`);
+  db.run(sql`CREATE TRIGGER IF NOT EXISTS users_last_admin_update
+    BEFORE UPDATE OF role, status ON users
+    WHEN OLD.role = 'ADMIN' AND OLD.status = 'ACTIVE'
+      AND (NEW.role <> 'ADMIN' OR NEW.status <> 'ACTIVE')
+      AND (SELECT COUNT(*) FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE') <= 1
+    BEGIN SELECT RAISE(ABORT, 'No se puede quitar el ultimo administrador activo'); END`);
+  db.run(sql`CREATE TRIGGER IF NOT EXISTS users_last_admin_delete
+    BEFORE DELETE ON users
+    WHEN OLD.role = 'ADMIN' AND OLD.status = 'ACTIVE'
+      AND (SELECT COUNT(*) FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE') <= 1
+    BEGIN SELECT RAISE(ABORT, 'No se puede eliminar el ultimo administrador activo'); END`);
   db.run(sql`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -89,6 +135,20 @@ function ensureSqliteSchema(db: SqliteDB): void {
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS account_invitations (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('USER', 'ADMIN')),
+    created_by TEXT NOT NULL REFERENCES users(id),
+    expires_at TEXT NOT NULL,
+    accepted_at TEXT,
+    revoked_at TEXT,
+    accepted_by TEXT REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS account_invitations_email_idx ON account_invitations(email)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS account_invitations_created_by_idx ON account_invitations(created_by)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS garments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -102,12 +162,19 @@ function ensureSqliteSchema(db: SqliteDB): void {
     washing_instructions TEXT,
     date_acquired TEXT,
     archived INTEGER NOT NULL DEFAULT 0,
+    favorite INTEGER NOT NULL DEFAULT 0,
     photo_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     deleted_at TEXT
   )`);
+  const garmentColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(garments)').all().map((column) => column.name),
+  );
+  if (!garmentColumns.has('favorite')) {
+    raw.exec('ALTER TABLE garments ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
+  }
   db.run(sql`CREATE INDEX IF NOT EXISTS garments_user_idx ON garments(user_id)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS garments_updated_idx ON garments(updated_at)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS outfits (
@@ -157,11 +224,61 @@ function ensureSqliteSchema(db: SqliteDB): void {
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     mime_type TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
     byte_size INTEGER NOT NULL,
-    data BLOB NOT NULL,
+    data BLOB,
     remote_url TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    storage_provider TEXT NOT NULL DEFAULT 'local',
+    storage_key TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  const imageColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(images)').all().map((column) => column.name),
+  );
+  const missingImageColumns = [
+    ['width', 'ALTER TABLE images ADD COLUMN width INTEGER'],
+    ['height', 'ALTER TABLE images ADD COLUMN height INTEGER'],
+    ['storage_provider', "ALTER TABLE images ADD COLUMN storage_provider TEXT NOT NULL DEFAULT 'local'"],
+    ['storage_key', 'ALTER TABLE images ADD COLUMN storage_key TEXT'],
+    ['updated_at', "ALTER TABLE images ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"],
+  ] as const;
+  for (const [name, ddl] of missingImageColumns) {
+    if (!imageColumns.has(name)) raw.exec(ddl);
+  }
+  raw.exec("UPDATE images SET updated_at = created_at WHERE updated_at = '' OR updated_at IS NULL");
+  const imageDataColumn = raw
+    .prepare<[], { name: string; notnull: number }>('PRAGMA table_info(images)')
+    .all()
+    .find((column) => column.name === 'data');
+  if (imageDataColumn?.notnull === 1) {
+    raw.transaction(() => {
+      raw.exec('ALTER TABLE images RENAME TO images_before_nullable_data');
+      raw.exec(`CREATE TABLE images (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        mime_type TEXT NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        byte_size INTEGER NOT NULL,
+        data BLOB,
+        remote_url TEXT,
+        storage_provider TEXT NOT NULL DEFAULT 'local',
+        storage_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      raw.exec(`INSERT INTO images (
+        id, user_id, mime_type, width, height, byte_size, data, remote_url,
+        storage_provider, storage_key, created_at, updated_at
+      ) SELECT
+        id, user_id, mime_type, width, height, byte_size, data, remote_url,
+        storage_provider, storage_key, created_at, updated_at
+      FROM images_before_nullable_data`);
+      raw.exec('DROP TABLE images_before_nullable_data');
+    })();
+  }
 }
 
 export async function closeServerDB(): Promise<void> {

@@ -21,6 +21,10 @@ export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed';
 
 export type Permission = 'VIEW' | 'MANAGE';
 
+export type UserRole = 'USER' | 'ADMIN';
+
+export type UserStatus = 'ACTIVE' | 'DISABLED';
+
 export interface Garment extends SyncEntity {
   userId: string;
   /** Token público para compartir esta prenda sin login. */
@@ -35,6 +39,7 @@ export interface Garment extends SyncEntity {
   /** Fecha de adquisición YYYY-MM-DD. */
   dateAcquired: string | null;
   archived: boolean;
+  favorite: boolean;
   /** Referencia a la imagen procesada almacenada localmente o en la nube. */
   photoId: string | null;
 }
@@ -80,6 +85,33 @@ export interface LocalProfile {
   email: string;
   displayName: string;
   createdAt: string;
+  /** Solo informativo en el cliente; la autorización siempre ocurre en el servidor. */
+  role: UserRole;
+  profileImageId: string | null;
+}
+
+/** Read models privilegiados reemplazados desde las APIs de administración. */
+export interface AdminUserCache {
+  userId: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
+  role: UserRole;
+  status: UserStatus;
+  profileImageId: string | null;
+  adminSlot: 1 | 2 | null;
+}
+
+export interface AdminInvitationCache {
+  id: string;
+  email: string;
+  role: UserRole;
+  createdBy: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  acceptedBy: string | null;
+  createdAt: string;
 }
 
 /** Operación registrada en la outbox pendiente de sincronización. */
@@ -107,14 +139,18 @@ export interface ImageRecord {
   id: string;
   userId: string;
   mimeType: string;
-  width: number;
-  height: number;
+  /** Nullable para filas históricas creadas antes de sincronizar dimensiones. */
+  width: number | null;
+  height: number | null;
   byteSize: number;
   createdAt: string;
+  updatedAt: string;
   /** Blob WebP persistido en IndexedDB (solo cliente). */
   blob: Blob | null;
   /** URL remota cuando exista almacenamiento en nube. */
   remoteUrl: string | null;
+  storageProvider: 'local' | 'cloudinary';
+  storageKey: string | null;
   syncStatus: SyncStatus;
 }
 

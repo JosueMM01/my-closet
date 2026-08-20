@@ -5,6 +5,7 @@
 import { sql } from 'drizzle-orm';
 import {
   blob,
+  check,
   index,
   integer,
   sqliteTable,
@@ -12,13 +13,29 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
-export const users = sqliteTable('users', {
-  id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  displayName: text('display_name').notNull(),
-  passwordHash: text('password_hash').notNull(),
-  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull().unique(),
+    displayName: text('display_name').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: text('role', { enum: ['USER', 'ADMIN'] }).notNull().default('USER'),
+    status: text('status', { enum: ['ACTIVE', 'DISABLED'] }).notNull().default('ACTIVE'),
+    adminSlot: integer('admin_slot'),
+    profileImageId: text('profile_image_id'),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex('users_admin_slot_unique').on(table.adminSlot),
+    check('users_role_check', sql`${table.role} IN ('USER', 'ADMIN')`),
+    check('users_status_check', sql`${table.status} IN ('ACTIVE', 'DISABLED')`),
+    check(
+      'users_admin_state_check',
+      sql`((${table.role} = 'ADMIN' AND ${table.status} = 'ACTIVE' AND ${table.adminSlot} IN (1, 2)) OR ((${table.role} <> 'ADMIN' OR ${table.status} <> 'ACTIVE') AND ${table.adminSlot} IS NULL))`,
+    ),
+  ],
+);
 
 export const sessions = sqliteTable(
   'sessions',
@@ -31,6 +48,29 @@ export const sessions = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [index('sessions_user_idx').on(table.userId)],
+);
+
+export const accountInvitations = sqliteTable(
+  'account_invitations',
+  {
+    id: text('id').primaryKey(),
+    tokenHash: text('token_hash').notNull().unique(),
+    email: text('email').notNull(),
+    role: text('role', { enum: ['USER', 'ADMIN'] }).notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    expiresAt: text('expires_at').notNull(),
+    acceptedAt: text('accepted_at'),
+    revokedAt: text('revoked_at'),
+    acceptedBy: text('accepted_by').references(() => users.id),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index('account_invitations_email_idx').on(table.email),
+    index('account_invitations_created_by_idx').on(table.createdBy),
+    check('account_invitations_role_check', sql`${table.role} IN ('USER', 'ADMIN')`),
+  ],
 );
 
 export const garments = sqliteTable(
@@ -50,6 +90,7 @@ export const garments = sqliteTable(
     washingInstructions: text('washing_instructions'),
     dateAcquired: text('date_acquired'),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    favorite: integer('favorite', { mode: 'boolean' }).notNull().default(false),
     photoId: text('photo_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -135,8 +176,13 @@ export const images = sqliteTable('images', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   mimeType: text('mime_type').notNull(),
+  width: integer('width'),
+  height: integer('height'),
   byteSize: integer('byte_size').notNull(),
-  data: blob('data', { mode: 'buffer' }).notNull(), // blob binario
+  data: blob('data', { mode: 'buffer' }), // null cuando el proveedor remoto conserva el binario
   remoteUrl: text('remote_url'),
+  storageProvider: text('storage_provider', { enum: ['local', 'cloudinary'] }).notNull().default('local'),
+  storageKey: text('storage_key'),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 });

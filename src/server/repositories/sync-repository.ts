@@ -7,6 +7,7 @@ import { resolveConflict } from '@/lib/domain/conflict';
 import type {
   CalendarEntry,
   Garment,
+  ImageRecord,
   Outfit,
   WardrobeShare,
 } from '@/lib/domain/types';
@@ -22,6 +23,7 @@ type GarmentRow = typeof sqliteSchema.garments.$inferSelect;
 type OutfitRow = typeof sqliteSchema.outfits.$inferSelect;
 type CalendarRow = typeof sqliteSchema.calendarEntries.$inferSelect;
 type ShareRow = typeof sqliteSchema.wardrobeShares.$inferSelect;
+type ImageRow = typeof sqliteSchema.images.$inferSelect;
 
 function fromGarmentRow(row: GarmentRow): Garment {
   return {
@@ -37,12 +39,29 @@ function fromGarmentRow(row: GarmentRow): Garment {
     washingInstructions: row.washingInstructions,
     dateAcquired: row.dateAcquired,
     archived: row.archived,
+    favorite: row.favorite,
     photoId: row.photoId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     version: row.version,
     deletedAt: row.deletedAt,
     syncStatus: 'synced',
+  };
+}
+
+function fromImageRow(row: ImageRow): Omit<ImageRecord, 'blob' | 'syncStatus'> {
+  return {
+    id: row.id,
+    userId: row.userId,
+    mimeType: row.mimeType,
+    width: row.width,
+    height: row.height,
+    byteSize: row.byteSize,
+    remoteUrl: row.remoteUrl ?? `/api/images/${row.id}`,
+    storageProvider: row.storageProvider,
+    storageKey: row.storageKey,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -137,6 +156,7 @@ export async function upsertGarment(
     washingInstructions: garment.washingInstructions,
     dateAcquired: garment.dateAcquired,
     archived: garment.archived,
+    favorite: garment.favorite,
     photoId: garment.photoId,
     createdAt: garment.createdAt,
     updatedAt: garment.updatedAt,
@@ -261,6 +281,7 @@ export class OwnershipError extends Error {
 
 export interface PullResult {
   serverTime: string;
+  images: Omit<ImageRecord, 'blob' | 'syncStatus'>[];
   garments: Garment[];
   outfits: Outfit[];
   calendarEntries: CalendarEntry[];
@@ -274,7 +295,11 @@ export async function pullAll(
   const sqlite = await getSqlite();
   const cutoff = since ?? '0000-01-01T00:00:00.000Z';
 
-  const [garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
+  const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
+    sqlite
+      .select()
+      .from(sqliteSchema.images)
+      .where(and(eq(sqliteSchema.images.userId, userId), gt(sqliteSchema.images.updatedAt, cutoff))),
     sqlite
       .select()
       .from(sqliteSchema.garments)
@@ -299,6 +324,7 @@ export async function pullAll(
 
   return {
     serverTime: new Date().toISOString(),
+    images: imageRows.map(fromImageRow),
     garments: garmentRows.map(fromGarmentRow),
     outfits: outfitRows.map(fromOutfitRow),
     calendarEntries: calendarRows.map(fromCalendarRow),

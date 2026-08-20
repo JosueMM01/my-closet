@@ -1,4 +1,4 @@
-import { loginSchema } from '@/lib/domain/validation';
+import { authResponseSchema, loginSchema } from '@/lib/domain/validation';
 import { verifyPassword } from '@/server/auth/password';
 import { rateLimit } from '@/server/auth/rate-limit';
 import { createSession } from '@/server/auth/session';
@@ -23,12 +23,22 @@ export async function POST(request: Request) {
 
   const user = await findUserByEmail(parsed.data.email);
   const valid = user ? await verifyPassword(parsed.data.password, user.passwordHash) : false;
-  if (!user || !valid) {
+  if (!user || !valid || user.status !== 'ACTIVE') {
     return jsonError(401, 'Correo o contraseña incorrectos');
   }
 
   await createSession(user.id);
-  return jsonOk({
-    profile: { userId: user.id, email: user.email, displayName: user.displayName, createdAt: user.createdAt },
-  });
+  return jsonOk(
+    authResponseSchema.parse({
+      profile: {
+        userId: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        createdAt: user.createdAt,
+        role: user.role,
+        status: user.status,
+        profileImageId: user.profileImageId,
+      },
+    }),
+  );
 }

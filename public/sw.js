@@ -7,14 +7,14 @@
  *  - /api/images/*: CacheFirst (fotos procesadas, inmutables por id).
  *  - Modelo local IMG.LY: CacheFirst dedicado, no forma parte del precache.
  *  - Otros GET same-origin: StaleWhileRevalidate.
- *  - API de datos (/api/sync, /api/auth) y /api/images/sign: siempre red; el sync engine
+ *  - API de datos/cuenta/admin y /api/images/sign: siempre red; el sync engine
  *    reintenta con outbox — nunca se pierden operaciones.
  *
  * Actualización controlada: nueva versión espera SKIP_WAITING (mensaje
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
@@ -137,7 +137,12 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   // API de datos: siempre red (el sync engine gestiona reintentos).
-  if (url.pathname.startsWith('/api/sync') || url.pathname.startsWith('/api/auth')) {
+  if (
+    url.pathname.startsWith('/api/sync') ||
+    url.pathname.startsWith('/api/auth') ||
+    url.pathname.startsWith('/api/profile') ||
+    url.pathname.startsWith('/api/admin')
+  ) {
     return;
   }
 

@@ -8,6 +8,7 @@ import {
   upsertOutfit,
 } from '@/server/repositories/sync-repository';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
+import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
 
 const USER_A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const USER_B = 'aaaaaaaa-0000-4000-8000-000000000002';
@@ -27,6 +28,7 @@ function makeGarment(overrides: Partial<Garment> = {}): Garment {
     washingInstructions: null,
     dateAcquired: '2026-01-15',
     archived: false,
+    favorite: false,
     photoId: null,
     createdAt: now,
     updatedAt: now,
@@ -79,6 +81,15 @@ describe('repositorio de sincronización (SQLite)', () => {
     }
   });
 
+  it('conserva favorita en el roundtrip de servidor', async () => {
+    await seedUsers();
+    const garment = makeGarment({ favorite: true });
+    await upsertGarment(USER_A, garment);
+
+    const pulled = await pullAll(USER_A, null);
+    expect(pulled.garments[0]?.favorite).toBe(true);
+  });
+
   it('pull trae entidades actualizadas después de `since`', async () => {
     await seedUsers();
     const g1 = makeGarment({ id: 'bbbbbbbb-0000-4000-8000-0000000000a1' });
@@ -126,6 +137,52 @@ describe('repositorio de sincronización (SQLite)', () => {
     await upsertGarment(USER_A, makeGarment());
     const pulledB = await pullAll(USER_B, null);
     expect(pulledB.garments).toHaveLength(0);
+  });
+
+  it('filtra metadatos de imagen por propietario y nunca incluye binario', async () => {
+    await seedUsers();
+    const storage = getImageStorage();
+    const data = Buffer.from('RIFFxxxxWEBPpayload');
+    await storage.put({
+      id: 'dddddddd-0000-4000-8000-000000000001',
+      userId: USER_A,
+      data,
+      mimeType: 'image/webp',
+      width: 40,
+      height: 50,
+    });
+    await storage.put({
+      id: 'dddddddd-0000-4000-8000-000000000002',
+      userId: USER_B,
+      data,
+      mimeType: 'image/webp',
+      width: 60,
+      height: 70,
+    });
+
+    const pulled = await pullAll(USER_A, null);
+    expect(pulled.images).toHaveLength(1);
+    expect(pulled.images[0]).toMatchObject({ userId: USER_A, width: 40, height: 50 });
+    expect(JSON.stringify(pulled)).not.toContain('payload');
+    expect(pulled.images[0]).not.toHaveProperty('data');
+  });
+
+  it('nunca reasigna un id de imagen existente a otro usuario', async () => {
+    await seedUsers();
+    const storage = getImageStorage();
+    const input = {
+      id: 'dddddddd-0000-4000-8000-000000000003',
+      userId: USER_A,
+      data: Buffer.from('RIFFxxxxWEBPpayload'),
+      mimeType: 'image/webp',
+      width: 40,
+      height: 50,
+    };
+    await storage.put(input);
+
+    await expect(storage.put({ ...input, userId: USER_B })).rejects.toBeInstanceOf(ImageOwnershipError);
+    expect((await pullAll(USER_A, null)).images).toHaveLength(1);
+    expect((await pullAll(USER_B, null)).images).toHaveLength(0);
   });
 });
 

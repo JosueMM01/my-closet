@@ -6,6 +6,7 @@ const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false, // flujos con estado compartido (IndexedDB/SQLite)
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: {
@@ -27,6 +28,10 @@ export default defineConfig({
       NODE_ENV: 'production',
       // Secreto de prueba exclusivo del servidor E2E local.
       AUTH_SECRET: 'e2e-local-only-auth-secret',
+      PUBLIC_REGISTRATION_ENABLED: 'true',
+      DATABASE_URL: 'file:./data/my-closet-e2e.db',
+      EMAIL_PROVIDER: 'capture',
+      NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}`,
       // La suite registra muchos usuarios desde 127.0.0.1: límite elevado.
       AUTH_RATE_LIMIT_REGISTER: '500',
     },

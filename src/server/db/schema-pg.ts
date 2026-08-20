@@ -8,6 +8,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
   pgTable,
@@ -16,15 +17,31 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-export const users = pgTable('users', {
-  id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  displayName: text('display_name').notNull(),
-  passwordHash: text('password_hash').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull().unique(),
+    displayName: text('display_name').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: text('role').notNull().default('USER'),
+    status: text('status').notNull().default('ACTIVE'),
+    adminSlot: integer('admin_slot'),
+    profileImageId: text('profile_image_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    uniqueIndex('users_admin_slot_unique').on(table.adminSlot),
+    check('users_role_check', sql`${table.role} IN ('USER', 'ADMIN')`),
+    check('users_status_check', sql`${table.status} IN ('ACTIVE', 'DISABLED')`),
+    check(
+      'users_admin_state_check',
+      sql`((${table.role} = 'ADMIN' AND ${table.status} = 'ACTIVE' AND ${table.adminSlot} IN (1, 2)) OR ((${table.role} <> 'ADMIN' OR ${table.status} <> 'ACTIVE') AND ${table.adminSlot} IS NULL))`,
+    ),
+  ],
+);
 
 export const sessions = pgTable(
   'sessions',
@@ -39,6 +56,31 @@ export const sessions = pgTable(
       .default(sql`now()`),
   },
   (table) => [index('sessions_user_idx').on(table.userId)],
+);
+
+export const accountInvitations = pgTable(
+  'account_invitations',
+  {
+    id: text('id').primaryKey(),
+    tokenHash: text('token_hash').notNull().unique(),
+    email: text('email').notNull(),
+    role: text('role').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    acceptedBy: text('accepted_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    index('account_invitations_email_idx').on(table.email),
+    index('account_invitations_created_by_idx').on(table.createdBy),
+    check('account_invitations_role_check', sql`${table.role} IN ('USER', 'ADMIN')`),
+  ],
 );
 
 export const garments = pgTable(
@@ -58,6 +100,7 @@ export const garments = pgTable(
     washingInstructions: text('washing_instructions'),
     dateAcquired: text('date_acquired'),
     archived: boolean('archived').notNull().default(false),
+    favorite: boolean('favorite').notNull().default(false),
     photoId: text('photo_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -143,10 +186,17 @@ export const images = pgTable('images', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   mimeType: text('mime_type').notNull(),
+  width: integer('width'),
+  height: integer('height'),
   byteSize: integer('byte_size').notNull(),
-  data: text('data').notNull(), // base64 cuando no hay adaptador externo
+  data: text('data'), // base64 solo para proveedores que almacenan binario en BD
   remoteUrl: text('remote_url'),
+  storageProvider: text('storage_provider').notNull().default('local'),
+  storageKey: text('storage_key'),
   createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .default(sql`now()`),
 });
