@@ -14,6 +14,7 @@ import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants
 import { GarmentPhoto } from '@/components/garment-photo';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui';
+import { FavoriteButton } from '@/components/favorite-button';
 import {
   ArchiveIcon,
   ArrowLeftIcon,
@@ -88,6 +89,11 @@ export default function GarmentDetailPage() {
           <ArrowLeftIcon size={20} />
         </button>
         <div className="flex gap-1">
+          <FavoriteButton
+            garmentId={garment.id}
+            favorite={garment.favorite}
+            className="hover:bg-primary-soft"
+          />
           <button
             type="button"
             onClick={handleClone}

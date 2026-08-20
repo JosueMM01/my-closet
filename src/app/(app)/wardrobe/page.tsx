@@ -89,6 +89,13 @@ export default function WardrobePage() {
         >
           Todas
         </Chip>
+        <Chip
+          active={filters.favoriteOnly}
+          onClick={() => update({ favoriteOnly: !filters.favoriteOnly })}
+          className={filters.favoriteOnly ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt'}
+        >
+          Favoritas
+        </Chip>
         {options.categories.map((category) => (
           <Chip
             key={category}
@@ -162,7 +169,12 @@ export default function WardrobePage() {
           {filterCount > (filters.category ? 1 : 0) && (
             <button
               type="button"
-              onClick={() => setFilters({ ...EMPTY_FILTERS, showArchived: filters.showArchived, category: filters.category })}
+              onClick={() => setFilters({
+                ...EMPTY_FILTERS,
+                showArchived: filters.showArchived,
+                category: filters.category,
+                favoriteOnly: filters.favoriteOnly,
+              })}
               className="text-sm font-semibold text-primary hover:text-primary-hover"
             >
               Limpiar filtros adicionales

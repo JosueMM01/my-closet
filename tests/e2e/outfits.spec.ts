@@ -62,6 +62,7 @@ test.describe('Conjuntos y calendario', () => {
     const today = new Date().toISOString().slice(0, 10);
     await page.getByLabel('Programar en el calendario', { exact: false }).fill(today);
     await page.getByTestId('save-outfit').click();
+    await expect(page.getByTestId('outfit-name')).toContainText('Finde');
 
     await page.goto('/calendar');
     await waitForHydration(page);
@@ -79,6 +80,7 @@ test.describe('Conjuntos y calendario', () => {
     const today = new Date().toISOString().slice(0, 10);
     await page.getByLabel('Programar en el calendario', { exact: false }).fill(today);
     await page.getByTestId('save-outfit').click();
+    await expect(page.getByTestId('outfit-name')).toContainText('Cena');
 
     await page.goto('/calendar');
     await waitForHydration(page);

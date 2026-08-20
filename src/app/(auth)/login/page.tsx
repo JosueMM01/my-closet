@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AuthError, login } from '@/lib/auth/client';
+import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 
@@ -15,16 +15,22 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [publicRegistration, setPublicRegistration] = useState(false);
 
   useEffect(() => {
     if (!loading && profile) router.replace('/');
   }, [loading, profile, router]);
 
   useEffect(() => {
-    void fetch('/api/auth/providers')
-      .then((r) => (r.ok ? r.json() : { google: false }))
-      .then((d: { google: boolean }) => setGoogleEnabled(d.google))
-      .catch(() => setGoogleEnabled(false));
+    void fetchAuthProviders()
+      .then((providers) => {
+        setGoogleEnabled(providers.google);
+        setPublicRegistration(providers.publicRegistration);
+      })
+      .catch(() => {
+        setGoogleEnabled(false);
+        setPublicRegistration(false);
+      });
   }, []);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -122,11 +128,14 @@ export default function LoginPage() {
               <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
                 Entrar
               </Button>
-              <Link href="/register" className="w-full">
-                <Button type="button" variant="secondary" size="lg" className="w-full bg-transparent font-medium text-[15px] border-border hover:bg-surface-alt">
+              {publicRegistration ? (
+                <Link
+                  href="/register"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
+                >
                   Crear cuenta
-                </Button>
-              </Link>
+                </Link>
+              ) : null}
             </div>
 
             {googleEnabled && (

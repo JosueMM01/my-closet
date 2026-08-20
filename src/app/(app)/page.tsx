@@ -12,6 +12,8 @@ import { wardrobeStats } from '@/lib/local/queries';
 import type { CalendarEntry, Garment, Outfit } from '@/lib/domain/types';
 import { GarmentPhoto } from '@/components/garment-photo';
 import { CalendarIcon, HangerIcon, SparklesIcon } from '@/components/icons';
+import { FavoriteButton } from '@/components/favorite-button';
+import { ProfileAvatar } from '@/components/profile-avatar';
 
 export default function HomePage() {
   const { profile } = useSession();
@@ -25,7 +27,7 @@ export default function HomePage() {
         db.outfits.where('userId').equals(profile.userId).toArray(),
         db.calendarEntries.where('userId').equals(profile.userId).toArray(),
       ]);
-      garments.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      garments.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       outfits.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       return { garments, outfits, entries };
     },
@@ -46,9 +48,11 @@ export default function HomePage() {
     <div className="space-y-7">
       <div className="flex items-center justify-between pt-1">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-full bg-[#8F5B66] text-lg font-bold text-white shadow-sm">
-            {profile.displayName ? profile.displayName.charAt(0).toUpperCase() : 'J'}
-          </div>
+          <ProfileAvatar
+            imageId={profile.profileImageId}
+            displayName={profile.displayName}
+            className="h-13 w-13 shadow-sm"
+          />
           <h1 className="text-[28px] font-bold tracking-tight text-text-primary" data-testid="home-greeting">
             Hola, {profile.displayName.split(' ')[0]}
           </h1>
@@ -134,15 +138,22 @@ export default function HomePage() {
         {recentGarments.length > 0 ? (
           <div className="grid grid-cols-2 gap-4">
             {recentGarments.map(garment => (
-              <Link href={`/wardrobe/${garment.id}`} key={garment.id} className="card-surface p-3 transition-shadow hover:shadow-card flex flex-col rounded-2xl">
-                <div className="aspect-[4/5] bg-[#F3EFEA] rounded-xl mb-3 relative overflow-hidden flex items-center justify-center">
-                  <GarmentPhoto imageId={garment.photoId} alt={garment.name ?? ''} className="w-full h-full object-cover" iconSize={24} />
-                </div>
-                <h3 className="font-medium text-[13px] text-text-primary truncate">{garment.name}</h3>
-                <p className="text-[11px] text-text-muted mt-0.5">
-                  Añadida el {new Date(garment.createdAt).toLocaleDateString('es-ES')}
-                </p>
-              </Link>
+              <article key={garment.id} className="card-surface relative rounded-2xl transition-shadow hover:shadow-card">
+                <Link href={`/wardrobe/${garment.id}`} className="flex flex-col p-3">
+                  <div className="aspect-[4/5] bg-[#F3EFEA] rounded-xl mb-3 relative overflow-hidden flex items-center justify-center">
+                    <GarmentPhoto imageId={garment.photoId} alt={garment.name ?? ''} className="w-full h-full object-cover" iconSize={24} />
+                  </div>
+                  <h3 className="pr-9 font-medium text-[13px] text-text-primary truncate">{garment.name}</h3>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Añadida el {new Date(garment.createdAt).toLocaleDateString('es-ES')}
+                  </p>
+                </Link>
+                <FavoriteButton
+                  garmentId={garment.id}
+                  favorite={garment.favorite}
+                  className="absolute bottom-1 right-1 hover:bg-primary-soft"
+                />
+              </article>
             ))}
           </div>
         ) : (
