@@ -15,7 +15,9 @@ pnpm dev            # http://localhost:3000
 ```
 
 No se necesita ninguna variable de entorno: la base de datos es SQLite en
-`./data/my-closet.db` (se crea sola) y las imágenes se guardan localmente.
+`./data/my-closet.db` (se crea sola) y las imágenes se guardan localmente. El
+registro público está permitido por defecto en desarrollo/pruebas; el primer
+registro con SQLite vacía crea el `ADMIN` del slot 1.
 
 ## Scripts
 
@@ -36,16 +38,28 @@ Primera vez con Playwright:
 PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chromium
 ```
 
-## Datos de ejemplo
+## Datos locales
 
-Perfil → «Cargar datos de ejemplo»: crea 10 prendas con foto (public/demo,
-Unsplash), 2 outfits y una entrada de calendario. Todo pasa por el pipeline
-normal (procesamiento WebP en el navegador incluido).
+La SQLite local se vació intencionalmente durante la funcionalidad de cuentas
+y administración. No equivale a limpiar la PWA: IndexedDB es por origen del
+navegador y la CLI no la elimina. La UI de datos de ejemplo fue retirada.
 
 ## Variables opcionales
 
-Ver `.env.example`. Todo funciona sin configurar nada; Cloudinary/Google
-activan funciones extra cuando existen sus variables.
+Ver `.env.example`. Todo funciona sin configurar nada; los selectores deben
+activarse de forma explícita. Ejemplos para `.env.local`:
+
+```dotenv
+# Abrir registro público de forma explícita en local/test.
+PUBLIC_REGISTRATION_ENABLED=true
+
+# Capturar correos sin conexión externa.
+EMAIL_PROVIDER=capture
+```
+
+Para SMTP con Gmail App Password, usar exactamente las variables documentadas
+en `docs/EXTERNAL_SERVICES_SETUP.md#correo-smtp`. `SMTP_PASSWORD` es solo de
+servidor. No activar Cloudinary ni SMTP en desarrollo normal.
 
 ## Estructura
 

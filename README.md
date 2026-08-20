@@ -1,6 +1,6 @@
 # My Closet
 
-Tu armario digital: prendas, outfits y calendario — **una PWA offline-first**
+Tu armario digital: prendas, conjuntos y calendario, **una PWA offline-first**
 que funciona siempre, con o sin conexión.
 
 Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-closet)
@@ -9,8 +9,8 @@ Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-clo
 ```
 UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──► backend
                                                                         │
-                                                    SQLite (hoy) / Neon PostgreSQL (preparado)
-                                                    imágenes: local (hoy) / Cloudinary (preparado)
+                                                    SQLite (hoy) / Neon PostgreSQL (contrato futuro)
+                                                    imágenes: local (hoy) / Cloudinary (contrato futuro)
 ```
 
 ## Requisitos
@@ -27,11 +27,19 @@ pnpm dev          # → http://localhost:3000
 ```
 
 **No necesitas configurar nada**: sin variables de entorno la app usa
-SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. Regístrate
-con cualquier email/contraseña (cuenta local).
+SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. En desarrollo
+o pruebas el registro público está permitido por defecto; la primera cuenta de
+una base local vacía recibe el rol `ADMIN` en el slot 1. En producción el
+registro público está cerrado por defecto y solo se abre con
+`PUBLIC_REGISTRATION_ENABLED=true`.
 
-¿Quieres datos con foto al instante? Perfil → **«Cargar datos de ejemplo»**
-(10 prendas + 2 outfits + calendario; fotos Unsplash de uso local).
+La base SQLite local se vació intencionalmente durante la funcionalidad de
+cuentas y administración. Esto no borra IndexedDB: esa base pertenece a cada
+origen del navegador y no se limpia mediante la CLI del proyecto.
+
+El perfil permite cambiar nombre, contraseña, correo y foto. La foto se
+redimensiona y convierte a WebP en el navegador, sin eliminación de fondo.
+Ya no hay UI para cargar datos de demostración.
 
 ## Scripts principales
 
@@ -51,7 +59,9 @@ PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chr
 
 ## Funciona sin servicios externos
 
-Neon, Cloudinary, Google Sign-In y Vercel están **preparados y desactivados**.
+Neon, Cloudinary, Google Sign-In y Vercel tienen selectores y contratos
+**preparados y desactivados**. Los adaptadores externos no se activan solo por
+encontrar credenciales y siguen pendientes de implementación/verificación.
 La app completa (auth local, sync contra SQLite, imágenes, PWA, offline)
 se desarrolla, prueba y demuestra sin ninguna cuenta externa. Para
 activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
@@ -70,6 +80,8 @@ activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
 | better-sqlite3 | 13.0.3 |
 | dexie / dexie-react-hooks | 4.4.5 / 4.4.0 |
 | zod | 4.4.3 |
+| @imgly/background-removal | 1.7.0 |
+| onnxruntime-web | 1.21.0 |
 | @playwright/test | 1.62.1 |
 | vitest | 4.1.10 |
 
@@ -84,6 +96,7 @@ por eslint-config-next) soporta `<6.1.0`; 5.9.3 es la última estable
 - `docs/SYNC.md` — outbox, conflictos, cambio de dispositivo
 - `docs/AUTHENTICATION.md` — sesiones, cookies HttpOnly, offline
 - `docs/IMAGES.md` — pipeline en el navegador, Cloudinary
+- `docs/DEVELOPMENT.md` — entorno local, SQLite e IndexedDB
 - `docs/TESTING.md` — cómo ejecutar y qué cubre cada suite
 - `docs/SECURITY.md` — CSP, CSRF, rate limit, secretos
 - `docs/DEPLOYMENT.md` — checklist Vercel (sin ejecutar)

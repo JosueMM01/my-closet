@@ -14,7 +14,8 @@ import {
   type ReactNode,
 } from 'react';
 import type { LocalProfile, SyncStats } from '@/lib/domain/types';
-import { getLocalProfile } from '@/lib/local/kv';
+import { getLocalProfile, setLocalProfile } from '@/lib/local/kv';
+import { sessionResponseSchema } from '@/lib/domain/validation';
 import {
   isSyncRunning,
   readSyncStats,
@@ -123,9 +124,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
           headers: { 'x-requested-with': 'my-closet' },
         });
         if (cancelled) return;
-        if (response.ok) {
-          const data = (await response.json()) as { authenticated: boolean };
-          if (!cancelled) setRemoteExpired(!data.authenticated);
+        if (!response.ok) return;
+        const parsed = sessionResponseSchema.safeParse(await response.json());
+        if (!parsed.success || cancelled) return;
+        setRemoteExpired(!parsed.data.authenticated);
+        if (parsed.data.authenticated) {
+          const remoteProfile: LocalProfile = {
+            userId: parsed.data.profile.userId,
+            email: parsed.data.profile.email,
+            displayName: parsed.data.profile.displayName,
+            createdAt: parsed.data.profile.createdAt,
+            role: parsed.data.profile.role,
+            profileImageId: parsed.data.profile.profileImageId,
+          };
+          const changed = JSON.stringify(remoteProfile) !== JSON.stringify(profile);
+          if (changed) {
+            await setLocalProfile(remoteProfile);
+            if (!cancelled) setProfile(remoteProfile);
+          }
         }
       } catch {
         // Sin conexión: estado normal, no es error.

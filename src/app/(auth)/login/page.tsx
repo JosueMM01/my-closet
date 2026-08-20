@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AuthError, login } from '@/lib/auth/client';
+import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 
@@ -15,16 +15,22 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [publicRegistration, setPublicRegistration] = useState(false);
 
   useEffect(() => {
     if (!loading && profile) router.replace('/');
   }, [loading, profile, router]);
 
   useEffect(() => {
-    void fetch('/api/auth/providers')
-      .then((r) => (r.ok ? r.json() : { google: false }))
-      .then((d: { google: boolean }) => setGoogleEnabled(d.google))
-      .catch(() => setGoogleEnabled(false));
+    void fetchAuthProviders()
+      .then((providers) => {
+        setGoogleEnabled(providers.google);
+        setPublicRegistration(providers.publicRegistration);
+      })
+      .catch(() => {
+        setGoogleEnabled(false);
+        setPublicRegistration(false);
+      });
   }, []);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -63,7 +69,7 @@ export default function LoginPage() {
           </div>
           <h1 className="font-heading text-4xl text-text-primary tracking-tight mb-1">My Closet</h1>
           <p className="text-lg text-text-secondary leading-snug">
-            Your personal<br />digital wardrobe.
+            Tu armario digital<br />siempre contigo.
           </p>
         </div>
       </div>
@@ -73,11 +79,11 @@ export default function LoginPage() {
         <div className="max-w-md mx-auto">
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div className="mb-6">
-              <h2 className="text-2xl font-semibold text-text-primary mb-1">Welcome back</h2>
-              <p className="text-sm text-text-secondary">Sign in to continue to your closet.</p>
+              <h2 className="text-2xl font-semibold text-text-primary mb-1">Te damos la bienvenida</h2>
+              <p className="text-sm text-text-secondary">Inicia sesión para entrar en tu armario.</p>
             </div>
 
-            <Field label="Email">
+            <Field label="Correo electrónico">
               <div className="relative">
                 <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7l8 5 8-5M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -87,7 +93,7 @@ export default function LoginPage() {
                   name="email"
                   autoComplete="email"
                   inputMode="email"
-                  placeholder="you@email.com"
+                  placeholder="tu@correo.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
@@ -95,7 +101,7 @@ export default function LoginPage() {
                 />
               </div>
             </Field>
-            <Field label="Password">
+            <Field label="Contraseña">
               <div className="relative">
                 <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -120,40 +126,35 @@ export default function LoginPage() {
             
             <div className="pt-2 flex flex-col gap-3">
               <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
-                Sign in
+                Entrar
               </Button>
-              <Link href="/register" className="w-full">
-                <Button type="button" variant="secondary" size="lg" className="w-full bg-transparent font-medium text-[15px] border-border hover:bg-surface-alt">
-                  Create account
-                </Button>
-              </Link>
+              {publicRegistration ? (
+                <Link
+                  href="/register"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
+                >
+                  Crear cuenta
+                </Link>
+              ) : null}
             </div>
 
             {googleEnabled && (
               <>
                 <div className="relative flex items-center py-2">
                   <div className="flex-grow border-t border-border"></div>
-                  <span className="mx-4 text-xs font-medium text-text-muted">OR</span>
+                  <span className="mx-4 text-xs font-medium text-text-muted">O</span>
                   <div className="flex-grow border-t border-border"></div>
                 </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="lg"
-                  className="w-full bg-transparent font-medium text-[15px] border-border hover:bg-surface-alt"
-                  disabled
+                <a
+                  href="/api/auth/google"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
                 >
-                  Continue with Google
-                </Button>
+                  Continuar con Google
+                </a>
               </>
             )}
           </form>
 
-          <div className="mt-6 text-center">
-            <Link href="#" className="text-sm font-medium text-primary hover:text-primary-hover transition-colors">
-              Forgot password?
-            </Link>
-          </div>
         </div>
       </div>
     </main>

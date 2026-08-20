@@ -1,30 +1,33 @@
 import type { NextConfig } from 'next';
 
 const isProd = process.env.NODE_ENV === 'production';
+const usesCloudinary = process.env.IMAGE_PROVIDER === 'cloudinary';
 
 /**
  * Cabeceras de seguridad aplicadas a todas las respuestas.
  *
  * Nota CSP: Next.js App Router necesita scripts inline para el bootstrap de
- * hidratación (self.__next_f). Se permite 'unsafe-inline' en script-src como
- * compromiso documentado (docs/SECURITY.md): la protección XSS principal
- * viene del escapado de React (sin dangerouslySetInnerHTML en el código) y
- * del resto de directivas. Con nonce por middleware las páginas dejarían de
- * ser estáticas; se evaluará en producción real.
+ * hidratación (self.__next_f). ONNX Runtime 1.21 también genera funciones para
+ * enlazar WASM dentro del worker blob de Turbopack. Por eso `unsafe-inline` y
+ * `unsafe-eval` son compromisos documentados en docs/SECURITY.md. Los orígenes
+ * de red permanecen cerrados y el código no usa dangerouslySetInnerHTML.
  */
 function securityHeaders(): Record<string, string> {
-  const cloudinaryHost = process.env.CLOUDINARY_CLOUD_NAME
-    ? ` https://res.cloudinary.com`
-    : '';
+  const cloudinaryImageHost = usesCloudinary ? ' https://res.cloudinary.com' : '';
+  const cloudinaryApiHost = usesCloudinary ? ' https://api.cloudinary.com' : '';
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'" + (isProd ? '' : " 'unsafe-eval'"),
+    // ONNX reconstruye su modulo ESM desde los chunks locales y lo importa
+    // mediante una URL blob dentro del worker.
+    "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: http://localhost:* https://localhost:*${cloudinaryHost}`,
+    `img-src 'self' data: blob: http://localhost:* https://localhost:*${cloudinaryImageHost}`,
     "font-src 'self' data:",
-    "connect-src 'self' https://api.cloudinary.com",
+    // El glue ESM de ONNX obtiene el WASM ensamblado desde otra URL blob.
+    `connect-src 'self' blob:${cloudinaryApiHost}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
+    "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -44,12 +47,25 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['better-sqlite3'],
   images: {
     // Las fotos de prendas se sirven como blobs locales o vía API propia.
-    remotePatterns: process.env.CLOUDINARY_CLOUD_NAME
+    remotePatterns: usesCloudinary
       ? [{ protocol: 'https', hostname: 'res.cloudinary.com' }]
       : [],
   },
   async headers() {
-    return [{ source: '/:path*', headers: Object.entries(securityHeaders()).map(([key, value]) => ({ key, value })) }];
+    return [
+      {
+        source: '/:path*',
+        headers: Object.entries(securityHeaders()).map(([key, value]) => ({ key, value })),
+      },
+      {
+        source: '/vendor/background-removal/1.7.0/:asset*',
+        headers: [{ key: 'cache-control', value: 'public, max-age=31536000, immutable' }],
+      },
+      {
+        source: '/sw.js',
+        headers: [{ key: 'cache-control', value: 'no-cache, no-store, must-revalidate' }],
+      },
+    ];
   },
 };
 

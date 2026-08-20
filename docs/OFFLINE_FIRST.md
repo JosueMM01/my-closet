@@ -13,13 +13,14 @@ locales; la red solo interviene en segundo plano para replicar.
 
 | Tienda | Contenido |
 |---|---|
-| `garments` | Prendas (con `syncStatus`, `version`, `deletedAt`) |
+| `garments` | Prendas (con `favorite`, `syncStatus`, `version`, `deletedAt`) |
 | `outfits` | Outfits con slots ordenados |
 | `calendarEntries` | Entradas de calendario (fecha, outfit, `wornAt`) |
 | `wardrobeShares` | Invitaciones de compartir armario |
 | `images` | Blobs WebP procesados + `remoteUrl` + estado de sync |
 | `outbox` | Operaciones pendientes (ver docs/SYNC.md) |
 | `kv` | Perfil local (sin secretos), estado de sync, preferencias |
+| `adminUsers`, `adminInvitations` | Caché de lectura de administración; no autoriza acciones de servidor |
 
 ## Service Worker (`public/sw.js`)
 
@@ -44,9 +45,20 @@ locales; la red solo interviene en segundo plano para replicar.
 - Crear/editar/eliminar: se aplica localmente y queda pendiente en la outbox.
 - El badge muestra `Sin conexión · N pendientes` — estado normal, no error.
 - Fotos: se procesan y guardan localmente; la subida queda pendiente.
+- Favoritas: el booleano de la prenda se actualiza localmente y queda en la
+  outbox como cualquier otra edición.
+- Administración de cuentas y envío de invitaciones: solo online. Sin conexión
+  se puede consultar la caché administrativa disponible, pero no mutarla.
 
 ## Sesión remota expirada estando offline
 
 No se borra nada. El perfil local permite usar la app; al intentar sincronizar
 con sesión inválida (401), la UI marca «sesión remota expirada» y pide
 re-login conservando datos y outbox (ver docs/AUTHENTICATION.md).
+
+## Datos locales y reinicios
+
+Durante esta funcionalidad se limpió intencionalmente la SQLite local
+`./data/my-closet.db`. IndexedDB no forma parte de esa operación: es
+almacenamiento por origen del navegador, persiste por separado y la CLI del
+proyecto no lo borra.

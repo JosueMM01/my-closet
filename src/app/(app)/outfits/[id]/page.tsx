@@ -70,9 +70,9 @@ export default function OutfitDetailPage() {
   if (!outfit || outfit.deletedAt) {
     return (
       <div className="mx-auto max-w-sm py-16 text-center">
-        <p className="text-text-secondary">Este outfit ya no existe.</p>
+        <p className="text-text-secondary">Este conjunto ya no existe.</p>
         <Button variant="secondary" className="mt-4" onClick={() => router.push('/outfits')}>
-          Ver outfits
+          Ver conjuntos
         </Button>
       </div>
     );
@@ -132,7 +132,7 @@ export default function OutfitDetailPage() {
           <button
             type="button"
             onClick={handleShare}
-            aria-label="Compartir outfit"
+            aria-label="Compartir conjunto"
             data-testid="share-outfit"
             className="flex h-11 w-11 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
           >
@@ -141,7 +141,7 @@ export default function OutfitDetailPage() {
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
-            aria-label="Eliminar outfit"
+            aria-label="Eliminar conjunto"
             data-testid="delete-outfit"
             className="flex h-11 w-11 items-center justify-center rounded-full text-danger hover:bg-danger/10"
           >
@@ -159,7 +159,7 @@ export default function OutfitDetailPage() {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={80}
                 autoFocus
-                aria-label="Nombre del outfit"
+                aria-label="Nombre del conjunto"
               />
               <Button size="md" onClick={saveName}>
                 Guardar
@@ -174,7 +174,7 @@ export default function OutfitDetailPage() {
               }}
               data-testid="outfit-name"
             >
-              {outfit.name ?? 'Outfit sin nombre'}
+              {outfit.name ?? 'Conjunto sin nombre'}
               <button
                 type="button"
                 onClick={() => {
@@ -279,8 +279,8 @@ export default function OutfitDetailPage() {
 
       <ConfirmDialog
         open={confirmDelete}
-        title="¿Eliminar outfit?"
-        message={`"${outfit.name ?? 'Este outfit'}" se eliminará. Las prendas no se ven afectadas.`}
+        title="¿Eliminar conjunto?"
+        message={`"${outfit.name ?? 'Este conjunto'}" se eliminará. Las prendas no se ven afectadas.`}
         onConfirm={handleDelete}
         onClose={() => setConfirmDelete(false)}
       />

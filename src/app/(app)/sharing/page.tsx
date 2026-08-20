@@ -68,7 +68,7 @@ export default function SharingPage() {
         <h2 className="mb-1 font-heading text-base">Nueva invitación</h2>
         <p className="mb-4 text-sm text-text-secondary">
           Genera un enlace para dar acceso a tu armario completo. Quien lo acepte podrá{' '}
-          {permission === 'VIEW' ? 'ver' : 'ver y gestionar'} tus prendas y outfits.
+          {permission === 'VIEW' ? 'ver' : 'ver y gestionar'} tus prendas y conjuntos.
         </p>
         <form onSubmit={handleInvite} className="space-y-4" noValidate>
           <Field label="Correo de la persona">

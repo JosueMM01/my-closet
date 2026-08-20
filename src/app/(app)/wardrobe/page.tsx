@@ -12,9 +12,9 @@ import {
   filterGarments,
   type WardrobeFilters,
 } from '@/lib/local/queries';
-import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS, SIZE_LABELS } from '@/lib/domain/constants';
+import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
 import { GarmentCard } from '@/components/garment-card';
-import { ArchiveIcon, HangerIcon, PlusIcon, SearchIcon, XIcon } from '@/components/icons';
+import { ArchiveIcon, HangerIcon, PlusIcon, SearchIcon } from '@/components/icons';
 import { Button, Chip, EmptyState, TextInput } from '@/components/ui';
 
 export default function WardrobePage() {
@@ -41,21 +41,24 @@ export default function WardrobePage() {
     <div>
       {/* Encabezado */}
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-4xl font-semibold tracking-tight text-text-primary">Closet</h1>
+        <div>
+          <h1 className="text-4xl font-semibold tracking-tight text-text-primary">Armario</h1>
+          <p className="mt-1 text-sm text-text-secondary" data-testid="wardrobe-count">
+            {filtered.length} {filtered.length === 1 ? 'prenda' : 'prendas'}
+          </p>
+        </div>
         <div className="flex gap-3 text-text-primary">
           <button
             type="button"
             onClick={() => setShowFilters((v) => !v)}
             aria-label="Filtros"
+            data-testid="wardrobe-filters-toggle"
             className="flex items-center justify-center relative hover:text-primary transition-colors"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
             {filterCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-primary" />
             )}
-          </button>
-          <button type="button" aria-label="Vista de cuadrícula" className="flex items-center justify-center hover:text-primary transition-colors">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
           </button>
         </div>
       </div>
@@ -68,7 +71,7 @@ export default function WardrobePage() {
         />
         <TextInput
           type="search"
-          placeholder="Search my closet"
+          placeholder="Buscar en mi armario"
           value={filters.keyword}
           onChange={(e) => update({ keyword: e.target.value })}
           className="pl-12 bg-surface-alt border-transparent rounded-full h-12 shadow-none focus:bg-surface focus:border-border"
@@ -84,7 +87,14 @@ export default function WardrobePage() {
           onClick={() => update({ category: null })}
           className={!filters.category ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt'}
         >
-          All
+          Todas
+        </Chip>
+        <Chip
+          active={filters.favoriteOnly}
+          onClick={() => update({ favoriteOnly: !filters.favoriteOnly })}
+          className={filters.favoriteOnly ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt'}
+        >
+          Favoritas
         </Chip>
         {options.categories.map((category) => (
           <Chip
@@ -118,23 +128,6 @@ export default function WardrobePage() {
                     aria-hidden
                   />
                   {COLOR_LABELS[color] ?? color}
-                </Chip>
-              ))}
-            </FilterRow>
-          )}
-
-          {options.sizes.length > 0 && (
-            <FilterRow label="Talla">
-              <Chip active={!filters.size} onClick={() => update({ size: null })}>
-                Todas
-              </Chip>
-              {options.sizes.map((size) => (
-                <Chip
-                  key={size}
-                  active={filters.size === size}
-                  onClick={() => update({ size: filters.size === size ? null : size })}
-                >
-                  {SIZE_LABELS[size] ?? size}
                 </Chip>
               ))}
             </FilterRow>
@@ -176,7 +169,12 @@ export default function WardrobePage() {
           {filterCount > (filters.category ? 1 : 0) && (
             <button
               type="button"
-              onClick={() => setFilters({ ...EMPTY_FILTERS, showArchived: filters.showArchived, category: filters.category })}
+              onClick={() => setFilters({
+                ...EMPTY_FILTERS,
+                showArchived: filters.showArchived,
+                category: filters.category,
+                favoriteOnly: filters.favoriteOnly,
+              })}
               className="text-sm font-semibold text-primary hover:text-primary-hover"
             >
               Limpiar filtros adicionales
@@ -196,7 +194,7 @@ export default function WardrobePage() {
         <EmptyState
           icon={<HangerIcon size={32} />}
           title="Tu armario está vacío"
-          description="Añade tu primera prenda para empezar a crear outfits."
+          description="Añade tu primera prenda para empezar a crear conjuntos."
           action={
             <Link href="/wardrobe/new">
               <Button data-testid="empty-add-garment">

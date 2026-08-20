@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createGarment, registerAndLogin, waitForHydration } from './helpers';
 
-test.describe('Wardrobe', () => {
+test.describe('Armario', () => {
   test('crear prenda y verla en el armario', async ({ page }) => {
     await registerAndLogin(page);
     await createGarment(page, 'Blusa de lino');
@@ -72,5 +72,26 @@ test.describe('Wardrobe', () => {
     await page.getByRole('button', { name: 'Calzado', exact: true }).click();
     await expect(page.getByTestId('wardrobe-count')).toContainText('1 prenda');
     await expect(page.getByTestId('garment-card').first()).toContainText('Botines');
+  });
+
+  test('favorita desde tarjeta no navega, persiste y filtra', async ({ page }) => {
+    await registerAndLogin(page);
+    await createGarment(page, 'Camisa favorita');
+    await createGarment(page, 'Camisa normal');
+    await page.goto('/wardrobe');
+    await waitForHydration(page);
+
+    const card = page.getByTestId('garment-card').filter({ hasText: 'Camisa favorita' });
+    const button = card.getByRole('button', { name: 'Añadir a favoritas' });
+    await button.click();
+    await expect(page).toHaveURL(/\/wardrobe$/);
+    await expect(card.getByRole('button', { name: 'Quitar de favoritas' })).toHaveAttribute('aria-pressed', 'true');
+
+    await page.getByRole('button', { name: 'Favoritas', exact: true }).click();
+    await expect(page.getByTestId('wardrobe-count')).toContainText('1 prenda');
+    await expect(page.getByTestId('garment-card')).toContainText('Camisa favorita');
+
+    await card.getByRole('link').click();
+    await expect(page.getByRole('button', { name: 'Quitar de favoritas' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

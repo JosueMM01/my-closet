@@ -10,7 +10,7 @@
        UI (React 19)              API routes (nodejs)
        'use client'                src/app/api/**
             │                            │
-       IndexedDB (Dexie)          Auth · Sync · Images · Share
+       IndexedDB (Dexie)           Auth · Profile · Admin · Sync · Images · Share
        offline-first                    │
        outbox                           │
        sync engine               Drizzle ORM
@@ -27,12 +27,12 @@
 
 | Capa | Ruta | Responsabilidad |
 |---|---|---|
-| Dominio | `src/lib/domain/` | Tipos, constantes, validación Zod, reglas de conflicto, fechas, ids. Compartido cliente/servidor. |
-| Base local | `src/lib/local/` | Dexie (IndexedDB), repositorios con outbox, sync engine, kv, queries de UI. |
+| Dominio | `src/lib/domain/` | Tipos, constantes, validación Zod, reglas de conflicto, fechas, ids. Compartido cliente/servidor. `favorite` es parte versionada de `Garment`. |
+| Base local | `src/lib/local/` | Dexie (IndexedDB), repositorios con outbox, sync engine, kv, queries de UI y caché de lectura administrativa. |
 | Imágenes cliente | `src/lib/images/` | Validación, Web Worker (EXIF→resize→WebP), cache de object URLs. |
-| Auth cliente | `src/lib/auth/` | register/login/logout contra la API; perfil local (sin secretos). |
-| Servidor | `src/server/` | env validado, Drizzle (SQLite/PG), sesiones, rate limit, repositorios, ImageStorage. |
-| API | `src/app/api/` | auth (register/login/logout/session/providers), sync (push/pull), images (upload/get/sign), share público. |
+| Auth cliente | `src/lib/auth/`, `src/lib/account/`, `src/lib/admin/` | register/login/logout, perfil local sin secretos y clientes de cuenta/administración. |
+| Servidor | `src/server/` | env validado, Drizzle (SQLite/PG), sesiones, rate limit, repositorios, invitaciones de cuenta, mail e ImageStorage. |
+| API | `src/app/api/` | auth, perfil, administración, sync (push/pull), images (upload/get/sign), share público. |
 | UI | `src/app/(app)/`, `src/app/(auth)/`, `src/app/share/` | Páginas y componentes. La UI lee IndexedDB, nunca la red. |
 
 ## Flujo de escritura (offline-first)
@@ -45,13 +45,16 @@ acción usuario → repositorio local (transacción Dexie)
 → maybeSync() (debounce) → runSync():
      push outbox por lotes → POST /api/sync/push
      subir imágenes pendientes → POST /api/images
-     pull incremental → GET /api/sync/pull?since=…
+     pull incremental (entidades + metadatos de imágenes) → GET /api/sync/pull?since=…
 ```
 
 ## Flujo de lectura
 
 La UI **solo** lee IndexedDB (`useLiveQuery`). El servidor se consulta
 únicamente desde el sync engine y en el chequeo periódico de sesión.
+Las operaciones administrativas son la excepción deliberada: se hacen online
+contra `/api/admin/*`; IndexedDB solo conserva su último read model y no es
+una fuente de autorización.
 
 ## Diferencias de dialecto SQLite/PostgreSQL
 

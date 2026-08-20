@@ -12,16 +12,15 @@ desarrollo no puede haber cuenta conectada.
 Abstracción `ImageStorage` en `src/server/images/storage.ts`:
 - `LocalImageStorage`: guarda blobs WebP en SQLite y los sirve por
   `/api/images/[id]` (uuid inadivinable, cache inmutable). Activo por defecto.
-- `CloudinaryImageStorage`: subida firmada (sha1 de `folder+timestamp+secret`
-  según especificación de Cloudinary). Se activa solo con las tres variables
-  `CLOUDINARY_*` presentes.
-- `/api/images/sign` entrega la firma para subida **directa** del navegador
-  al CDN; el flujo local usa `/api/images` (multipart).
+- `CloudinaryImageStorage`: abstracción y firma preparada para una subida
+  futura. No es un flujo de producción completo y debe permanecer desactivado.
+- El flujo local usa `/api/images` (multipart). La subida directa y su
+  finalización siguen pendientes antes de usar Cloudinary.
 
 El secreto `CLOUDINARY_API_SECRET` nunca sale del servidor.
 
 ## Consequences
 - Todo el pipeline de imágenes funciona hoy sin cuenta Cloudinary.
-- Al configurar las variables, las subidas nuevas van al CDN sin cambios de
-  código en el cliente (el registro guarda `remoteUrl`).
+- Las credenciales y el selector no constituyen una activación soportada de
+  producción hasta completar la subida directa, finalización y contratos.
 - Las imágenes ya subidas localmente permanecen en SQLite hasta migración.

@@ -1,139 +1,131 @@
-# EXTERNAL_SERVICES_SETUP — Conexión de servicios externos
+# Preparación de servicios externos
 
-Guía exacta para activar, cuando lo decidas, cada servicio preparado.
-**Ninguno de estos pasos se ha ejecutado**; la app funciona 100% local sin
-ellos.
+La aplicación funciona con `DATABASE_PROVIDER=sqlite`, `IMAGE_PROVIDER=local`,
+`GOOGLE_AUTH_ENABLED=false` y `EMAIL_PROVIDER=disabled`. Esos son los valores
+predeterminados. Ninguna credencial aislada activa una conexión externa.
 
----
+## Estado real
 
-## 1. Neon (PostgreSQL)
+| Servicio | Preparado hoy | Pendiente antes de activar |
+|---|---|---|
+| Neon | esquema PostgreSQL y selector validado | migraciones PG, repositorios PG y pruebas de contrato |
+| Cloudinary | credenciales agrupadas, firma y abstracción de storage | subida directa, endpoint de finalización y pull de metadatos de imágenes |
+| Google | selector, credenciales agrupadas y sesión interna reutilizable | tablas de identidades, start/callback OAuth, state, PKCE, nonce y vinculación de cuentas |
+| Correo SMTP | proveedor `disabled`/`capture`/`smtp` y envío de invitaciones de cuenta | verificación de propiedad de correo, entrega durable y operación de producción |
+| Vercel | build Next.js reproducible | adaptar límites de assets/modelo, Neon, Cloudinary y rate limit distribuido |
 
-### Crear proyecto y connection string
-1. Cuenta en https://neon.com → **New Project** (región cercana).
-2. Dashboard → **Connection string** → copiar la cadena `postgresql://…`
-   (usa la rama `main` y el rol con permisos sobre la BD del proyecto).
+Mientras falte un adaptador, el selector correspondiente debe permanecer local
+o desactivado. PostgreSQL falla de forma explícita antes de importar el driver o
+abrir una conexión. Google nunca se anuncia en `/api/auth/providers` hasta que
+el flujo OAuth esté completo.
 
-### Configurar `DATABASE_URL`
-En `.env.local` (dev) o variables de Vercel (prod):
-```
-DATABASE_URL=postgresql://usuario:contraseña@ep-xxxx-xxxx-0000.us-east-2.aws.neon.tech/neondb?sslmode=require
-```
+## Variables
 
-### Migraciones
-```bash
-# 1) generar SQL de migración para el esquema PG (espejo de SQLite):
-pnpm db:generate          # drizzle-kit genera ./drizzle/*.sql
+```dotenv
+DATABASE_PROVIDER=sqlite
+DATABASE_URL=
 
-# 2) aplicarlas contra Neon:
-pnpm db:migrate
-```
-> `drizzle.config.ts` usa `schema-pg.ts` cuando `DATABASE_URL` empieza por
-> `postgres`; con `file:` usa el esquema SQLite.
+IMAGE_PROVIDER=local
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
 
-### Verificar
-```bash
-node -e "const p=require('postgres');const s=p(process.env.DATABASE_URL);s\`select 1\`.then(r=>{console.log('Neon OK',r);process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})"
-```
-La app arranca con dialecto PostgreSQL automáticamente (ADR-002) y el sync
-empieza a replicar en Neon.
+GOOGLE_AUTH_ENABLED=false
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 
----
+AUTH_SECRET=
+NEXT_PUBLIC_APP_URL=
 
-## 2. Cloudinary (imágenes)
+# Producción es invite-only; local/test pueden habilitarlo explícitamente.
+PUBLIC_REGISTRATION_ENABLED=true
 
-### Crear cuenta y localizar credenciales
-1. Cuenta en https://cloudinary.com (plan free suficiente).
-2. Console → **Dashboard**: copiar **Cloud name**, **API key**,
-   **API secret**.
-
-### Variables
-```
-CLOUDINARY_CLOUD_NAME=...
-CLOUDINARY_API_KEY=...
-CLOUDINARY_API_SECRET=...
+# Correo: por defecto no hay conexiones externas.
+EMAIL_PROVIDER=disabled
+EMAIL_FROM=
+SMTP_HOST=
+SMTP_PORT=
+SMTP_SECURE=
+SMTP_USER=
+SMTP_PASSWORD=
 ```
 
-### Upload con firma (ya implementado)
-- Subida **server-side**: `CloudinaryImageStorage` se activa sola al
-  detectar las tres variables (`src/server/images/storage.ts`).
-- Subida **directa del navegador** (recomendada en producción):
-  `GET /api/images/sign` devuelve `{cloudName, apiKey, timestamp,
-  signature, folder}`; el navegador hace POST multipart a
-  `https://api.cloudinary.com/v1_1/{cloud}/image/upload` con esos campos
-  + `file`. La imagen no pasa por el backend. El secreto queda en el
-  servidor (ADR-003).
+Las credenciales Cloudinary y Google se validan como grupos completos. Tenerlas
+presentes no cambia el proveedor si su selector explícito continúa desactivado.
+La referencia canónica de los nombres y valores predeterminados es
+`.env.example`; los valores sensibles se ponen en `.env.local`, nunca en Git.
 
-### Verificar
-```bash
-curl -s http://localhost:3000/api/images/sign -H 'x-requested-with: my-closet' | head -c 200
+## Neon
+
+Antes de usar `DATABASE_PROVIDER=postgres` se debe:
+
+1. Generar y revisar migraciones desde `src/server/db/schema-pg.ts`.
+2. Implementar repositorios PostgreSQL para usuarios, sesiones, sync e imágenes.
+3. Ejecutar la misma suite de contratos contra PostgreSQL sin casts a SQLite.
+4. Resolver escrituras concurrentes y el watermark consistente del pull.
+5. Configurar `DATABASE_URL=postgresql://...` únicamente en el entorno alojado.
+
+El código actual lanza `DatabaseProviderNotImplementedError` deliberadamente.
+
+## Cloudinary
+
+Antes de usar `IMAGE_PROVIDER=cloudinary` se debe:
+
+1. Implementar capability/sign/finalize para subida directa del navegador.
+2. Persistir `public_id`, propietario, dimensiones y URL resultante.
+3. Incluir metadatos de imágenes en sync pull para dispositivos nuevos.
+4. Mantener `/api/images/sign` fuera de Service Worker y cachés compartidas.
+5. Probar convivencia con imágenes históricas guardadas en SQLite.
+
+`CLOUDINARY_API_SECRET` siempre permanece en el servidor. Desarrollo local no
+debe configurar ni activar este proveedor. El pull ya incluye metadatos de
+imágenes y no binarios, pero Cloudinary no está listo para producción: debe
+seguir desactivado hasta completar el flujo directo y sus contratos.
+
+## Correo SMTP
+
+Los modos son `disabled` (predeterminado, sin red), `capture` (guarda el
+mensaje para desarrollo/pruebas) y `smtp` (único modo que abre una conexión
+externa). Tests y desarrollo no deben usar `smtp` por defecto.
+
+Ejemplo exacto para Gmail con App Password, únicamente en un entorno que vaya
+a enviar correo:
+
+```dotenv
+EMAIL_PROVIDER=smtp
+EMAIL_FROM="My Closet <tu-cuenta@gmail.com>"
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=tu-cuenta@gmail.com
+SMTP_PASSWORD=tu-app-password-de-16-caracteres
+NEXT_PUBLIC_APP_URL=https://tu-dominio.example
 ```
-→ JSON con firma (antes devolvía 501 «no configurado»). Al subir una foto
-nueva, el registro guardará una URL `res.cloudinary.com`.
 
----
+`SMTP_PASSWORD` es un secreto de servidor, sin prefijo `NEXT_PUBLIC_`. Una
+cuenta personal de Gmail puede ser adecuada para volumen bajo y no tiene coste
+directo de software, pero sus cuotas y fiabilidad no equivalen a un proveedor
+transaccional. No usarla como supuesto de entrega garantizada.
 
-## 3. Google Sign-In
+## Google Sign-In
 
-### Crear credenciales OAuth
-1. https://console.cloud.google.com → nuevo proyecto → **APIs & Services →
-   OAuth consent screen** (External, nombre de la app, scopes básicos
-   `email profile`).
-2. **Credentials → Create credentials → OAuth client ID** → tipo
-   *Web application*.
-3. **Authorized redirect URIs** (ajusta dominio/puerto):
-   - Dev: `http://localhost:3000/api/auth/google/callback`
-   - Prod: `https://TU-DOMINIO/api/auth/google/callback`
-4. Copiar **Client ID** y **Client secret**.
+Antes de establecer `GOOGLE_AUTH_ENABLED=true` se debe:
 
-### Variables
-```
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-```
+1. Añadir una tabla de identidades con clave única `(provider, subject)`.
+2. Permitir usuarios sin contraseña o separar credenciales locales.
+3. Implementar redirect y callback en el servidor con state, PKCE y nonce.
+4. Validar emisor, audiencia, expiración y `email_verified` del ID token.
+5. Definir una política explícita para vincular correos ya registrados.
+6. Emitir la cookie HttpOnly `mc_session` existente solo después del mapeo.
 
-### Habilitar el provider
-`GET /api/auth/providers` pasa a devolver `google:true` y el botón
-«Continuar con Google» aparece en /login (hoy está deshabilitado a propósito).
+No se usarán tokens de Google en localStorage, sessionStorage o IndexedDB. El
+botón no aparece hasta que todo el flujo esté implementado y probado.
 
-**Implementación pendiente de conectar** (el diseño lo admite sin romper
-nada): ruta `/api/auth/google/start` → redirect a Google; callback
-`/api/auth/google/callback` → intercambio del `code` **en el servidor** →
-upsert del usuario por email → misma cookie `mc_session` actual. El access
-token de Google nunca se expone al navegador (ADR-006).
+## Producción
 
-### Verificar
-1. `/login` muestra el botón de Google.
-2. Flujo completo → aparece el saludo en el home y la sesión queda en
-   cookie HttpOnly (revisar DevTools → Application → Cookies).
-
----
-
-## 4. Vercel (hosting)
-
-### Importar (cuando decidas publicar)
-1. Cuenta Vercel → **Add New → Project** → importar el repositorio de Git
-   (el repo local deberá subirse antes a GitHub/GitLab).
-2. Framework preset: **Next.js** (detectado; cero config extra).
-3. Variables de entorno (Production y Preview):
-   `DATABASE_URL` (Neon), `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`,
-   y opcionalmente `CLOUDINARY_*` y `GOOGLE_*`.
-
-### Entornos
-- **Preview** (cada PR): usa la misma BD Neon de desarrollo si quieres, o
-  una rama (branch) de Neon por preview.
-- **Production**: rama `main` + BD principal.
-
-### Build
-`pnpm build` (ya verificado localmente). Vercel instala con pnpm
-automáticamente por el campo `packageManager`.
-
-### Dominio
-Project → **Settings → Domains** → añadir dominio y apuntar el DNS según
-las instrucciones de Vercel.
-
-### Checklist final antes de producción
-- [ ] Migraciones Neon aplicadas (`pnpm db:migrate`).
-- [ ] `AUTH_SECRET` fuerte y único.
-- [ ] `NEXT_PUBLIC_APP_URL` = dominio final (usado por el chequeo CSRF).
-- [ ] Redirect URI de Google actualizado al dominio real.
-- [ ] `pnpm e2e` en verde con `DATABASE_URL` de staging.
+Bloqueadores explícitos antes de producción: adaptador y migraciones Neon
+PostgreSQL, subida directa Cloudinary, rate limit distribuido y verificación de
+correo. Además se requiere `AUTH_SECRET` fuerte, CSP revisada y la suite
+completa en staging. La eliminación de fondo sirve unos 200 MB de assets; debe
+evaluarse si Vercel puede alojarlos o si se mueven a almacenamiento estático del
+mismo origen con sus licencias y checksums preservados.

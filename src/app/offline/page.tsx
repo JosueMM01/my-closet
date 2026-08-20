@@ -11,7 +11,7 @@ export default function OfflinePage() {
       </div>
       <h1 className="mt-6 font-heading text-2xl">Sin conexión</h1>
       <p className="mt-2 max-w-xs text-sm text-text-secondary">
-        No te preocupes: tus prendas, outfits y calendario siguen disponibles.
+        No te preocupes: tus prendas, conjuntos y calendario siguen disponibles.
         Vuelve a intentarlo cuando recuperes conexión.
       </p>
       <Link

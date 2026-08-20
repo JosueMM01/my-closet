@@ -5,7 +5,11 @@
  */
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { isCloudinaryEnabled } from '@/server/env';
+import type { RemoteImageMetadata } from '@/lib/domain/validation';
+import {
+  getCloudinaryCredentials,
+  type CloudinaryCredentials,
+} from '@/server/env';
 import { getSqlite, sqliteSchema } from '@/server/db';
 
 export interface ImagePutInput {
@@ -13,32 +17,66 @@ export interface ImagePutInput {
   userId: string;
   data: Buffer;
   mimeType: string;
+  width: number;
+  height: number;
 }
 
 export interface ImageStorage {
   readonly kind: 'local' | 'cloudinary';
-  put(input: ImagePutInput): Promise<{ url: string }>;
+  put(input: ImagePutInput): Promise<RemoteImageMetadata>;
   get(id: string): Promise<{ data: Buffer; mimeType: string } | null>;
 }
 
 class LocalImageStorage implements ImageStorage {
   readonly kind = 'local' as const;
 
-  async put(input: ImagePutInput): Promise<{ url: string }> {
+  async put(input: ImagePutInput): Promise<RemoteImageMetadata> {
     const sqlite = await getSqlite();
+    const existing = await sqlite
+      .select()
+      .from(sqliteSchema.images)
+      .where(eq(sqliteSchema.images.id, input.id))
+      .limit(1);
+    if (existing[0] && existing[0].userId !== input.userId) throw new ImageOwnershipError();
+    const now = new Date().toISOString();
+    const remoteUrl = `/api/images/${input.id}`;
     const values = {
       id: input.id,
       userId: input.userId,
       mimeType: input.mimeType,
+      width: input.width,
+      height: input.height,
       byteSize: input.data.byteLength,
       data: input.data,
-      remoteUrl: null as string | null,
+      remoteUrl,
+      storageProvider: this.kind,
+      storageKey: input.id,
+      createdAt: existing[0]?.createdAt ?? now,
+      updatedAt: now,
     };
-    await sqlite
+    const written = await sqlite
       .insert(sqliteSchema.images)
       .values(values)
-      .onConflictDoUpdate({ target: sqliteSchema.images.id, set: values });
-    return { url: `/api/images/${input.id}` };
+      .onConflictDoUpdate({
+        target: sqliteSchema.images.id,
+        set: values,
+        setWhere: eq(sqliteSchema.images.userId, input.userId),
+      })
+      .returning({ userId: sqliteSchema.images.userId });
+    if (!written[0]) throw new ImageOwnershipError();
+    return {
+      id: input.id,
+      userId: input.userId,
+      mimeType: 'image/webp',
+      width: input.width,
+      height: input.height,
+      byteSize: input.data.byteLength,
+      remoteUrl,
+      storageProvider: this.kind,
+      storageKey: input.id,
+      createdAt: values.createdAt,
+      updatedAt: now,
+    };
   }
 
   async get(id: string): Promise<{ data: Buffer; mimeType: string } | null> {
@@ -49,7 +87,7 @@ class LocalImageStorage implements ImageStorage {
       .where(eq(sqliteSchema.images.id, id))
       .limit(1);
     const row = rows[0];
-    if (!row) return null;
+    if (!row?.data) return null;
     return { data: Buffer.from(row.data), mimeType: row.mimeType };
   }
 }
@@ -63,16 +101,17 @@ class LocalImageStorage implements ImageStorage {
 class CloudinaryImageStorage implements ImageStorage {
   readonly kind = 'cloudinary' as const;
 
-  private config(): { cloudName: string; apiKey: string; apiSecret: string } {
-    return {
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME!,
-      apiKey: process.env.CLOUDINARY_API_KEY!,
-      apiSecret: process.env.CLOUDINARY_API_SECRET!,
-    };
-  }
+  constructor(private readonly credentials: CloudinaryCredentials) {}
 
-  async put(input: ImagePutInput): Promise<{ url: string }> {
-    const { cloudName, apiKey, apiSecret } = this.config();
+  async put(input: ImagePutInput): Promise<RemoteImageMetadata> {
+    const sqlite = await getSqlite();
+    const existing = await sqlite
+      .select()
+      .from(sqliteSchema.images)
+      .where(eq(sqliteSchema.images.id, input.id))
+      .limit(1);
+    if (existing[0] && existing[0].userId !== input.userId) throw new ImageOwnershipError();
+    const { cloudName, apiKey, apiSecret } = this.credentials;
     const timestamp = Math.floor(Date.now() / 1000);
     const folder = `my-closet/${input.userId}`;
     const signature = createHash('sha1')
@@ -93,8 +132,46 @@ class CloudinaryImageStorage implements ImageStorage {
     if (!response.ok) {
       throw new Error(`Cloudinary upload falló: HTTP ${response.status}`);
     }
-    const result = (await response.json()) as { secure_url: string };
-    return { url: result.secure_url };
+    const result = (await response.json()) as { secure_url: string; public_id?: string };
+    const now = new Date().toISOString();
+    const storageKey = result.public_id ?? null;
+    const values = {
+      id: input.id,
+      userId: input.userId,
+      mimeType: input.mimeType,
+      width: input.width,
+      height: input.height,
+      byteSize: input.data.byteLength,
+      data: null,
+      remoteUrl: result.secure_url,
+      storageProvider: this.kind,
+      storageKey,
+      createdAt: existing[0]?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const written = await sqlite
+      .insert(sqliteSchema.images)
+      .values(values)
+      .onConflictDoUpdate({
+        target: sqliteSchema.images.id,
+        set: values,
+        setWhere: eq(sqliteSchema.images.userId, input.userId),
+      })
+      .returning({ userId: sqliteSchema.images.userId });
+    if (!written[0]) throw new ImageOwnershipError();
+    return {
+      id: input.id,
+      userId: input.userId,
+      mimeType: 'image/webp',
+      width: input.width,
+      height: input.height,
+      byteSize: input.data.byteLength,
+      remoteUrl: result.secure_url,
+      storageProvider: this.kind,
+      storageKey,
+      createdAt: values.createdAt,
+      updatedAt: now,
+    };
   }
 
   async get(): Promise<{ data: Buffer; mimeType: string } | null> {
@@ -103,11 +180,21 @@ class CloudinaryImageStorage implements ImageStorage {
   }
 }
 
+export class ImageOwnershipError extends Error {
+  constructor() {
+    super('El identificador de imagen pertenece a otro usuario');
+    this.name = 'ImageOwnershipError';
+  }
+}
+
 let storage: ImageStorage | null = null;
 
 export function getImageStorage(): ImageStorage {
   if (!storage) {
-    storage = isCloudinaryEnabled() ? new CloudinaryImageStorage() : new LocalImageStorage();
+    const cloudinaryCredentials = getCloudinaryCredentials();
+    storage = cloudinaryCredentials
+      ? new CloudinaryImageStorage(cloudinaryCredentials)
+      : new LocalImageStorage();
   }
   return storage;
 }

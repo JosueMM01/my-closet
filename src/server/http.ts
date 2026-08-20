@@ -3,6 +3,7 @@
  * respuestas JSON uniformes y manejo de errores sin filtrar internos.
  */
 import { NextResponse } from 'next/server';
+import { AuthGuardError } from '@/server/auth/session';
 
 export function jsonOk<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json(data, {
@@ -53,4 +54,10 @@ export function unauthorized(): NextResponse {
 /** Convierte errores Zod en respuesta 400 sin detalles internos. */
 export function invalidBody(message = 'Datos inválidos'): NextResponse {
   return jsonError(400, message);
+}
+
+export function authGuardError(error: unknown): NextResponse | null {
+  return error instanceof AuthGuardError
+    ? jsonError(error.statusCode, error.message)
+    : null;
 }

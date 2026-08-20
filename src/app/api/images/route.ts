@@ -1,6 +1,6 @@
-import { ALLOWED_IMAGE_MIME_TYPES } from '@/lib/domain/constants';
+import { processedImageUploadSchema } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
-import { getImageStorage } from '@/server/images/storage';
+import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 
 export const runtime = 'nodejs';
@@ -21,20 +21,43 @@ export async function POST(request: Request) {
   if (!form) return invalidBody();
 
   const id = form.get('id');
+  const width = form.get('width');
+  const height = form.get('height');
   const file = form.get('file');
-  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return invalidBody('id inválido');
   if (!(file instanceof File)) return invalidBody('Falta el archivo');
-  if (file.size === 0 || file.size > 3 * 1024 * 1024) {
-    return jsonError(413, 'La imagen procesada supera el tamaño permitido');
-  }
   const mime = file.type || 'application/octet-stream';
-  if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(mime)) {
-    return jsonError(415, 'Tipo de imagen no permitido');
-  }
+  const metadata = processedImageUploadSchema.safeParse({
+    id,
+    width,
+    height,
+    mimeType: mime,
+    byteSize: file.size,
+  });
+  if (!metadata.success) return invalidBody('Metadatos de imagen inválidos');
 
   const data = Buffer.from(await file.arrayBuffer());
+  if (!isWebp(data)) return jsonError(415, 'El archivo no es WebP válido');
   const storage = getImageStorage();
-  const { url } = await storage.put({ id, userId: user.userId, data, mimeType: mime });
+  try {
+    const image = await storage.put({
+      id: metadata.data.id,
+      userId: user.userId,
+      data,
+      mimeType: metadata.data.mimeType,
+      width: metadata.data.width,
+      height: metadata.data.height,
+    });
+    return jsonOk({ image }, { status: 201 });
+  } catch (error) {
+    if (error instanceof ImageOwnershipError) {
+      return jsonError(409, 'El identificador de imagen ya está en uso');
+    }
+    throw error;
+  }
+}
 
-  return jsonOk({ remoteUrl: url, storage: storage.kind }, { status: 201 });
+function isWebp(data: Buffer): boolean {
+  return data.byteLength >= 12
+    && data.subarray(0, 4).toString('ascii') === 'RIFF'
+    && data.subarray(8, 12).toString('ascii') === 'WEBP';
 }

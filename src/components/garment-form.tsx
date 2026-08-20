@@ -1,38 +1,30 @@
 'use client';
 
-/**
- * Formulario de prenda (crear/editar). La foto se procesa en el navegador
- * (worker → resize → WebP) antes de persistir en IndexedDB.
- */
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CATEGORY_LABELS,
   GARMENT_CATEGORIES,
   GARMENT_COLORS,
-  GARMENT_SIZES,
-  SIZE_LABELS,
-  normalizeSize,
 } from '@/lib/domain/constants';
 import type { Garment, ImageRecord } from '@/lib/domain/types';
 import {
+  ImageProcessingError,
   ImageValidationError,
   saveGarmentPhoto,
 } from '@/lib/images/image-client';
+import type { ImageProgress } from '@/lib/images/worker-protocol';
 import { createGarment, updateGarment } from '@/lib/local/repositories';
 import { useImageUrl } from './garment-photo';
 import { CameraIcon, CheckIcon, PlusIcon } from './icons';
-import { Button, Chip, Field, Select, TextArea, TextInput } from './ui';
+import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
   name: string;
   category: string;
   colors: string[];
   brand: string;
-  size: string;
   notes: string;
-  washingInstructions: string;
-  dateAcquired: string;
 }
 
 function toFormState(garment?: Garment): FormState {
@@ -41,10 +33,7 @@ function toFormState(garment?: Garment): FormState {
     category: garment?.category ?? 'tops',
     colors: garment?.colors ?? [],
     brand: garment?.brand ?? '',
-    size: garment?.size ?? '',
     notes: garment?.notes ?? '',
-    washingInstructions: garment?.washingInstructions ?? '',
-    dateAcquired: garment?.dateAcquired ?? '',
   };
 }
 
@@ -57,18 +46,26 @@ export function GarmentForm({
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processingControllerRef = useRef<AbortController>(null);
   const [form, setForm] = useState<FormState>(() => toFormState(garment));
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
+  const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
+  const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<ImageProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // Custom category/color inputs
   const [customCategory, setCustomCategory] = useState('');
+  const [customCategoryOpen, setCustomCategoryOpen] = useState(false);
   const [customColor, setCustomColor] = useState('');
-  const isCustomCategory = !GARMENT_CATEGORIES.includes(form.category as never);
+  const [customColorOpen, setCustomColorOpen] = useState(false);
 
-  const existingPhotoUrl = useImageUrl(photo ? photo.id : (garment?.photoId ?? null));
+  const isCustomCategory = !GARMENT_CATEGORIES.some((category) => category === form.category);
+  const visiblePhotoId = photo?.id ?? (removeExistingPhoto ? null : (garment?.photoId ?? null));
+  const existingPhotoUrl = useImageUrl(visiblePhotoId);
+  const hasPhoto = visiblePhotoId !== null;
+
+  useEffect(() => () => processingControllerRef.current?.abort(), []);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -78,27 +75,55 @@ export function GarmentForm({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+
+    processingControllerRef.current?.abort();
+    const controller = new AbortController();
+    processingControllerRef.current = controller;
     setError(null);
     setPhotoBusy(true);
+    setPhotoProgress({ stage: 'Preparando imagen', current: null, total: null });
     try {
-      const record = await saveGarmentPhoto(userId, file);
+      const record = await saveGarmentPhoto(userId, file, {
+        removeBackground,
+        signal: controller.signal,
+        onProgress: setPhotoProgress,
+      });
       setPhoto(record);
-    } catch (err) {
-      setError(
-        err instanceof ImageValidationError
-          ? err.message
-          : 'No se pudo procesar la imagen. Prueba con otra foto.',
-      );
+      setRemoveExistingPhoto(false);
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === 'AbortError') {
+        setError('Procesamiento cancelado. La foto anterior no se modificó.');
+      } else {
+        setError(
+          caught instanceof ImageValidationError || caught instanceof ImageProcessingError
+            ? caught.message
+            : 'No se pudo procesar la imagen. Prueba con otra foto.',
+        );
+      }
     } finally {
-      setPhotoBusy(false);
+      if (processingControllerRef.current === controller) {
+        processingControllerRef.current = null;
+        setPhotoBusy(false);
+        setPhotoProgress(null);
+      }
     }
+  }
+
+  function cancelPhotoProcessing() {
+    processingControllerRef.current?.abort();
+  }
+
+  function removePhoto() {
+    setPhoto(null);
+    setRemoveExistingPhoto(true);
+    setError(null);
   }
 
   function toggleColor(color: string) {
     setForm((current) => ({
       ...current,
       colors: current.colors.includes(color)
-        ? current.colors.filter((c) => c !== color)
+        ? current.colors.filter((candidate) => candidate !== color)
         : current.colors.length >= 8
           ? current.colors
           : [...current.colors, color],
@@ -111,28 +136,30 @@ export function GarmentForm({
       set('colors', [...form.colors, value]);
     }
     setCustomColor('');
+    setCustomColorOpen(false);
   }
 
   function applyCustomCategory() {
     const value = customCategory.trim();
     if (value) set('category', value);
     setCustomCategory('');
+    setCustomCategoryOpen(false);
   }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    if (photoBusy) return;
     setError(null);
+
+    // Las claves legacy retiradas se omiten: update conserva sus valores y create aplica defaults.
     const input = {
       name: form.name,
       category: form.category,
       colors: form.colors,
       brand: form.brand,
-      size: form.size ? normalizeSize(form.size) : null,
       notes: form.notes,
-      washingInstructions: form.washingInstructions,
-      dateAcquired: form.dateAcquired || null,
       archived: garment?.archived ?? false,
-      photoId: photo ? photo.id : (garment?.photoId ?? null),
+      photoId: visiblePhotoId,
     };
 
     setSaving(true);
@@ -142,65 +169,90 @@ export function GarmentForm({
         router.push(`/wardrobe/${garment.id}`);
       } else {
         const created = await createGarment(userId, input);
-        // Offline: la ruta dinámica de detalle puede no estar en caché del
-        // SW; la lista (shell precacheado) siempre está disponible.
         router.push(navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe');
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar la prenda');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudo guardar la prenda');
       setSaving(false);
     }
   }
 
+  const determinateProgress =
+    photoProgress?.stage === 'Descargando modelo local' &&
+    photoProgress.current !== null &&
+    photoProgress.total !== null
+      ? photoProgress
+      : null;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-      {/* Foto */}
       <div className="-mx-4 md:mx-0">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          data-testid="photo-upload"
-          className="relative flex h-80 w-full flex-col items-center justify-center gap-2 bg-[#F3EFEA] rounded-2xl overflow-hidden transition-colors hover:bg-border/30"
-        >
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={photoBusy}
+            data-testid="photo-upload"
+            className="relative flex h-80 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait"
+            aria-label={hasPhoto ? 'Cambiar foto de la prenda' : 'Subir foto de la prenda'}
+          >
+            {hasPhoto ? (
+              <>
+                {existingPhotoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={existingPhotoUrl}
+                    alt="Vista previa de la prenda"
+                    className="absolute inset-0 h-full w-full object-contain p-4"
+                    data-testid="photo-preview"
+                  />
+                ) : null}
+                <span className="absolute inset-0 bg-black/5 transition-opacity hover:bg-black/10" />
+                <span className="absolute bottom-4 left-4 z-10 flex h-10 items-center gap-2 rounded-full bg-white/95 px-4 text-[13px] font-medium text-primary shadow-soft backdrop-blur-md">
+                  <CameraIcon size={18} />
+                  Cambiar foto
+                </span>
+              </>
+            ) : (
+              <span className="flex flex-col items-center justify-center text-text-secondary">
+                <CameraIcon size={40} className="mb-3 opacity-50" />
+                <span className="text-[15px] font-semibold">Tomar una foto o subirla</span>
+                <span className="mt-1 text-xs text-text-muted">JPEG, PNG, WebP, HEIC o AVIF</span>
+              </span>
+            )}
+          </button>
+          {hasPhoto && !photoBusy ? (
+            <button
+              type="button"
+              onClick={removePhoto}
+              className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft transition-colors hover:text-danger"
+              aria-label="Quitar foto de la prenda"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M10 11v6M14 11v6" />
+              </svg>
+            </button>
+          ) : null}
           {photoBusy ? (
-            <>
-              <div
-                className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
-                role="status"
-                aria-label="Procesando foto"
-              />
-              <span className="text-sm font-medium">Procesando foto…</span>
-            </>
-          ) : photo || garment?.photoId ? (
-            <>
-              {existingPhotoUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={existingPhotoUrl}
-                  alt="Vista previa"
-                  className="absolute inset-0 h-full w-full object-contain p-4"
-                  data-testid="photo-preview"
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface/95 px-6 text-center" aria-live="polite">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden="true" />
+              <p className="text-sm font-semibold">{photoProgress?.stage ?? 'Procesando foto'}</p>
+              {determinateProgress ? (
+                <progress
+                  className="h-2 w-full max-w-xs accent-primary"
+                  value={determinateProgress.current ?? 0}
+                  max={determinateProgress.total ?? 1}
+                  aria-label="Progreso de descarga del modelo"
                 />
+              ) : (
+                <p className="text-xs text-text-muted">Este paso puede tardar varios minutos.</p>
               )}
-              <div className="absolute inset-0 bg-black/5 transition-opacity hover:bg-black/10" />
-              
-              <div className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft hover:text-danger z-10 transition-colors" onClick={(e) => { e.stopPropagation(); setPhoto(null); }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-              </div>
-              
-              <div className="absolute bottom-4 left-4 flex h-10 items-center gap-2 px-4 rounded-full bg-white/95 text-primary font-medium text-[13px] backdrop-blur-md shadow-soft z-10">
-                <CameraIcon size={18} />
-                Change Photo
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center text-text-secondary">
-              <CameraIcon size={40} className="mb-3 opacity-50" />
-              <span className="text-[15px] font-semibold">Take a photo or upload</span>
-              <span className="text-xs text-text-muted mt-1">JPEG, PNG or WebP</span>
+              <Button type="button" variant="secondary" onClick={cancelPhotoProcessing}>
+                Cancelar
+              </Button>
             </div>
-          )}
-        </button>
+          ) : null}
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -211,117 +263,143 @@ export function GarmentForm({
         />
       </div>
 
-      {/* Categoría Pills */}
+      <div className="rounded-2xl border border-border bg-surface-alt p-4">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={removeBackground}
+            onChange={(event) => setRemoveBackground(event.target.checked)}
+            disabled={photoBusy}
+            className="mt-1 h-5 w-5 accent-primary"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-text-primary">Quitar el fondo automáticamente</span>
+            <span className="mt-1 block text-xs leading-relaxed text-text-muted">
+              Se ejecuta solo en este dispositivo. La primera vez descarga cerca de 210 MB; tu foto nunca se envía a IMG.LY ni a otro servicio.
+            </span>
+          </span>
+        </label>
+      </div>
+
       <div>
+        <p className="mb-2 text-sm font-semibold text-text-primary">Categoría</p>
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           {GARMENT_CATEGORIES.map((category) => (
             <Chip
               key={category}
               active={form.category === category}
               onClick={() => set('category', category)}
-              className={form.category === category ? '!bg-primary !text-white !border-primary' : '!border-transparent !bg-surface-alt font-semibold'}
+              className={form.category === category ? '!border-primary !bg-primary !text-white' : '!border-transparent !bg-surface-alt font-semibold'}
             >
               {CATEGORY_LABELS[category]}
             </Chip>
           ))}
-          {isCustomCategory && form.category && (
-            <Chip active className="!bg-primary !text-white !border-primary">{form.category}</Chip>
-          )}
+          {isCustomCategory && form.category ? (
+            <Chip active className="!border-primary !bg-primary !text-white">{form.category}</Chip>
+          ) : null}
+          <Chip onClick={() => setCustomCategoryOpen((open) => !open)} title="Añadir categoría personalizada">
+            <PlusIcon size={16} /> Otra
+          </Chip>
         </div>
+        {customCategoryOpen ? (
+          <div className="mt-3 flex gap-2">
+            <TextInput
+              value={customCategory}
+              onChange={(event) => setCustomCategory(event.target.value)}
+              placeholder="Categoría personalizada"
+              maxLength={40}
+              aria-label="Categoría personalizada"
+            />
+            <Button type="button" variant="secondary" onClick={applyCustomCategory}>Añadir</Button>
+          </div>
+        ) : null}
       </div>
 
-      <Field label="Name">
+      <Field label="Nombre">
         <TextInput
           value={form.name}
-          onChange={(e) => set('name', e.target.value)}
-          placeholder="Linen Blazer"
+          onChange={(event) => set('name', event.target.value)}
+          placeholder="Blazer de lino"
           maxLength={80}
         />
       </Field>
 
-      <Field label="Brand">
+      <Field label="Marca">
         <TextInput
           value={form.brand}
-          onChange={(e) => set('brand', e.target.value)}
-          placeholder="e.g. Zara, H&M"
+          onChange={(event) => set('brand', event.target.value)}
+          placeholder="Por ejemplo, Zara"
           maxLength={60}
         />
       </Field>
 
-      <Field label="Color">
-        <div className="flex flex-wrap gap-2.5 items-center">
+      <div>
+        <p className="mb-2 text-sm font-semibold text-text-primary">Colores</p>
+        <div className="flex flex-wrap items-center gap-2.5">
           {GARMENT_COLORS.map((color) => {
-            const isActive = form.colors.includes(color.key);
+            const active = form.colors.includes(color.key);
             return (
               <button
                 key={color.key}
                 type="button"
                 onClick={() => toggleColor(color.key)}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-full border transition-all ${
-                  isActive ? 'border-primary ring-2 ring-primary/20 scale-110' : 'border-border/50 hover:scale-105'
-                }`}
+                className={`relative flex h-11 w-11 items-center justify-center rounded-full border transition-all ${active ? 'scale-110 border-primary ring-2 ring-primary/20' : 'border-border/50 hover:scale-105'}`}
                 style={{ backgroundColor: color.hex }}
-                aria-label={`Color ${color.label}`}
+                aria-label={`${active ? 'Quitar' : 'Añadir'} color ${color.label}`}
+                aria-pressed={active}
               >
-                {isActive && (
-                  <CheckIcon size={20} className={color.key === 'white' ? 'text-black' : 'text-white'} />
-                )}
+                {active ? <CheckIcon size={20} className={color.key === 'white' ? 'text-black' : 'text-white'} /> : null}
               </button>
             );
           })}
           {form.colors
-            .filter((c) => !GARMENT_COLORS.some((d) => d.key === c))
-            .map((c) => (
+            .filter((color) => !GARMENT_COLORS.some((defined) => defined.key === color))
+            .map((color) => (
               <button
-                key={c}
+                key={color}
                 type="button"
-                onClick={() => toggleColor(c)}
-                className="relative flex h-10 w-10 items-center justify-center rounded-full border border-primary bg-primary text-white ring-2 ring-primary/20 scale-110"
+                onClick={() => toggleColor(color)}
+                className="flex h-11 min-w-11 items-center justify-center rounded-full border border-primary bg-primary px-3 text-xs text-white ring-2 ring-primary/20"
+                aria-label={`Quitar color ${color}`}
+                aria-pressed="true"
               >
-                <CheckIcon size={20} />
+                {color}
               </button>
             ))}
-          <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-text-muted text-text-muted hover:border-primary hover:text-primary transition-colors">
+          <button
+            type="button"
+            onClick={() => setCustomColorOpen((open) => !open)}
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-dashed border-text-muted text-text-muted transition-colors hover:border-primary hover:text-primary"
+            aria-label="Añadir color personalizado"
+            aria-expanded={customColorOpen}
+          >
             <PlusIcon size={20} />
           </button>
         </div>
-      </Field>
-
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Size">
-          <Select value={form.size} onChange={(e) => set('size', e.target.value)}>
-            <option value="">Select size</option>
-            {GARMENT_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {SIZE_LABELS[size]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Condition">
-          <Select value={form.dateAcquired} onChange={(e) => set('dateAcquired', e.target.value)}>
-             <option value="">Select condition</option>
-             <option value="new">New</option>
-             <option value="good">Good</option>
-             <option value="worn">Worn</option>
-          </Select>
-        </Field>
+        {customColorOpen ? (
+          <div className="mt-3 flex gap-2">
+            <TextInput
+              value={customColor}
+              onChange={(event) => setCustomColor(event.target.value)}
+              placeholder="Color personalizado"
+              maxLength={30}
+              aria-label="Color personalizado"
+            />
+            <Button type="button" variant="secondary" onClick={addCustomColor}>Añadir</Button>
+          </div>
+        ) : null}
       </div>
 
-      <Field label="Notes">
+      <Field label="Notas (opcional)">
         <TextArea
           value={form.notes}
-          onChange={(e) => set('notes', e.target.value)}
-          placeholder="Any special care instructions or memories..."
+          onChange={(event) => set('notes', event.target.value)}
+          placeholder="Cuidados especiales, recuerdos u otros detalles"
           maxLength={2000}
         />
       </Field>
 
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
+      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
 
       <div className="pt-2">
         <Button
@@ -329,10 +407,10 @@ export function GarmentForm({
           size="lg"
           className="w-full text-base font-semibold"
           loading={saving}
-          disabled={!form.category}
+          disabled={!form.category || photoBusy}
           data-testid="save-garment"
         >
-          {garment ? 'Save Changes' : 'Save Garment'}
+          {garment ? 'Guardar cambios' : 'Guardar prenda'}
         </Button>
       </div>
     </form>

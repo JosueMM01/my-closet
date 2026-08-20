@@ -10,6 +10,7 @@ export interface WardrobeFilters {
   size: string | null;
   brand: string | null;
   showArchived: boolean;
+  favoriteOnly: boolean;
 }
 
 export const EMPTY_FILTERS: WardrobeFilters = {
@@ -19,6 +20,7 @@ export const EMPTY_FILTERS: WardrobeFilters = {
   size: null,
   brand: null,
   showArchived: false,
+  favoriteOnly: false,
 };
 
 function normalize(value: string): string {
@@ -34,6 +36,7 @@ export function filterGarments(garments: Garment[], filters: WardrobeFilters): G
     if (garment.deletedAt) return false;
     if (!filters.showArchived && garment.archived) return false;
     if (filters.showArchived && !garment.archived) return false;
+    if (filters.favoriteOnly && !garment.favorite) return false;
     if (filters.category && garment.category !== filters.category) return false;
     if (filters.color && !garment.colors.includes(filters.color)) return false;
     if (filters.size && garment.size !== filters.size) return false;
@@ -65,6 +68,7 @@ export function activeFilterCount(filters: WardrobeFilters): number {
   if (filters.color) count++;
   if (filters.size) count++;
   if (filters.brand) count++;
+  if (filters.favoriteOnly) count++;
   return count;
 }
 

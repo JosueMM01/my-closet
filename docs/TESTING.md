@@ -13,7 +13,11 @@ pnpm test:watch
   - repositorios locales con **fake-indexeddb**: persistencia, outbox,
     tombstones, aislamiento por usuario, conflictos;
   - repositorio de sync del servidor con **SQLite en memoria**: upserts,
-    conflictos de versión, pull incremental, protección IDOR, scrypt.
+     conflictos de versión, pull incremental, protección IDOR, scrypt.
+
+Estado conocido: **86 pruebas Vitest pasan**. Incluyen cuentas, invitaciones de
+cuenta, administración, proveedores de correo, migraciones runtime, perfil,
+imágenes y sincronización.
 
 ## E2E (Playwright 1.62, Chromium)
 
@@ -22,7 +26,8 @@ pnpm e2e           # next build + playwright test
 ```
 
 - El servidor de pruebas arranca `next start` en el puerto 3100 con
-  `AUTH_SECRET` de prueba y rate limit elevado.
+  `AUTH_SECRET` de prueba, registro público explícitamente permitido y rate
+  limit elevado.
 - Chromium se instala **dentro del proyecto**:
   `PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chromium`.
 - Proyectos: `chromium-mobile-small` (360×800) y `chromium-desktop`.
@@ -36,9 +41,20 @@ pnpm e2e           # next build + playwright test
 | `outfits.spec.ts` | builder, lista, programar → calendario, marcar vestido, quitar del calendario |
 | `offline.spec.ts` | online → offline → crear → recargar (persiste) → online → «Sincronizado» |
 | `visual.spec.ts` | capturas en móvil/desktop: login, home, armario, detalle, formulario, outfits, calendario |
+| `admin-registration.spec.ts` | bootstrap local/test, registro por invitación y gestión de cuentas |
+| `profile.spec.ts` | cambios de perfil y foto |
 
 Las capturas se guardan en `tests/e2e/screenshots/` para revisión visual
 contra `UI-Reference/`.
+
+Estado conocido: **53 pruebas E2E aprobadas y 3 skips intencionales**. El flujo
+del modelo real se ejecuta por separado y es opt-in:
+
+```bash
+RUN_BACKGROUND_MODEL_E2E=1 PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers \
+  pnpm exec playwright test tests/e2e/background-removal.spec.ts \
+  --project=chromium-desktop
+```
 
 ### Notas de estabilidad
 

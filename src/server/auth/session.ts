@@ -6,6 +6,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { and, eq, gt } from 'drizzle-orm';
+import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { getAuthSecret, isProduction } from '@/server/env';
 import { getSqlite, sqliteSchema } from '@/server/db';
 
@@ -16,6 +17,20 @@ export interface SessionUser {
   userId: string;
   email: string;
   displayName: string;
+  createdAt: string;
+  role: UserRole;
+  status: UserStatus;
+  profileImageId: string | null;
+}
+
+export class AuthGuardError extends Error {
+  constructor(
+    public readonly statusCode: 401 | 403,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AuthGuardError';
+  }
 }
 
 function hmac(value: string): string {
@@ -77,15 +92,39 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       userId: sqliteSchema.users.id,
       email: sqliteSchema.users.email,
       displayName: sqliteSchema.users.displayName,
+      createdAt: sqliteSchema.users.createdAt,
+      role: sqliteSchema.users.role,
+      status: sqliteSchema.users.status,
+      profileImageId: sqliteSchema.users.profileImageId,
     })
     .from(sqliteSchema.sessions)
     .innerJoin(sqliteSchema.users, eq(sqliteSchema.users.id, sqliteSchema.sessions.userId))
     .where(
-      and(eq(sqliteSchema.sessions.id, id), gt(sqliteSchema.sessions.expiresAt, new Date().toISOString())),
+      and(
+        eq(sqliteSchema.sessions.id, id),
+        gt(sqliteSchema.sessions.expiresAt, new Date().toISOString()),
+        eq(sqliteSchema.users.status, 'ACTIVE'),
+      ),
     )
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+export async function requireAdmin(): Promise<SessionUser> {
+  const user = await getSessionUser();
+  if (!user) throw new AuthGuardError(401, 'No autenticado o sesión expirada');
+  if (user.role !== 'ADMIN') {
+    throw new AuthGuardError(403, 'No tienes permisos de administrador');
+  }
+  return user;
+}
+
+/** Revoca todas las sesiones y emite una nueva para mantener utilizable la actual. */
+export async function rotateAllSessions(userId: string): Promise<void> {
+  const sqlite = await getSqlite();
+  await sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.userId, userId));
+  await createSession(userId);
 }
 
 export async function destroySession(): Promise<void> {

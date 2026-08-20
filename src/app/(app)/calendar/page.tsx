@@ -1,9 +1,5 @@
 'use client';
 
-/**
- * Calendario: vista semanal (lun–dom) con chips de outfits por día,
- * mini-mes navegable, marcar "vestido" y entradas del historial.
- */
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -12,15 +8,11 @@ import { useSession } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
 import { deleteCalendarEntry, updateCalendarEntry } from '@/lib/local/repositories';
 import {
-  addDays,
-  dayLabel,
   longDateLabel,
   monthYearLabel,
   parseDateOnly,
-  startOfWeek,
   toDateOnly,
   today,
-  weekDays,
 } from '@/lib/domain/dates';
 import type { CalendarEntry, Garment, Outfit } from '@/lib/domain/types';
 import { GarmentPhoto } from '@/components/garment-photo';
@@ -33,13 +25,15 @@ import {
   PlusIcon,
   TrashIcon,
 } from '@/components/icons';
-import { Button, EmptyState } from '@/components/ui';
+import { EmptyState } from '@/components/ui';
+
+const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] as const;
 
 export default function CalendarPage() {
   const router = useRouter();
   const { profile } = useSession();
-  const [selectedDate, setSelectedDate] = useState<string>(today());
-  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [monthAnchor, setMonthAnchor] = useState(() => parseDateOnly(today()));
   const [entryToDelete, setEntryToDelete] = useState<CalendarEntry | null>(null);
 
   const data = useLiveQuery(
@@ -56,197 +50,228 @@ export default function CalendarPage() {
     [profile?.userId],
   );
 
-  const entries = ((data?.entries ?? []) as CalendarEntry[]).filter((e) => !e.deletedAt);
-  const outfits = ((data?.outfits ?? []) as Outfit[]).filter((o) => !o.deletedAt);
+  const entries = ((data?.entries ?? []) as CalendarEntry[]).filter((entry) => !entry.deletedAt);
+  const outfits = ((data?.outfits ?? []) as Outfit[]).filter((outfit) => !outfit.deletedAt);
   const garments = (data?.garments ?? []) as Garment[];
 
   const entriesByDate = useMemo(() => {
-    const map = new Map<string, CalendarEntry[]>();
+    const grouped = new Map<string, CalendarEntry[]>();
     for (const entry of entries) {
-      const list = map.get(entry.date) ?? [];
-      list.push(entry);
-      map.set(entry.date, list);
+      const current = grouped.get(entry.date) ?? [];
+      current.push(entry);
+      grouped.set(entry.date, current);
     }
-    return map;
+    return grouped;
   }, [entries]);
 
   if (!profile) return null;
 
-  const monthMatrixFull = buildFullMonthMatrix(monthAnchor);
-  
-  // Upcoming looks logic
-  const selectedDateObj = parseDateOnly(selectedDate);
-  const upcomingEntries = entries
-    .filter(e => {
-      const d = parseDateOnly(e.date);
-      return d.getTime() >= selectedDateObj.getTime();
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const monthCells = buildMonthMatrix(monthAnchor);
+  const selectedEntries = entriesByDate.get(selectedDate) ?? [];
+
+  function moveMonth(offset: -1 | 1) {
+    const nextMonth = new Date(
+      monthAnchor.getFullYear(),
+      monthAnchor.getMonth() + offset,
+      1,
+    );
+    setMonthAnchor(nextMonth);
+    setSelectedDate(toDateOnly(nextMonth));
+  }
+
+  async function toggleWorn(entry: CalendarEntry) {
+    await updateCalendarEntry(entry.id, {
+      wornAt: entry.wornAt ? null : new Date().toISOString(),
+    });
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-text-primary">Calendar</h1>
-      </div>
+    <div className="space-y-7">
+      <h1 className="text-3xl font-semibold tracking-tight text-text-primary">Calendario</h1>
 
-      {/* Mes navegable */}
-      <section>
+      <section aria-labelledby="calendar-month-title">
         <div className="mb-4 flex items-center justify-between px-2">
           <button
             type="button"
-            onClick={() => setMonthAnchor((d) => addDays(d, -30))}
+            onClick={() => moveMonth(-1)}
             aria-label="Mes anterior"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text-secondary hover:bg-surface-alt transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-text-secondary transition-colors hover:bg-surface-alt"
           >
             <ChevronLeftIcon size={20} />
           </button>
-          <p className="text-lg font-semibold tracking-wide text-text-primary">
+          <h2 id="calendar-month-title" className="text-lg font-semibold text-text-primary">
             {monthYearLabel(monthAnchor)}
-          </p>
+          </h2>
           <button
             type="button"
-            onClick={() => setMonthAnchor((d) => addDays(d, 30))}
+            onClick={() => moveMonth(1)}
             aria-label="Mes siguiente"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text-secondary hover:bg-surface-alt transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-text-secondary transition-colors hover:bg-surface-alt"
           >
             <ChevronRightIcon size={20} />
           </button>
         </div>
 
         <div className="grid grid-cols-7 gap-1.5 md:gap-2">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, i) => (
-            <div key={i} className="py-2 text-center text-xs font-semibold uppercase tracking-wider text-text-muted">
+          {WEEKDAY_LABELS.map((label) => (
+            <div
+              key={label}
+              className="py-2 text-center text-xs font-semibold uppercase tracking-wider text-text-muted"
+            >
               {label}
             </div>
           ))}
-          
-          {monthMatrixFull.map((cell, idx) => {
+
+          {monthCells.map((cell, index) => {
             if (!cell.dateOnly) {
-              return <div key={`empty-${idx}`} className="aspect-square rounded-2xl" />;
+              return <div key={`empty-${index}`} className="aspect-square" aria-hidden="true" />;
             }
-            
+
             const dateOnly = cell.dateOnly;
             const dayEntries = entriesByDate.get(dateOnly) ?? [];
             const isToday = dateOnly === today();
             const isSelected = dateOnly === selectedDate;
-            
-            let coverPhotoId = null;
-            if (dayEntries.length > 0) {
-              const outfit = outfits.find(o => o.id === dayEntries[0]!.outfitId);
-              if (outfit && outfit.slots.length > 0) {
-                const g = garments.find(g => g.id === outfit.slots[0]!.garmentId);
-                if (g) coverPhotoId = g.photoId;
-              }
-            }
+            const firstOutfit = outfits.find((outfit) => outfit.id === dayEntries[0]?.outfitId);
+            const firstGarment = garments.find(
+              (garment) => garment.id === firstOutfit?.slots[0]?.garmentId,
+            );
+            const entryCountLabel =
+              dayEntries.length === 0
+                ? 'sin conjuntos'
+                : `${dayEntries.length} ${dayEntries.length === 1 ? 'conjunto' : 'conjuntos'}`;
 
             return (
               <button
                 key={dateOnly}
                 type="button"
                 onClick={() => setSelectedDate(dateOnly)}
+                aria-label={`${longDateLabel(dateOnly)}, ${entryCountLabel}`}
                 aria-pressed={isSelected}
-                className={`relative flex aspect-square flex-col items-center justify-center rounded-2xl border transition-all overflow-hidden ${
+                data-testid="calendar-day"
+                data-date={dateOnly}
+                className={`relative flex aspect-square flex-col items-center justify-center overflow-hidden rounded-2xl border transition-all ${
                   isSelected
-                    ? 'border-primary bg-primary-soft ring-2 ring-primary/20 scale-105 z-10 shadow-soft'
+                    ? 'z-10 scale-105 border-primary bg-primary-soft shadow-soft ring-2 ring-primary/20'
                     : 'border-border/50 bg-surface hover:border-border hover:bg-surface-alt'
                 }`}
               >
                 <span
-                  className={`absolute top-1.5 left-2 text-[11px] font-semibold ${
-                    isToday ? 'flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white -ml-1 -mt-0.5' : isSelected ? 'text-primary' : 'text-text-primary'
+                  className={`absolute left-2 top-1.5 text-[11px] font-semibold ${
+                    isToday
+                      ? '-ml-1 -mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white'
+                      : isSelected
+                        ? 'text-primary'
+                        : 'text-text-primary'
                   }`}
                 >
                   {cell.day}
                 </span>
-                
-                {coverPhotoId && (
-                  <div className="absolute inset-0 top-4 pt-1 px-1.5 pb-0.5 pointer-events-none">
+
+                {firstGarment?.photoId ? (
+                  <div className="pointer-events-none absolute inset-0 top-4 px-1.5 pb-0.5 pt-1">
                     <GarmentPhoto
-                      imageId={coverPhotoId}
-                      alt="Outfit"
-                      className="w-full h-full object-contain"
+                      imageId={firstGarment.photoId}
+                      alt=""
+                      className="h-full w-full object-contain"
                       iconSize={16}
                     />
                   </div>
-                )}
+                ) : null}
+                {dayEntries.length > 0 ? (
+                  <span className="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+                ) : null}
               </button>
             );
           })}
         </div>
       </section>
 
-      {/* Upcoming looks */}
-      <section className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-text-primary">Upcoming looks</h2>
+      <section aria-labelledby="selected-day-title">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <h2 id="selected-day-title" className="text-xl font-semibold text-text-primary">
+              Conjuntos del día
+            </h2>
+            <p className="mt-0.5 text-sm text-text-secondary">{longDateLabel(selectedDate)}</p>
+          </div>
           <Link
             href={`/outfits/new?date=${selectedDate}`}
-            className="flex items-center justify-center h-10 w-10 rounded-full bg-primary text-white hover:bg-primary-hover shadow-soft transition-colors"
+            aria-label={`Crear conjunto para ${longDateLabel(selectedDate)}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-soft transition-colors hover:bg-primary-hover"
           >
             <PlusIcon size={20} />
           </Link>
         </div>
 
-        {upcomingEntries.length === 0 ? (
+        {selectedEntries.length === 0 ? (
           <EmptyState
             icon={<CalendarIcon size={32} />}
-            title="No upcoming looks"
-            description="Plan an outfit for the selected day."
+            title="No hay conjuntos programados"
+            description="Crea un conjunto para el día seleccionado."
           />
         ) : (
-          <div className="space-y-4">
-            {upcomingEntries.slice(0, 5).map((entry) => {
-              const outfit = outfits.find((o) => o.id === entry.outfitId);
+          <div className="space-y-3" data-testid="day-entries">
+            {selectedEntries.map((entry) => {
+              const outfit = outfits.find((candidate) => candidate.id === entry.outfitId);
               if (!outfit) return null;
-              
               const slotGarments = outfit.slots
-                .map((slot) => garments.find((g) => g.id === slot.garmentId && !g.deletedAt))
-                .filter((g): g is Garment => Boolean(g));
-                
-              const d = parseDateOnly(entry.date);
-              const dayStr = dayLabel(d).substring(0, 3).toUpperCase();
-              
+                .map((slot) => garments.find((garment) => garment.id === slot.garmentId && !garment.deletedAt))
+                .filter((garment): garment is Garment => Boolean(garment));
+
               return (
-                <div key={entry.id} className="card-surface p-4 flex gap-4 transition-shadow hover:shadow-card group">
-                  <div className="flex flex-col items-center justify-center shrink-0 w-12 pt-2 border-r border-border pr-4">
-                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{dayStr}</span>
-                    <span className="text-2xl font-semibold text-text-primary">{d.getDate()}</span>
-                  </div>
-                  
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/outfits/${outfit.id}`)}
-                    className="flex-1 flex gap-3 items-center text-left min-w-0"
-                  >
-                    <div className="flex -space-x-3 shrink-0">
-                      {slotGarments.slice(0, 3).map((garment) => (
-                        <GarmentPhoto
-                          key={garment.id}
-                          imageId={garment.photoId}
-                          alt={garment.name ?? ''}
-                          className="h-16 w-16 rounded-xl border-2 border-surface object-cover bg-surface-alt"
-                          iconSize={18}
-                        />
-                      ))}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-semibold text-text-primary">{outfit.name ?? 'Untitled Outfit'}</p>
-                      <p className="text-xs text-text-secondary mt-0.5">
-                        {slotGarments.length} {slotGarments.length === 1 ? 'item' : 'items'}
-                      </p>
-                    </div>
-                  </button>
-                  
-                  <div className="flex flex-col justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <article key={entry.id} className="card-surface p-4">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/outfits/${outfit.id}`)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      aria-label={`Ver conjunto ${outfit.name ?? 'sin nombre'}`}
+                    >
+                      <div className="flex shrink-0 -space-x-3">
+                        {slotGarments.slice(0, 3).map((garment) => (
+                          <GarmentPhoto
+                            key={garment.id}
+                            imageId={garment.photoId}
+                            alt={garment.name ?? ''}
+                            className="h-14 w-14 border-2 border-surface bg-surface-alt object-cover"
+                            iconSize={18}
+                          />
+                        ))}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-text-primary">
+                          {outfit.name ?? 'Conjunto sin nombre'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-text-secondary">
+                          {slotGarments.length} {slotGarments.length === 1 ? 'prenda' : 'prendas'}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void toggleWorn(entry)}
+                      aria-label={entry.wornAt ? 'Marcar como no vestido' : 'Marcar como vestido'}
+                      aria-pressed={Boolean(entry.wornAt)}
+                      data-testid="toggle-worn"
+                      className={`inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
+                        entry.wornAt
+                          ? 'bg-success/15 text-success'
+                          : 'bg-surface-alt text-text-secondary hover:text-primary'
+                      }`}
+                    >
+                      <CheckIcon size={15} />
+                      {entry.wornAt ? 'Vestido' : 'Marcar vestido'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setEntryToDelete(entry)}
-                      className="p-2 rounded-full text-danger hover:bg-danger/10"
+                      aria-label="Quitar del calendario"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-danger hover:bg-danger/10"
                     >
                       <TrashIcon size={18} />
                     </button>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
@@ -255,9 +280,9 @@ export default function CalendarPage() {
 
       <ConfirmDialog
         open={entryToDelete !== null}
-        title="Remove from calendar?"
-        message="The outfit will no longer be scheduled for this day, but it will not be deleted."
-        confirmLabel="Remove"
+        title="¿Quitar del calendario?"
+        message="El conjunto dejará de estar programado para este día, pero no se eliminará."
+        confirmLabel="Quitar"
         onConfirm={() => entryToDelete && void deleteCalendarEntry(entryToDelete.id)}
         onClose={() => setEntryToDelete(null)}
       />
@@ -265,34 +290,23 @@ export default function CalendarPage() {
   );
 }
 
-function buildFullMonthMatrix(anchor: Date): { dateOnly: string | null; day: number | null }[] {
+function buildMonthMatrix(anchor: Date): { dateOnly: string | null; day: number | null }[] {
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month + 1, 0);
-  
-  const firstDayOfWeek = (first.getDay() === 0 ? 7 : first.getDay()) - 1; // 0 for Monday
-  
-  const cells = [];
-  
-  // Pad beginning
-  for (let i = 0; i < firstDayOfWeek; i++) {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const leadingCells = (firstDay.getDay() + 6) % 7;
+  const cells: { dateOnly: string | null; day: number | null }[] = [];
+
+  for (let index = 0; index < leadingCells; index += 1) {
     cells.push({ dateOnly: null, day: null });
   }
-  
-  // Fill days
-  for (let i = 1; i <= last.getDate(); i++) {
-    const d = new Date(year, month, i);
-    cells.push({ dateOnly: toDateOnly(d), day: i });
+  for (let day = 1; day <= lastDay.getDate(); day += 1) {
+    cells.push({ dateOnly: toDateOnly(new Date(year, month, day)), day });
   }
-  
-  // Pad end to complete weeks
-  const remainder = cells.length % 7;
-  if (remainder > 0) {
-    for (let i = 0; i < 7 - remainder; i++) {
-      cells.push({ dateOnly: null, day: null });
-    }
+  while (cells.length % 7 !== 0) {
+    cells.push({ dateOnly: null, day: null });
   }
-  
+
   return cells;
 }

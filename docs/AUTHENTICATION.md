@@ -12,6 +12,25 @@
 - **Nada de tokens en localStorage/sessionStorage/IndexedDB.** El cliente
   persiste solo un perfil local sin secretos (`kv` → `local-profile`).
 
+## Registro y administración de cuentas
+
+- En producción, el registro público está desactivado salvo que se establezca
+  explícitamente `PUBLIC_REGISTRATION_ENABLED=true`. Desarrollo y pruebas lo
+  habilitan por defecto, y también pueden fijarlo explícitamente.
+- Si una base local/de pruebas está vacía, el primer registro público crea el
+  `ADMIN` del slot 1. Este bootstrap no ocurre en producción.
+- Las invitaciones de **cuenta** las crea un administrador desde Perfil. Son
+  distintas de los enlaces para compartir un armario: el token lo genera el
+  servidor, en la base solo se guarda su SHA-256, expira y se consume una sola
+  vez por el mismo correo invitado.
+- Puede haber como máximo dos administradores activos y debe quedar al menos
+  uno. Un segundo administrador puede promover, transferir o degradar roles
+  dentro de esas reglas; no existe borrado duro de cuentas. Las cuentas se
+  desactivan y al desactivarlas se revocan sus sesiones.
+- La administración y el correo requieren conexión. La lista de cuentas e
+  invitaciones es una caché de lectura en IndexedDB para consulta offline,
+  pero el rol local nunca autoriza una API del servidor.
+
 ## Endpoints
 
 | Ruta | Método | Notas |
@@ -21,6 +40,10 @@
 | `/api/auth/logout` | POST | borra la sesión y la cookie |
 | `/api/auth/session` | GET | `{authenticated, profile}` |
 | `/api/auth/providers` | GET | `{credentials:true, google:boolean}` según env |
+
+Las rutas `/api/profile`, `/api/profile/password` y `/api/profile/email`
+actualizan, respectivamente, nombre/foto, contraseña y correo. Las rutas
+`/api/admin/*` requieren una sesión de administrador activa en el servidor.
 
 ## Google Sign-In (preparado, desactivado)
 
@@ -39,6 +62,14 @@ cookie actual. Ver docs/EXTERNAL_SERVICES_SETUP.md.
   el usuario re-autentica y el sync continúa donde estaba.
 - Cerrar sesión conserva los datos del dispositivo (particionados por
   `userId`); otro usuario puede iniciar sesión en el mismo navegador.
+
+## Cambios de credenciales
+
+- Cambiar contraseña o correo exige la contraseña actual y rota todas las
+  sesiones del usuario.
+- El cambio de correo **no verifica todavía** la propiedad del nuevo buzón.
+  Es una limitación conocida y la verificación por correo es obligatoria antes
+  de producción.
 
 ## Passkeys / WebAuthn (preparado)
 

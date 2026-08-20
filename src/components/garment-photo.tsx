@@ -2,26 +2,35 @@
 
 /**
  * Muestra la foto de una prenda: blob local (IndexedDB) → URL remota →
- * placeholder editorial. Cache de object URLs por sesión.
+ * placeholder editorial. Reacciona a metadatos que lleguen por sync.
  */
-import { useEffect, useState } from 'react';
-import { resolveImageUrl } from '@/lib/images/image-client';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getDB } from '@/lib/local/db';
 import { ShirtIcon } from './icons';
 
 export function useImageUrl(imageId: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+  const image = useLiveQuery(
+    async () => (imageId ? getDB().images.get(imageId) : undefined),
+    [imageId],
+  );
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    void resolveImageUrl(imageId).then((resolved) => {
-      if (!cancelled) setUrl(resolved);
+    let active = true;
+    const blob = image?.blob;
+    const nextUrl = blob && blob.size > 0 ? URL.createObjectURL(blob) : null;
+    queueMicrotask(() => {
+      if (active) setObjectUrl(nextUrl);
+      else if (nextUrl) URL.revokeObjectURL(nextUrl);
     });
     return () => {
-      cancelled = true;
+      active = false;
+      if (nextUrl) URL.revokeObjectURL(nextUrl);
     };
-  }, [imageId]);
+  }, [image?.blob]);
 
-  return url;
+  return objectUrl ?? image?.remoteUrl ?? null;
 }
 
 export function GarmentPhoto({
@@ -30,12 +39,14 @@ export function GarmentPhoto({
   className = '',
   rounded = 'rounded-xl',
   iconSize = 28,
+  fallback,
 }: {
   imageId: string | null;
   alt: string;
   className?: string;
   rounded?: string;
   iconSize?: number;
+  fallback?: ReactNode;
 }) {
   const url = useImageUrl(imageId);
   if (!url) {
@@ -45,7 +56,7 @@ export function GarmentPhoto({
         aria-label={`${alt} (sin foto)`}
         role="img"
       >
-        <ShirtIcon size={iconSize} />
+        {fallback ?? <ShirtIcon size={iconSize} />}
       </div>
     );
   }
