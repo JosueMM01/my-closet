@@ -14,6 +14,7 @@ import { GarmentPhoto } from '@/components/garment-photo';
 import { CalendarIcon, HangerIcon, SparklesIcon } from '@/components/icons';
 import { FavoriteButton } from '@/components/favorite-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { FeaturedCarousel } from '@/components/featured-carousel';
 
 export default function HomePage() {
   const { profile } = useSession();
@@ -71,9 +72,9 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className="bg-surface-alt rounded-[1.8rem] p-6 md:p-8 relative shadow-sm border border-border/40">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="max-w-xs shrink-0">
+      <section className="relative overflow-hidden rounded-[1.8rem] border border-border/40 bg-surface-alt p-4 shadow-sm sm:p-6 md:p-8">
+        <div className="grid items-center gap-6 lg:grid-cols-[minmax(15rem,0.75fr)_minmax(20rem,1fr)] lg:gap-10">
+          <div className="max-w-md">
             <p className="text-[11px] font-bold tracking-[0.15em] text-[#8F5B66] uppercase mb-2">
               Conjunto del día
             </p>
@@ -91,32 +92,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="flex flex-col items-center gap-4 overflow-hidden">
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-1">
-              <div className="h-40 w-32 md:h-48 md:w-36 rounded-2xl overflow-hidden bg-surface shadow-sm border border-border/60 shrink-0 flex items-center justify-center p-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/item-jacket.jpg" alt="Chaqueta" className="w-full h-full object-cover rounded-xl" />
-              </div>
-              <div className="h-40 w-32 md:h-48 md:w-36 rounded-2xl overflow-hidden bg-surface shadow-sm border border-border/60 shrink-0 flex items-center justify-center p-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/item-sweatshirt.jpg" alt="Sudadera" className="w-full h-full object-cover rounded-xl" />
-              </div>
-              <div className="h-40 w-32 md:h-48 md:w-36 rounded-2xl overflow-hidden bg-surface shadow-sm border border-border/60 shrink-0 flex items-center justify-center p-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/item-jeans.jpg" alt="Vaqueros" className="w-full h-full object-cover rounded-xl" />
-              </div>
-              <div className="h-40 w-32 md:h-48 md:w-36 rounded-2xl overflow-hidden bg-surface shadow-sm border border-border/60 shrink-0 flex items-center justify-center p-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/item-bag.jpg" alt="Bolso" className="w-full h-full object-cover rounded-xl" />
-              </div>
-            </div>
-
-            <div className="flex justify-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#8F5B66]"></div>
-              <div className="w-2 h-2 rounded-full bg-border"></div>
-              <div className="w-2 h-2 rounded-full bg-border"></div>
-            </div>
-          </div>
+          <FeaturedCarousel />
         </div>
 
       </section>

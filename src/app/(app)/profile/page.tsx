@@ -136,6 +136,7 @@ export default function ProfilePage() {
     try {
       const image = await saveGarmentPhoto(userId, file, {
         removeBackground: false,
+        queueForSync: false,
         onProgress: (progress) => setPhotoStage(`${progress.stage}…`),
       });
       setPhotoStage('Subiendo la imagen procesada…');

@@ -8,22 +8,21 @@ predeterminados. Ninguna credencial aislada activa una conexión externa.
 
 | Servicio | Preparado hoy | Pendiente antes de activar |
 |---|---|---|
-| Neon | esquema PG y migraciones de `password_reset_tokens`/`auth_accounts` | runtime, migraciones base completas, repositorios PG y pruebas de contrato |
-| Cloudinary | credenciales agrupadas, firma, storage y metadatos en pull | subida directa y endpoint de finalización |
+| Neon | runtime postgres.js, migración base completa, repositorios y contratos en rama staging | soak de staging, concurrencia ampliada y configuración de Vercel |
+| Cloudinary | subida firmada navegador→CDN, `finalize`, persistencia y pull de metadatos | convivencia histórica/dos dispositivos y garbage collection |
 | Google | start/callback, state, PKCE, nonce, JOSE y vinculación explícita | registrar credenciales/callback y activar solo si se desea |
 | Correo SMTP | `disabled`/`capture`/`smtp`, invitaciones y recuperación | configurar y operar entrega de bajo volumen; verificar cambios de correo aparte |
 | Vercel | build Next.js reproducible | adaptar límites de assets/modelo, Neon, Cloudinary y rate limit distribuido |
 
-Mientras falte un adaptador, el selector correspondiente debe permanecer local
-o desactivado. PostgreSQL falla de forma explícita antes de importar el driver o
-abrir una conexión. Google sí está implementado, pero no se anuncia ni realiza
-llamadas externas mientras su selector esté desactivado.
+Los proveedores siguen siendo opt-in. Sin selectores explícitos la aplicación
+usa SQLite, almacenamiento local y no realiza llamadas a Google.
 
 ## Variables
 
 ```dotenv
 DATABASE_PROVIDER=sqlite
 DATABASE_URL=
+DATABASE_URL_UNPOOLED=
 
 IMAGE_PROVIDER=local
 CLOUDINARY_CLOUD_NAME=
@@ -61,33 +60,23 @@ La referencia canónica de los nombres y valores predeterminados es
 
 ## Neon
 
-Antes de usar `DATABASE_PROVIDER=postgres` se debe:
+El runtime PostgreSQL usa `postgres.js` y Drizzle. Configurar la URL pooled en
+`DATABASE_URL` para la aplicación y la URL directa en
+`DATABASE_URL_UNPOOLED` para migraciones. Antes de producción:
 
-1. Completar y revisar las migraciones base desde `src/server/db/schema-pg.ts`.
-   Ya existen declaraciones SQLite/PG para `password_reset_tokens` y
-   `auth_accounts`, pero dependen del resto del esquema.
-2. Implementar repositorios PostgreSQL para usuarios, sesiones, identidades,
-   recuperación, sync e imágenes.
-3. Ejecutar la misma suite de contratos contra PostgreSQL sin casts a SQLite.
-4. Resolver escrituras concurrentes y el watermark consistente del pull.
-5. Configurar `DATABASE_URL=postgresql://...` únicamente en el entorno alojado.
-
-El código actual lanza `DatabaseProviderNotImplementedError` deliberadamente.
+1. Crear una rama Neon de staging y aplicar `pnpm db:migrate` allí.
+2. Ejecutar `tests/integration/postgres-contract.test.ts` contra esa rama.
+3. Probar concurrencia, sync y recuperación con datos representativos.
+4. Promover la misma migración revisada; nunca experimentar en la rama raíz.
 
 ## Cloudinary
 
-Antes de usar `IMAGE_PROVIDER=cloudinary` se debe:
-
-1. Implementar capability/sign/finalize para subida directa del navegador.
-2. Persistir `public_id`, propietario, dimensiones y URL resultante.
-3. Incluir metadatos de imágenes en sync pull para dispositivos nuevos.
-4. Mantener `/api/images/sign` fuera de Service Worker y cachés compartidas.
-5. Probar convivencia con imágenes históricas guardadas en SQLite.
-
-`CLOUDINARY_API_SECRET` siempre permanece en el servidor. Desarrollo local no
-debe configurar ni activar este proveedor. El pull ya incluye metadatos de
-imágenes y no binarios, pero Cloudinary no está listo para producción: debe
-seguir desactivado hasta completar el flujo directo y sus contratos.
+Con `IMAGE_PROVIDER=cloudinary`, el navegador obtiene una firma autenticada,
+sube el WebP directamente al CDN y llama a `/api/images/finalize`. El servidor
+consulta Cloudinary, valida con Zod formato/dimensiones/tamaño/propietario y
+persiste `public_id`, URL y metadatos. `CLOUDINARY_API_SECRET` nunca sale del
+servidor. Antes de producción aún se debe probar convivencia histórica en dos
+dispositivos e implementar garbage collection con comprobación de referencias.
 
 ## Correo SMTP
 
@@ -135,7 +124,7 @@ NEXT_PUBLIC_APP_URL=https://tu-dominio.example
 ```
 
 La URL local equivalente es
-`http://localhost:3000/api/auth/google/callback` si se decide probar contra
+`http://localhost:3001/api/auth/google/callback` para el puerto local actual
 Google. Nunca se usan credenciales reales en archivos versionados.
 
 Google no registra usuarios ni vincula automáticamente por coincidencia de
@@ -152,9 +141,9 @@ no llama a Google y no descarga JWKS.
 
 ## Producción
 
-Bloqueadores explícitos antes de producción: repositorios runtime y migraciones
-completas de Neon PostgreSQL, subida directa/finalización Cloudinary, rate limit
-distribuido y verificación del nuevo correo al cambiarlo desde Perfil. Además se
+Bloqueadores explícitos antes de producción: rate limit distribuido,
+verificación del nuevo correo, garbage collection seguro de imágenes y soak de
+Neon/Cloudinary en staging y dos dispositivos. Además se
 requieren `AUTH_SECRET` fuerte, SMTP operativo de bajo volumen para invitaciones
 y recuperación, CSP revisada y suite completa en staging. La eliminación de
 fondo sirve unos 200 MB de assets y debe evaluarse para el hosting elegido.

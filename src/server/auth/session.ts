@@ -8,7 +8,7 @@ import { cookies } from 'next/headers';
 import { and, eq, gt } from 'drizzle-orm';
 import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { getAuthSecret, isProduction } from '@/server/env';
-import { getSqlite, sqliteSchema } from '@/server/db';
+import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
 
 export const SESSION_COOKIE = 'mc_session';
 const SESSION_TTL_DAYS = 30;
@@ -66,10 +66,14 @@ export async function createSession(userId: string): Promise<void> {
   const token = randomBytes(32).toString('base64url');
   const id = tokenId(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
-  const sqlite = await getSqlite();
-  await sqlite
-    .insert(sqliteSchema.sessions)
-    .values({ id, userId, expiresAt: expiresAt.toISOString() });
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    await db.postgres.insert(pgSchema.sessions).values({ id, userId, expiresAt });
+  } else {
+    await db.sqlite
+      .insert(sqliteSchema.sessions)
+      .values({ id, userId, expiresAt: expiresAt.toISOString() });
+  }
 
   const store = await cookies();
   store.set(SESSION_COOKIE, signToken(id), {
@@ -86,8 +90,32 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const id = parseToken(store.get(SESSION_COOKIE)?.value);
   if (!id) return null;
 
-  const sqlite = await getSqlite();
-  const rows = await sqlite
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const rows = await db.postgres
+      .select({
+        userId: pgSchema.users.id,
+        email: pgSchema.users.email,
+        displayName: pgSchema.users.displayName,
+        createdAt: pgSchema.users.createdAt,
+        role: pgSchema.users.role,
+        status: pgSchema.users.status,
+        profileImageId: pgSchema.users.profileImageId,
+      })
+      .from(pgSchema.sessions)
+      .innerJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.sessions.userId))
+      .where(
+        and(
+          eq(pgSchema.sessions.id, id),
+          gt(pgSchema.sessions.expiresAt, new Date()),
+          eq(pgSchema.users.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? { ...row, createdAt: row.createdAt.toISOString() } : null;
+  }
+  const rows = await db.sqlite
     .select({
       userId: sqliteSchema.users.id,
       email: sqliteSchema.users.email,
@@ -107,7 +135,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       ),
     )
     .limit(1);
-
   return rows[0] ?? null;
 }
 
@@ -122,8 +149,12 @@ export async function requireAdmin(): Promise<SessionUser> {
 
 /** Revoca todas las sesiones y emite una nueva para mantener utilizable la actual. */
 export async function rotateAllSessions(userId: string): Promise<void> {
-  const sqlite = await getSqlite();
-  await sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.userId, userId));
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    await db.postgres.delete(pgSchema.sessions).where(eq(pgSchema.sessions.userId, userId));
+  } else {
+    await db.sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.userId, userId));
+  }
   await createSession(userId);
 }
 
@@ -131,8 +162,12 @@ export async function destroySession(): Promise<void> {
   const store = await cookies();
   const id = parseToken(store.get(SESSION_COOKIE)?.value);
   if (id) {
-    const sqlite = await getSqlite();
-    await sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.id, id));
+    const db = await getServerDB();
+    if (db.dialect === 'postgres') {
+      await db.postgres.delete(pgSchema.sessions).where(eq(pgSchema.sessions.id, id));
+    } else {
+      await db.sqlite.delete(sqliteSchema.sessions).where(eq(sqliteSchema.sessions.id, id));
+    }
   }
   store.delete(SESSION_COOKIE);
 }

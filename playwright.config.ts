@@ -29,7 +29,10 @@ export default defineConfig({
       // Secreto de prueba exclusivo del servidor E2E local.
       AUTH_SECRET: 'e2e-local-only-auth-secret',
       PUBLIC_REGISTRATION_ENABLED: 'true',
+      DATABASE_PROVIDER: 'sqlite',
       DATABASE_URL: 'file:./data/my-closet-e2e.db',
+      IMAGE_PROVIDER: 'local',
+      GOOGLE_AUTH_ENABLED: 'false',
       EMAIL_PROVIDER: 'capture',
       NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}`,
       // La suite registra muchos usuarios desde 127.0.0.1: límite elevado.

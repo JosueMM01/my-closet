@@ -9,8 +9,8 @@ Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-clo
 ```
 UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──► backend
                                                                         │
-                                                    SQLite (hoy) / Neon PostgreSQL (contrato futuro)
-                                                    imágenes: local (hoy) / Cloudinary (contrato futuro)
+                                                    SQLite local / Neon PostgreSQL staging-producción
+                                                    imágenes: local / Cloudinary directo
 ```
 
 ## Requisitos
@@ -23,7 +23,7 @@ UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──�
 ```bash
 git clone <repo-local> my-closet && cd my-closet
 pnpm install
-pnpm dev          # → http://localhost:3000
+pnpm dev -- --port 3001   # → http://localhost:3001
 ```
 
 **No necesitas configurar servicios externos**: sin variables de entorno la
@@ -63,7 +63,7 @@ IA, red ni análisis de fotos y funciona offline.
 | `pnpm test` | Vitest: unitarios + integración |
 | `pnpm e2e` | build + Playwright (Chromium) |
 
-Estado conocido: **124 Vitest**; **62 E2E aprobadas y 4 skips esperados**. La
+Estado conocido: **124 Vitest**; **64 E2E aprobadas y 4 skips esperados**. La
 prueba del modelo real de eliminación de fondo es opt-in y se vuelve a ejecutar
 por separado.
 
@@ -78,7 +78,8 @@ PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chr
 Neon, Cloudinary, Google Sign-In y Vercel requieren selectores explícitos.
 Google Sign-In está implementado pero es opt-in; solo inicia sesión en una
 cuenta existente que antes se vinculó desde Perfil con el mismo correo
-verificado. Neon y Cloudinary aún tienen bloqueadores de runtime. La app local
+verificado. Neon y Cloudinary tienen runtime y flujo directo funcionales, pero
+solo deben activarse explícitamente y probarse primero en staging. La app local
 no realiza llamadas externas con los proveedores desactivados. Detalles:
 **`docs/EXTERNAL_SERVICES_SETUP.md`**.
 

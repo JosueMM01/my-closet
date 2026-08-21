@@ -65,8 +65,9 @@ debe revisar sus obligaciones de licencia antes de publicarse.
 
 ## Sincronización y backend
 
-- El sync engine sube cada WebP pendiente a `POST /api/images` con límite de
-  3 MB ya validado antes de persistir.
+- Con almacenamiento local, el sync engine sube cada WebP a `POST /api/images`.
+  Con Cloudinary obtiene una firma ligada a usuario+UUID, sube directamente al
+  CDN y finaliza en `POST /api/images/finalize`.
 - LocalImageStorage guarda el blob en SQLite y `GET /api/images/[id]` se puede
   cachear como imagen inmutable.
 - `/api/images/sign` es autenticado y el service worker nunca lo cachea.
@@ -76,6 +77,7 @@ debe revisar sus obligaciones de licencia antes de publicarse.
   fase posterior de hidratación de binarios.
 - La foto de perfil utiliza este mismo pipeline de navegador (resize + WebP),
   siempre con eliminación de fondo desactivada.
-- Cloudinary sigue incompleto y debe permanecer desactivado. Aunque existe la
-  abstracción y la configuración explícita `IMAGE_PROVIDER=cloudinary`, faltan
-  el flujo directo de producción, su finalización y las pruebas de contrato.
+- Cloudinary fue validado extremo a extremo con firma, WebP directo, consulta
+  server-side del recurso, persistencia en Neon y limpieza del recurso de
+  prueba. Sigue pendiente el garbage collection y la prueba histórica en dos
+  dispositivos antes de producción.

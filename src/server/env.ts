@@ -44,6 +44,7 @@ export const serverEnvSchema = z
   .object({
     DATABASE_PROVIDER: z.enum(['sqlite', 'postgres']).default('sqlite'),
     DATABASE_URL: optionalEnvString,
+    DATABASE_URL_UNPOOLED: optionalEnvString,
     IMAGE_PROVIDER: z.enum(['local', 'cloudinary']).default('local'),
     CLOUDINARY_CLOUD_NAME: optionalEnvString,
     CLOUDINARY_API_KEY: optionalEnvString,
@@ -118,6 +119,16 @@ export const serverEnvSchema = z
           path: ['DATABASE_URL'],
         });
       }
+    }
+    if (
+      env.DATABASE_URL_UNPOOLED &&
+      !/^postgres(?:ql)?:\/\//.test(env.DATABASE_URL_UNPOOLED)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'DATABASE_URL_UNPOOLED debe usar postgres:// o postgresql://',
+        path: ['DATABASE_URL_UNPOOLED'],
+      });
     }
 
     const bootstrapConfiguration = [
