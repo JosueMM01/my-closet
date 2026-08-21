@@ -8,16 +8,16 @@ predeterminados. Ninguna credencial aislada activa una conexión externa.
 
 | Servicio | Preparado hoy | Pendiente antes de activar |
 |---|---|---|
-| Neon | esquema PostgreSQL y selector validado | migraciones PG, repositorios PG y pruebas de contrato |
-| Cloudinary | credenciales agrupadas, firma y abstracción de storage | subida directa, endpoint de finalización y pull de metadatos de imágenes |
-| Google | selector, credenciales agrupadas y sesión interna reutilizable | tablas de identidades, start/callback OAuth, state, PKCE, nonce y vinculación de cuentas |
-| Correo SMTP | proveedor `disabled`/`capture`/`smtp` y envío de invitaciones de cuenta | verificación de propiedad de correo, entrega durable y operación de producción |
+| Neon | esquema PG y migraciones de `password_reset_tokens`/`auth_accounts` | runtime, migraciones base completas, repositorios PG y pruebas de contrato |
+| Cloudinary | credenciales agrupadas, firma, storage y metadatos en pull | subida directa y endpoint de finalización |
+| Google | start/callback, state, PKCE, nonce, JOSE y vinculación explícita | registrar credenciales/callback y activar solo si se desea |
+| Correo SMTP | `disabled`/`capture`/`smtp`, invitaciones y recuperación | configurar y operar entrega de bajo volumen; verificar cambios de correo aparte |
 | Vercel | build Next.js reproducible | adaptar límites de assets/modelo, Neon, Cloudinary y rate limit distribuido |
 
 Mientras falte un adaptador, el selector correspondiente debe permanecer local
 o desactivado. PostgreSQL falla de forma explícita antes de importar el driver o
-abrir una conexión. Google nunca se anuncia en `/api/auth/providers` hasta que
-el flujo OAuth esté completo.
+abrir una conexión. Google sí está implementado, pero no se anuncia ni realiza
+llamadas externas mientras su selector esté desactivado.
 
 ## Variables
 
@@ -37,8 +37,12 @@ GOOGLE_CLIENT_SECRET=
 AUTH_SECRET=
 NEXT_PUBLIC_APP_URL=
 
-# Producción es invite-only; local/test pueden habilitarlo explícitamente.
-PUBLIC_REGISTRATION_ENABLED=true
+# Cerrado en todos los entornos; true solo en E2E explícitos.
+PUBLIC_REGISTRATION_ENABLED=false
+
+# Bootstrap inicial: usar ambos juntos una vez y solo en .env.local.
+BOOTSTRAP_ADMIN_EMAIL=
+BOOTSTRAP_ADMIN_PASSWORD=
 
 # Correo: por defecto no hay conexiones externas.
 EMAIL_PROVIDER=disabled
@@ -59,8 +63,11 @@ La referencia canónica de los nombres y valores predeterminados es
 
 Antes de usar `DATABASE_PROVIDER=postgres` se debe:
 
-1. Generar y revisar migraciones desde `src/server/db/schema-pg.ts`.
-2. Implementar repositorios PostgreSQL para usuarios, sesiones, sync e imágenes.
+1. Completar y revisar las migraciones base desde `src/server/db/schema-pg.ts`.
+   Ya existen declaraciones SQLite/PG para `password_reset_tokens` y
+   `auth_accounts`, pero dependen del resto del esquema.
+2. Implementar repositorios PostgreSQL para usuarios, sesiones, identidades,
+   recuperación, sync e imágenes.
 3. Ejecutar la misma suite de contratos contra PostgreSQL sin casts a SQLite.
 4. Resolver escrituras concurrentes y el watermark consistente del pull.
 5. Configurar `DATABASE_URL=postgresql://...` únicamente en el entorno alojado.
@@ -84,9 +91,11 @@ seguir desactivado hasta completar el flujo directo y sus contratos.
 
 ## Correo SMTP
 
-Los modos son `disabled` (predeterminado, sin red), `capture` (guarda el
-mensaje para desarrollo/pruebas) y `smtp` (único modo que abre una conexión
-externa). Tests y desarrollo no deben usar `smtp` por defecto.
+Los modos son `disabled` (predeterminado, no envía ni abre red), `capture`
+(guarda el mensaje para desarrollo/pruebas) y `smtp` (único modo que abre una
+conexión externa). Invitaciones de cuenta y recuperación de contraseña necesitan
+`capture` o `smtp` para entregar el enlace. Tests y desarrollo no deben usar
+`smtp` por defecto.
 
 Ejemplo exacto para Gmail con App Password, únicamente en un entorno que vaya
 a enviar correo:
@@ -102,30 +111,50 @@ SMTP_PASSWORD=tu-app-password-de-16-caracteres
 NEXT_PUBLIC_APP_URL=https://tu-dominio.example
 ```
 
-`SMTP_PASSWORD` es un secreto de servidor, sin prefijo `NEXT_PUBLIC_`. Una
-cuenta personal de Gmail puede ser adecuada para volumen bajo y no tiene coste
-directo de software, pero sus cuotas y fiabilidad no equivalen a un proveedor
-transaccional. No usarla como supuesto de entrega garantizada.
+`SMTP_PASSWORD` es un secreto de servidor, sin prefijo `NEXT_PUBLIC_`. El uso
+previsto de invitaciones y recuperación es de bajo volumen. Una cuenta personal
+de Gmail puede servir en ese escenario, pero sus cuotas y fiabilidad no
+equivalen a un proveedor transaccional ni garantizan entrega.
 
 ## Google Sign-In
 
-Antes de establecer `GOOGLE_AUTH_ENABLED=true` se debe:
+Es una integración implementada pero opt-in. En Google Cloud se debe registrar
+exactamente esta URI de redirección autorizada:
 
-1. Añadir una tabla de identidades con clave única `(provider, subject)`.
-2. Permitir usuarios sin contraseña o separar credenciales locales.
-3. Implementar redirect y callback en el servidor con state, PKCE y nonce.
-4. Validar emisor, audiencia, expiración y `email_verified` del ID token.
-5. Definir una política explícita para vincular correos ya registrados.
-6. Emitir la cookie HttpOnly `mc_session` existente solo después del mapeo.
+```text
+https://tu-dominio.example/api/auth/google/callback
+```
 
-No se usarán tokens de Google en localStorage, sessionStorage o IndexedDB. El
-botón no aparece hasta que todo el flujo esté implementado y probado.
+Después se configuran juntos:
+
+```dotenv
+GOOGLE_AUTH_ENABLED=true
+GOOGLE_CLIENT_ID=<client id elegido>
+GOOGLE_CLIENT_SECRET=<client secret elegido>
+NEXT_PUBLIC_APP_URL=https://tu-dominio.example
+```
+
+La URL local equivalente es
+`http://localhost:3000/api/auth/google/callback` si se decide probar contra
+Google. Nunca se usan credenciales reales en archivos versionados.
+
+Google no registra usuarios ni vincula automáticamente por coincidencia de
+correo. Una cuenta con contraseña creada previamente por invitación debe iniciar
+sesión y vincular desde Perfil la identidad de Google con el correo verificado
+exactamente igual. Solo entonces puede usar el botón del login; una identidad no
+vinculada recibe una denegación genérica.
+
+El servidor aplica state, PKCE S256 y nonce, intercambia el código y verifica el
+ID token con JOSE/JWKS (RS256, emisor, audiencia, expiración,
+`email_verified=true` y nonce). No persiste access/refresh/ID tokens; emite la
+cookie interna existente. Con `GOOGLE_AUTH_ENABLED=false` no muestra controles,
+no llama a Google y no descarga JWKS.
 
 ## Producción
 
-Bloqueadores explícitos antes de producción: adaptador y migraciones Neon
-PostgreSQL, subida directa Cloudinary, rate limit distribuido y verificación de
-correo. Además se requiere `AUTH_SECRET` fuerte, CSP revisada y la suite
-completa en staging. La eliminación de fondo sirve unos 200 MB de assets; debe
-evaluarse si Vercel puede alojarlos o si se mueven a almacenamiento estático del
-mismo origen con sus licencias y checksums preservados.
+Bloqueadores explícitos antes de producción: repositorios runtime y migraciones
+completas de Neon PostgreSQL, subida directa/finalización Cloudinary, rate limit
+distribuido y verificación del nuevo correo al cambiarlo desde Perfil. Además se
+requieren `AUTH_SECRET` fuerte, SMTP operativo de bajo volumen para invitaciones
+y recuperación, CSP revisada y suite completa en staging. La eliminación de
+fondo sirve unos 200 MB de assets y debe evaluarse para el hosting elegido.

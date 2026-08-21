@@ -1,31 +1,33 @@
 # Estado del proyecto
 
-Fecha: 2026-08-20 · Rama base protegida: `main`; integración: `develop`.
+Fecha: 2026-08-20 · Rama actual: `feat/recommendations-auth-recovery`.
 
 ## ✅ Completado
 
 | Área | Estado | Evidencia |
 |---|---|---|
 | Build / TS / Lint | ✅ | `pnpm build`, `pnpm typecheck`, `pnpm lint` en verde |
-| Tests unit + integración | ✅ | 86 pruebas Vitest en verde, incluidas cuentas, administración, mail, imágenes y sync |
-| Tests E2E | ✅ | 53 Playwright aprobadas, 3 skips intencionales; el modelo real opt-in pasó en Chromium desktop |
-| Autenticación local | ✅ | registro/login/logout/sesión con cookie HttpOnly firmada, registro invite-only en producción y bootstrap ADMIN local/test |
+| Tests unit + integración | ✅ | 124 pruebas Vitest en verde |
+| Tests E2E | ✅ | 62 Playwright aprobadas y 4 skips esperados; modelo real opt-in aprobado en Chromium desktop |
+| Autenticación local | ✅ | login/logout, alta solo por invitación, bootstrap seguro, recuperación y cookie HttpOnly firmada |
+| Google Sign-In | ✅ opt-in | vinculación explícita por correo verificado y login solo de identidad vinculada; desactivado sin red por defecto |
 | Armario | ✅ | CRUD, archivar, clonar, búsqueda, filtros, categorías/colores personalizados y notas opcionales; talla/condición retiradas de la UI |
-| Conjuntos | ✅ | editor por categorías con ciclado, nombre/notas opcionales y fecha programable |
+| Conjuntos | ✅ | editor y sugerencias locales deterministas con contexto manual, ranking e historial de IndexedDB |
 | Calendario | ✅ | mes navegable, día seleccionable, marcar vestido y quitar entradas |
 | Sharing | 🟡 | creación, permiso y revocación de enlaces VIEW/MANAGE; la aceptación de la invitación de armario sigue pendiente |
 | Perfil y administración | ✅ | nombre, contraseña, correo, foto WebP sin quitar fondo, cuentas, invitaciones y desactivación desde Perfil |
 | Imágenes | ✅ | EXIF→resize→WebP y eliminación de fondo ONNX opcional en workers one-shot, assets self-hosted, subida local |
 | PWA | ✅ | manifest + iconos + SW (precache shell, estrategias por tipo, actualización controlada, Background Sync) |
 | Offline-first | ✅ | IndexedDB fuente de la UI, outbox y reconexión a estado sincronizado |
-| Seguridad | ✅ | CSP y cabeceras, rate limit, validación Zod, IDOR protegido, secretos fuera de Git |
+| Seguridad | ✅ | CSP, Zod, IDOR, reset hash-only, OAuth state/PKCE/nonce/JOSE y secretos fuera de Git |
 | Docs | ✅ | README, AGENTS.md, docs/ completa, 7 ADRs, PRs locales |
 
-## Servicios externos (preparados, NO conectados)
+## Servicios externos
 
-Neon (PostgreSQL) · Cloudinary · Google Sign-In · Vercel tienen configuración
-validada y selectores explícitos, pero los adaptadores externos permanecen
-desactivados y no se consideran implementados. Ver `docs/EXTERNAL_SERVICES_SETUP.md`.
+Google Sign-In está implementado y es opt-in; permanece sin llamadas externas
+por defecto. Neon y Cloudinary tienen configuración/esquema parcial, pero sus
+runtimes de producción no están completos. Ningún servicio externo está
+conectado en el entorno local. Ver `docs/EXTERNAL_SERVICES_SETUP.md`.
 
 ## Limitaciones conocidas
 
@@ -33,22 +35,22 @@ desactivados y no se consideran implementados. Ver `docs/EXTERNAL_SERVICES_SETUP
     metadatos; las miniaturas requieren que la imagen del propietario esté
     en el almacenamiento del servidor (sube con el sync online). Cloudinary no
     es una solución disponible aún: permanece desactivado hasta completarse.
-2. **Rate limiting en memoria**: adecuado a una instancia; en multi-instancia
-   mover a almacén compartido (documentado en SECURITY.md).
-3. **Adaptador PostgreSQL pendiente**: existe el esquema PG, pero repositorios
-   y migraciones siguen pendientes. Activarlo falla de forma explícita antes de
-   conectar para no simular compatibilidad con Neon.
-4. **Eliminar fondo en móviles**: el modelo completo descarga cerca de 200 MB
+2. **Runtime PostgreSQL pendiente**: existen esquema y migraciones PG para
+   `password_reset_tokens`/`auth_accounts`, pero faltan repositorios y
+   migraciones base completas. Activarlo falla antes de conectar.
+3. **Eliminar fondo en móviles**: el modelo completo descarga cerca de 200 MB
    y usa cientos de MB de RAM. CPU puede tardar minutos; Mobile Safari no está
    certificado y dispositivos con poca memoria pueden finalizar el worker.
-5. **Conflicto por campo**: LWW por entidad (documentado), no merge fino.
-6. **Iconos de notificaciones push**: no implementadas (fuera de alcance).
-7. **Cloudinary**: la abstracción existe, pero la subida directa y finalización
+4. **Conflicto por campo**: LWW por entidad (documentado), no merge fino.
+5. **Iconos de notificaciones push**: no implementadas (fuera de alcance).
+6. **Cloudinary**: la abstracción existe, pero la subida directa y finalización
    de producción no están completadas; permanece desactivado.
-8. **Verificación de correo**: cambiar correo reautentica y rota sesiones, pero
+7. **Verificación de correo**: cambiar correo reautentica y rota sesiones, pero
    aún no confirma la propiedad del nuevo buzón.
-9. **Rate limiting distribuido**: el limitador actual es en memoria y no sirve
+8. **Rate limiting distribuido**: el limitador actual es en memoria y no sirve
    para múltiples instancias.
+9. **Entrega de correo**: invitaciones y recuperación requieren SMTP operativo;
+   el volumen previsto es bajo y `disabled` no envía nada.
 
 ## Notas de datos y acceso
 
@@ -58,6 +60,10 @@ desactivados y no se consideran implementados. Ver `docs/EXTERNAL_SERVICES_SETUP
 - Las invitaciones de cuenta son independientes de los enlaces de compartir
   armario. Las primeras son server-generated, hasheadas, expiran y son de un
   uso; las acciones de administración y correo son solo online.
+- El registro público está cerrado en todos los entornos. El login no enlaza a
+  «Crear cuenta» y las altas reales usan fragmentos de invitación.
+- El contexto de sugerencias vive por usuario en el KV local y no se sincroniza.
+  El motor no usa IA, red ni análisis de fotos.
 
 ## Deuda técnica intencional
 
