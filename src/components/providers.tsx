@@ -124,7 +124,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
     startSyncEngine();
     const refreshStats = () => {
-      void readSyncStats().then(setStats);
+      if (profile) {
+        void readSyncStats(profile.userId).then(setStats);
+      } else {
+        setStats({ pending: 0, syncing: 0, failed: 0, lastSyncedAt: null });
+      }
       setRunning(isSyncRunning());
     };
     refreshStats();
@@ -135,7 +139,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       unsubscribe();
       clearInterval(interval);
     };
-  }, []);
+  }, [profile]);
 
   // Estado online/offline para UX (no como error).
   useEffect(() => {

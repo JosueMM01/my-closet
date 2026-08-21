@@ -122,12 +122,12 @@ export async function closeDB(): Promise<void> {
 
 const SYNC_STATE_KEY = 'sync-state';
 
-export async function readSyncStats(): Promise<SyncStats> {
+export async function readSyncStats(userId: string): Promise<SyncStats> {
   const db = getDB();
   const [pending, syncing, failed, stored] = await Promise.all([
-    db.outbox.where('status').equals('pending').count(),
-    db.outbox.where('status').equals('syncing').count(),
-    db.outbox.where('status').equals('failed').count(),
+    db.outbox.where('[userId+status]').equals([userId, 'pending']).count(),
+    db.outbox.where('[userId+status]').equals([userId, 'syncing']).count(),
+    db.outbox.where('[userId+status]').equals([userId, 'failed']).count(),
     db.kv.get(SYNC_STATE_KEY),
   ]);
   const state = stored?.value as { lastSyncedAt?: string } | undefined;
