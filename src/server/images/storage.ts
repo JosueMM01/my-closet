@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import {
   cloudinaryResourceSchema,
+  remoteImageMetadataSchema,
   type RemoteImageMetadata,
 } from '@/lib/domain/validation';
 import {
@@ -43,6 +44,28 @@ interface PersistedImageInput {
   storageKey: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Separa el registro interno (que puede contener el binario) del contrato
+ * replicable que reciben el navegador y el motor de sincronizacion.
+ */
+export function toRemoteImageMetadata(
+  input: RemoteImageMetadata & { data: Buffer | null },
+): RemoteImageMetadata {
+  return remoteImageMetadataSchema.parse({
+    id: input.id,
+    userId: input.userId,
+    mimeType: input.mimeType,
+    width: input.width,
+    height: input.height,
+    byteSize: input.byteSize,
+    remoteUrl: input.remoteUrl,
+    storageProvider: input.storageProvider,
+    storageKey: input.storageKey,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+  });
 }
 
 async function findStoredImage(id: string): Promise<{ userId: string; createdAt: string } | null> {
@@ -120,19 +143,7 @@ class LocalImageStorage implements ImageStorage {
       updatedAt: now,
     };
     await persistImage(values);
-    return {
-      id: input.id,
-      userId: input.userId,
-      mimeType: 'image/webp',
-      width: input.width,
-      height: input.height,
-      byteSize: input.data.byteLength,
-      remoteUrl,
-      storageProvider: this.kind,
-      storageKey: input.id,
-      createdAt: values.createdAt,
-      updatedAt: now,
-    };
+    return toRemoteImageMetadata(values);
   }
 
   async get(id: string): Promise<{ data: Buffer; mimeType: string } | null> {
@@ -211,19 +222,7 @@ class CloudinaryImageStorage implements ImageStorage {
       updatedAt: now,
     };
     await persistImage(values);
-    return {
-      id: input.id,
-      userId: input.userId,
-      mimeType: 'image/webp',
-      width: input.width,
-      height: input.height,
-      byteSize: input.data.byteLength,
-      remoteUrl: result.secure_url,
-      storageProvider: this.kind,
-      storageKey,
-      createdAt: values.createdAt,
-      updatedAt: now,
-    };
+    return toRemoteImageMetadata(values);
   }
 
   async get(): Promise<{ data: Buffer; mimeType: string } | null> {
@@ -310,5 +309,5 @@ export async function finalizeDirectCloudinaryUpload(
     updatedAt: now,
   };
   await persistImage(values);
-  return values;
+  return toRemoteImageMetadata(values);
 }
