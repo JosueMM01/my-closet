@@ -1,9 +1,10 @@
-import { registerSchema } from '@/lib/domain/validation';
+import { authResponseSchema, registerSchema } from '@/lib/domain/validation';
 import { hashPassword } from '@/server/auth/password';
 import { rateLimit } from '@/server/auth/rate-limit';
 import { createSession } from '@/server/auth/session';
+import { isPublicRegistrationEnabled } from '@/server/env';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin } from '@/server/http';
-import { createUser, userExists } from '@/server/repositories/users-repository';
+import { AccountError, registerAccount } from '@/server/repositories/users-repository';
 
 export const runtime = 'nodejs';
 
@@ -23,17 +24,36 @@ export async function POST(request: Request) {
   const parsed = registerSchema.safeParse(body);
   if (!parsed.success) return invalidBody('Datos de registro inválidos');
 
-  const { email, password, displayName } = parsed.data;
-  if (await userExists(email)) {
-    return jsonError(409, 'Ya existe una cuenta con ese correo');
+  const { email, password, displayName, invitationToken } = parsed.data;
+  try {
+    const passwordHash = await hashPassword(password);
+    const user = await registerAccount({
+      email,
+      displayName,
+      passwordHash,
+      invitationToken,
+      publicRegistrationEnabled: isPublicRegistrationEnabled(),
+    });
+    await createSession(user.id);
+    return jsonOk(
+      authResponseSchema.parse({
+        profile: {
+          userId: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          createdAt: user.createdAt,
+          role: user.role,
+          status: user.status,
+          profileImageId: user.profileImageId,
+        },
+      }),
+      { status: 201 },
+    );
+  } catch (error) {
+    if (error instanceof AccountError) {
+      const status = error.code === 'EMAIL_EXISTS' ? 409 : 403;
+      return jsonError(status, error.message);
+    }
+    throw error;
   }
-
-  const passwordHash = await hashPassword(password);
-  const user = await createUser({ email, displayName, passwordHash });
-  await createSession(user.id);
-
-  return jsonOk(
-    { profile: { userId: user.id, email: user.email, displayName: user.displayName, createdAt: user.createdAt } },
-    { status: 201 },
-  );
 }

@@ -57,6 +57,7 @@ export const garmentInputSchema = z.object({
   washingInstructions: trimmedMax(LIMITS.washingInstructionsMax),
   dateAcquired: z.optional(dateOnly.nullable().transform((v) => v ?? null)).transform((v) => v ?? null),
   archived: z.boolean().optional().default(false),
+  favorite: z.boolean().optional().default(false),
   photoId: z.optional(z.string().uuid().nullable()).transform((v) => v ?? null),
 });
 
@@ -96,22 +97,160 @@ export const wardrobeShareInputSchema = z.object({
 });
 
 /** Registro / login. */
+export const userRoleSchema = z.enum(['USER', 'ADMIN']);
+export const userStatusSchema = z.enum(['ACTIVE', 'DISABLED']);
+
+const accountEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('Correo inválido').max(120));
+const accountPasswordSchema = z
+  .string()
+  .min(8, 'La contraseña debe tener al menos 8 caracteres')
+  .max(128);
+
 export const registerSchema = z.object({
   displayName: z.string().trim().min(1, 'El nombre es obligatorio').max(60),
-  email: z.email('Correo inválido').max(120),
-  password: z
+  email: accountEmailSchema,
+  password: accountPasswordSchema,
+  invitationToken: z
     .string()
-    .min(8, 'La contraseña debe tener al menos 8 caracteres')
-    .max(128),
+    .min(40, 'La invitación no es válida')
+    .max(64, 'La invitación no es válida')
+    .optional(),
 });
 
 export const loginSchema = z.object({
-  email: z.email('Correo inválido').max(120),
+  email: accountEmailSchema,
   password: z.string().min(1, 'La contraseña es obligatoria').max(128),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: accountEmailSchema,
+});
+
+export const passwordResetTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/, 'El enlace de recuperación no es válido');
+
+export const resetPasswordSchema = z.object({
+  token: passwordResetTokenSchema,
+  newPassword: accountPasswordSchema,
+});
+
+export const accountProfileSchema = z.object({
+  userId: z.string().uuid(),
+  email: accountEmailSchema,
+  displayName: z.string().min(1).max(60),
+  createdAt: isoDateTime,
+  role: userRoleSchema,
+  status: userStatusSchema,
+  profileImageId: z.string().uuid().nullable(),
+});
+
+export const localProfileSchema = accountProfileSchema
+  .omit({ status: true })
+  .extend({
+    role: userRoleSchema.default('USER'),
+    profileImageId: z.string().uuid().nullable().default(null),
+  });
+
+export const authResponseSchema = z.object({ profile: accountProfileSchema });
+
+export const sessionResponseSchema = z.discriminatedUnion('authenticated', [
+  z.object({ authenticated: z.literal(false) }),
+  z.object({ authenticated: z.literal(true), profile: accountProfileSchema }),
+]);
+
+export const authProvidersResponseSchema = z.object({
+  credentials: z.boolean(),
+  google: z.boolean(),
+  publicRegistration: z.boolean(),
+  invitationRegistration: z.literal(true),
+});
+
+export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
+  z.object({ linked: z.literal(false), providerEmail: z.null() }),
+  z.object({ linked: z.literal(true), providerEmail: accountEmailSchema }),
+]);
+
+export const apiErrorResponseSchema = z.object({ error: z.string().min(1) });
+export const operationSuccessResponseSchema = z.object({ ok: z.literal(true) });
+export const emailChangeResponseSchema = z.object({ email: accountEmailSchema });
+
+export const profileUpdateSchema = z
+  .object({
+    displayName: z.string().trim().min(1, 'El nombre es obligatorio').max(60).optional(),
+    profileImageId: z.string().uuid().nullable().optional(),
+  })
+  .refine(
+    (value) => value.displayName !== undefined || value.profileImageId !== undefined,
+    { message: 'Debe indicar al menos un cambio' },
+  );
+
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
+  newPassword: accountPasswordSchema,
+});
+
+export const emailChangeSchema = z.object({
+  currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
+  newEmail: accountEmailSchema,
+});
+
+export const invitationCreateSchema = z.object({
+  email: accountEmailSchema,
+  role: userRoleSchema,
+  expiresAt: isoDateTime,
+});
+
+export const invitationResponseSchema = z.object({
+  id: z.string().uuid(),
+  email: accountEmailSchema,
+  role: userRoleSchema,
+  createdBy: z.string().uuid(),
+  expiresAt: isoDateTime,
+  acceptedAt: isoDateTime.nullable(),
+  revokedAt: isoDateTime.nullable(),
+  acceptedBy: z.string().uuid().nullable(),
+  createdAt: isoDateTime,
+});
+
+const invitationDeliveryResponseBase = {
+  invitation: invitationResponseSchema,
+  inviteUrl: z.url(),
+};
+
+export const invitationCreatedResponseSchema = z.object({
+  ...invitationDeliveryResponseBase,
+  delivery: z.enum(['disabled', 'captured', 'sent']),
+  token: z.string().min(40).max(64).optional(),
+});
+
+export const invitationsResponseSchema = z.object({
+  invitations: z.array(invitationResponseSchema),
+});
+
+export const adminUserResponseSchema = accountProfileSchema.extend({
+  adminSlot: z.union([z.literal(1), z.literal(2)]).nullable(),
+});
+
+export const adminUsersResponseSchema = z.object({ users: z.array(adminUserResponseSchema) });
+
+export const adminUserUpdateSchema = z
+  .object({
+    role: userRoleSchema.optional(),
+    status: userStatusSchema.optional(),
+  })
+  .refine((value) => value.role !== undefined || value.status !== undefined, {
+    message: 'Debe indicar al menos un cambio',
+  });
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 /** Payload de la API de sincronización. */
 export const syncPushOperationSchema = z.object({
@@ -132,6 +271,38 @@ export const syncPushSchema = z.object({
 export const syncPullSchema = z.object({
   since: isoDateTime.nullable(),
   entityType: z.enum(['garment', 'outfit', 'calendarEntry', 'wardrobeShare']).optional(),
+});
+
+export const imageStorageProviderSchema = z.enum(['local', 'cloudinary']);
+
+/** Metadatos replicables de imagen; nunca incluye el binario del servidor. */
+export const remoteImageMetadataSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  mimeType: z.literal('image/webp'),
+  width: z.number().int().positive().max(LIMITS.processedImageMaxDimension).nullable(),
+  height: z.number().int().positive().max(LIMITS.processedImageMaxDimension).nullable(),
+  byteSize: z.number().int().positive().max(3 * 1024 * 1024),
+  remoteUrl: z.union([z.string().startsWith('/api/images/'), z.url()]),
+  storageProvider: imageStorageProviderSchema,
+  storageKey: z.string().min(1).nullable(),
+  createdAt: isoDateTime,
+  updatedAt: isoDateTime,
+}).strict();
+
+export type RemoteImageMetadata = z.infer<typeof remoteImageMetadataSchema>;
+
+/** Campos multipart de una imagen ya procesada por el navegador. */
+export const processedImageUploadSchema = z.object({
+  id: z.string().uuid(),
+  mimeType: z.literal('image/webp'),
+  width: z.coerce.number().int().positive().max(LIMITS.processedImageMaxDimension),
+  height: z.coerce.number().int().positive().max(LIMITS.processedImageMaxDimension),
+  byteSize: z.number().int().positive().max(3 * 1024 * 1024),
+});
+
+export const imageUploadResponseSchema = z.object({
+  image: remoteImageMetadataSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -160,6 +331,7 @@ export const garmentEntitySchema = z.object({
   washingInstructions: z.string().nullable(),
   dateAcquired: dateOnly.nullable(),
   archived: z.boolean(),
+  favorite: z.boolean(),
   photoId: z.string().uuid().nullable(),
 });
 
@@ -189,6 +361,15 @@ export const wardrobeShareEntitySchema = z.object({
   permission: permissionSchema,
   inviteToken: z.string().min(16).max(64),
   acceptedAt: isoDateTime.nullable(),
+});
+
+export const syncPullResponseSchema = z.object({
+  serverTime: isoDateTime,
+  images: z.array(remoteImageMetadataSchema),
+  garments: z.array(garmentEntitySchema),
+  outfits: z.array(outfitEntitySchema),
+  calendarEntries: z.array(calendarEntryEntitySchema),
+  wardrobeShares: z.array(wardrobeShareEntitySchema),
 });
 
 /** Valida un payload de sync según el tipo de entidad. */

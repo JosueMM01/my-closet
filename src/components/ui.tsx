@@ -5,12 +5,13 @@
  * Mobile-first, touch targets ≥44px, accesible.
  */
 import clsx from 'clsx';
-import type {
-  ButtonHTMLAttributes,
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
+import {
+  useState,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from 'react';
 import { CloudOffIcon, CloudSyncIcon, WarningIcon } from './icons';
 import { useSync } from './providers';
@@ -80,15 +81,23 @@ export function Field({
   hint,
   error,
   children,
+  htmlFor,
 }: {
   label: string;
   hint?: string;
   error?: string;
   children: ReactNode;
+  htmlFor?: string;
 }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-text-primary">{label}</span>
+  const content = (
+    <>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-semibold text-text-primary">
+          {label}
+        </label>
+      ) : (
+        <span className="mb-1.5 block text-sm font-semibold text-text-primary">{label}</span>
+      )}
       {children}
       {hint && !error && <span className="mt-1 block text-xs text-text-muted">{hint}</span>}
       {error && (
@@ -96,6 +105,12 @@ export function Field({
           {error}
         </span>
       )}
+    </>
+  );
+  if (htmlFor) return <div className="block">{content}</div>;
+  return (
+    <label className="block">
+      {content}
     </label>
   );
 }
@@ -105,6 +120,45 @@ const inputBase =
 
 export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={clsx(inputBase, className)} {...rest} />;
+}
+
+export function PasswordInput({
+  className,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [visible, setVisible] = useState(false);
+  const toggleLabel = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+
+  return (
+    <div className="relative">
+      <input
+        type={visible ? 'text' : 'password'}
+        className={clsx(inputBase, 'pr-12', className)}
+        {...rest}
+      />
+      <button
+        type="button"
+        aria-label={toggleLabel}
+        title={toggleLabel}
+        aria-pressed={visible}
+        onClick={() => setVisible((current) => !current)}
+        className="absolute inset-y-0 right-0 flex h-11 w-11 items-center justify-center rounded-r-xl text-text-secondary transition-colors hover:bg-surface-alt hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+      >
+        {visible ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 3l18 18" />
+            <path d="M10.6 10.7a2 2 0 0 0 2.7 2.7" />
+            <path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 5 9 5a16.7 16.7 0 0 1-2.1 2.8M6.6 6.7C4.3 8.2 3 10 3 10s3.5 5 9 5c1 0 2-.2 2.9-.5" />
+          </svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 10s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5Z" />
+            <circle cx="12" cy="10" r="2" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
 }
 
 export function TextArea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {

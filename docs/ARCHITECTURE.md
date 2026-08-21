@@ -10,7 +10,7 @@
        UI (React 19)              API routes (nodejs)
        'use client'                src/app/api/**
             │                            │
-       IndexedDB (Dexie)          Auth · Sync · Images · Share
+       IndexedDB (Dexie)           Auth · OAuth · Recovery · Admin · Sync · Images
        offline-first                    │
        outbox                           │
        sync engine               Drizzle ORM
@@ -27,12 +27,12 @@
 
 | Capa | Ruta | Responsabilidad |
 |---|---|---|
-| Dominio | `src/lib/domain/` | Tipos, constantes, validación Zod, reglas de conflicto, fechas, ids. Compartido cliente/servidor. |
-| Base local | `src/lib/local/` | Dexie (IndexedDB), repositorios con outbox, sync engine, kv, queries de UI. |
+| Dominio | `src/lib/domain/` | Tipos, validación Zod, conflictos, fechas, ids y ranking puro de sugerencias. `favorite` es parte versionada de `Garment`. |
+| Base local | `src/lib/local/` | Dexie (IndexedDB), repositorios con outbox, sync engine, KV por usuario, queries de UI y caché administrativa. |
 | Imágenes cliente | `src/lib/images/` | Validación, Web Worker (EXIF→resize→WebP), cache de object URLs. |
-| Auth cliente | `src/lib/auth/` | register/login/logout contra la API; perfil local (sin secretos). |
-| Servidor | `src/server/` | env validado, Drizzle (SQLite/PG), sesiones, rate limit, repositorios, ImageStorage. |
-| API | `src/app/api/` | auth (register/login/logout/session/providers), sync (push/pull), images (upload/get/sign), share público. |
+| Auth cliente | `src/lib/auth/`, `src/lib/account/`, `src/lib/admin/` | login, alta por invitación, recuperación, perfil local sin secretos y administración. |
+| Servidor | `src/server/` | env validado, Drizzle, sesiones, bootstrap admin, rate limit, OAuth Google, recuperación, mail e ImageStorage. |
+| API | `src/app/api/` | auth/OAuth, perfil, administración, sync, images y share público. |
 | UI | `src/app/(app)/`, `src/app/(auth)/`, `src/app/share/` | Páginas y componentes. La UI lee IndexedDB, nunca la red. |
 
 ## Flujo de escritura (offline-first)
@@ -45,20 +45,38 @@ acción usuario → repositorio local (transacción Dexie)
 → maybeSync() (debounce) → runSync():
      push outbox por lotes → POST /api/sync/push
      subir imágenes pendientes → POST /api/images
-     pull incremental → GET /api/sync/pull?since=…
+     pull incremental (entidades + metadatos de imágenes) → GET /api/sync/pull?since=…
 ```
 
 ## Flujo de lectura
 
 La UI **solo** lee IndexedDB (`useLiveQuery`). El servidor se consulta
 únicamente desde el sync engine y en el chequeo periódico de sesión.
+Las operaciones administrativas son la excepción deliberada: se hacen online
+contra `/api/admin/*`; IndexedDB solo conserva su último read model y no es
+una fuente de autorización.
+
+## Sugerencias locales de conjuntos
+
+`recommendOutfits()` es una función pura y determinista: recibe prendas,
+conjuntos y calendario leídos de IndexedDB, más una semilla de variación y el
+contexto manual validado con Zod. Puntúa favoritas, compatibilidad básica de
+colores, pares que coocurren en conjuntos guardados y penaliza prendas marcadas
+como usadas recientemente. Ocasión, temperatura, lluvia y estilo determinan la
+receta y categorías opcionales; devuelve hasta tres opciones con explicaciones
+breves en español.
+
+El contexto se guarda por usuario en `kv` bajo `recommendations:context:*`. No
+se sincroniza ni contiene secretos. El motor no llama APIs, no usa IA ni analiza
+fotos; `/outfits/suggestions` está en el shell offline.
 
 ## Diferencias de dialecto SQLite/PostgreSQL
 
-Ver ADR-002. Resumen: fechas ISO y JSON como `text` en ambos dialectos;
-SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL usa
-`boolean`/`timestamp` en tablas de sistema y `text` para los campos de
-sync. El contrato de repositorios es idéntico.
+Ver ADR-002. SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL
+usa `boolean`/`timestamp` en tablas de sistema y `text` para campos de sync.
+`auth_accounts` y `password_reset_tokens` tienen declaraciones y migraciones en
+ambos dialectos. Esto no habilita Neon: la conexión y los repositorios runtime
+PostgreSQL siguen pendientes.
 
 ## Decisiones registradas
 

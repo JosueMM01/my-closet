@@ -4,6 +4,8 @@
  */
 import Dexie, { type Table } from 'dexie';
 import type {
+  AdminInvitationCache,
+  AdminUserCache,
   CalendarEntry,
   Garment,
   ImageRecord,
@@ -21,6 +23,8 @@ export class MyClosetDB extends Dexie {
   images!: Table<ImageRecord, string>;
   outbox!: Table<OutboxOperation, string>;
   kv!: Table<{ key: string; value: unknown }, string>;
+  adminUsers!: Table<AdminUserCache, string>;
+  adminInvitations!: Table<AdminInvitationCache, string>;
 
   constructor() {
     super('my-closet');
@@ -34,6 +38,66 @@ export class MyClosetDB extends Dexie {
       images: 'id, userId, syncStatus',
       outbox: 'operationId, entityType, entityId, status, createdAt',
       kv: 'key',
+    });
+    this.version(2)
+      .stores({
+        garments: 'id, userId, syncStatus, category, archived, updatedAt, [userId+archived]',
+        outfits: 'id, userId, syncStatus, updatedAt',
+        calendarEntries: 'id, userId, syncStatus, date, outfitId, [userId+date]',
+        wardrobeShares: 'id, grantorId, inviteToken, syncStatus',
+        images: 'id, userId, syncStatus',
+        outbox: 'operationId, userId, entityType, entityId, status, createdAt, [userId+status]',
+        kv: 'key',
+      })
+      .upgrade(async (transaction) => {
+        type LegacyOperation = Omit<OutboxOperation, 'userId'> & { userId?: string };
+        await transaction
+          .table<LegacyOperation, string>('outbox')
+          .toCollection()
+          .modify((operation) => {
+            const payload = operation.payload;
+            if (typeof payload !== 'object' || payload === null) return;
+            const owner = 'userId' in payload
+              ? payload.userId
+              : 'grantorId' in payload
+                ? payload.grantorId
+                : null;
+            if (typeof owner === 'string') operation.userId = owner;
+          });
+      });
+    this.version(3)
+      .stores({
+        garments: 'id, userId, syncStatus, category, archived, favorite, updatedAt, [userId+archived]',
+        outfits: 'id, userId, syncStatus, updatedAt',
+        calendarEntries: 'id, userId, syncStatus, date, outfitId, [userId+date]',
+        wardrobeShares: 'id, grantorId, inviteToken, syncStatus',
+        images: 'id, userId, syncStatus, updatedAt',
+        outbox: 'operationId, userId, entityType, entityId, status, createdAt, [userId+status]',
+        kv: 'key',
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table<Garment, string>('garments').toCollection().modify((garment) => {
+          garment.favorite = garment.favorite ?? false;
+        });
+        await transaction.table<ImageRecord, string>('images').toCollection().modify((image) => {
+          image.width = image.width ?? null;
+          image.height = image.height ?? null;
+          image.updatedAt = image.updatedAt ?? image.createdAt;
+          image.storageProvider = image.storageProvider
+            ?? (image.remoteUrl?.startsWith('/api/images/') === false ? 'cloudinary' : 'local');
+          image.storageKey = image.storageKey ?? null;
+        });
+      });
+    this.version(4).stores({
+      garments: 'id, userId, syncStatus, category, archived, favorite, updatedAt, [userId+archived]',
+      outfits: 'id, userId, syncStatus, updatedAt',
+      calendarEntries: 'id, userId, syncStatus, date, outfitId, [userId+date]',
+      wardrobeShares: 'id, grantorId, inviteToken, syncStatus',
+      images: 'id, userId, syncStatus, updatedAt',
+      outbox: 'operationId, userId, entityType, entityId, status, createdAt, [userId+status]',
+      kv: 'key',
+      adminUsers: 'userId, role, status, createdAt',
+      adminInvitations: 'id, email, role, expiresAt, createdAt',
     });
   }
 }

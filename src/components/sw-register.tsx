@@ -17,6 +17,27 @@ export function ServiceWorkerRegister() {
       return;
     }
 
+    // Un Service Worker de una ejecución anterior puede servir documentos con
+    // cabeceras CSP obsoletas mientras se usa `next dev`. Se desregistra en
+    // desarrollo y se conservan los assets pesados del modelo local.
+    if (process.env.NODE_ENV === 'development') {
+      void (async () => {
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(
+            keys
+              .filter((key) => key.startsWith('mc-static-') || key.startsWith('mc-runtime-'))
+              .map((key) => caches.delete(key)),
+          );
+        }
+        if (hadController) window.location.reload();
+      })();
+      return;
+    }
+
     let refreshing = false;
     // Solo recargar en ACTUALIZACIONES (ya había un SW controlando);
     // la primera instalación no debe recargar la página a media carga.
@@ -31,6 +52,13 @@ export function ServiceWorkerRegister() {
     async function register() {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js');
+
+        // updatefound no se dispara si el nuevo worker ya estaba esperando
+        // antes de montar React (por ejemplo, al reabrir una pestaña).
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          setUpdateReady(true);
+        }
+        void registration.update();
 
         registration.addEventListener('updatefound', () => {
           const worker = registration.installing;

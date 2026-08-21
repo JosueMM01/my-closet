@@ -28,8 +28,8 @@ Una operación **nunca** se descarta por fallo de red. Las que quedaron en
      `failed` con el motivo, sin reintento infinito.
 3. **Imágenes pendientes** → `POST /api/images` (multipart WebP).
 4. **Pull** → `GET /api/sync/pull?since=lastPulledAt` → se aplican las
-   entidades remotas que ganen el conflicto; se guarda `lastPulledAt`
-   con el `serverTime` de la respuesta.
+   entidades remotas que ganen el conflicto y los metadatos de imágenes; se
+   guarda `lastPulledAt` con el `serverTime` de la respuesta.
 
 ## Disparadores
 
@@ -56,13 +56,23 @@ fallback abrir/reanudar → detectar pendientes → sincronizar.
 Los borrados son tombstones (`deletedAt`) que compiten como cualquier
 escritura: una eliminación más reciente que una edición gana.
 
+`favorite` es un booleano de `Garment`: se escribe primero en IndexedDB,
+genera la operación normal de la outbox y se replica con este mismo LWW por
+entidad. No tiene un canal de sincronización separado.
+
 ## Cambio de dispositivo
 
 ```
 nuevo dispositivo → login → pull completo (since=null)
-→ servidor (SQLite hoy / Neon mañana) + imágenes
-→ IndexedDB reconstruido → offline de nuevo
+→ entidades + metadatos de imágenes del servidor
+→ IndexedDB reconstruido → las fotos se muestran mediante remoteUrl
 ```
 
-Probado localmente: dos navegadores contra el mismo backend local ven los
-mismos datos tras el sync (E2E `offline.spec.ts` + tests de integración).
+El pull de metadatos de imagen es necesario en producción y al añadir un
+dispositivo. No transfiere binarios: conserva cualquier blob local existente y
+los registros remotos sin blob usan `remoteUrl`. Solo se debe hidratar/descargar
+el binario si se quiere garantizar uso offline inmediatamente después del sync.
+
+La aceptación de invitaciones para compartir armario no está completada; el
+modelo puede crear, modificar y revocar esos enlaces, pero no debe documentarse
+como un flujo de aceptación implementado.

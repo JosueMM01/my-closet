@@ -32,14 +32,24 @@ export default function OutfitsPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="font-heading text-2xl">Outfits</h1>
-        <Link href="/outfits/new">
-          <Button data-testid="new-outfit">
-            <PlusIcon size={18} />
-            Nuevo
-          </Button>
-        </Link>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-heading text-2xl">Conjuntos</h1>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/outfits/suggestions"
+            data-testid="outfit-suggestions"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-surface px-4 text-sm font-semibold text-text-primary hover:bg-surface-alt"
+          >
+            <SparklesIcon size={18} />
+            Inspirarme
+          </Link>
+          <Link href="/outfits/new">
+            <Button data-testid="new-outfit">
+              <PlusIcon size={18} />
+              Nuevo
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {data === undefined ? (
@@ -51,11 +61,11 @@ export default function OutfitsPage() {
       ) : outfits.length === 0 ? (
         <EmptyState
           icon={<SparklesIcon size={28} />}
-          title="Aún no hay outfits"
-          description="Combina tus prendas en looks completos y reutilízalos cuando quieras."
+          title="Aún no hay conjuntos"
+          description="Combina tus prendas y reutiliza tus combinaciones cuando quieras."
           action={
             <Link href="/outfits/new">
-              <Button data-testid="empty-new-outfit">Crear outfit</Button>
+              <Button data-testid="empty-new-outfit">Crear conjunto</Button>
             </Link>
           }
         />
@@ -89,7 +99,7 @@ export default function OutfitsPage() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{outfit.name ?? 'Outfit sin nombre'}</p>
+                  <p className="truncate font-semibold">{outfit.name ?? 'Conjunto sin nombre'}</p>
                   <p className="text-xs text-text-secondary">
                     {outfit.slots.length} {outfit.slots.length === 1 ? 'prenda' : 'prendas'}
                   </p>

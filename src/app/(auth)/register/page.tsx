@@ -3,8 +3,8 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AuthError, register } from '@/lib/auth/client';
-import { Button, Field, TextInput } from '@/components/ui';
+import { AuthError, fetchAuthProviders, register } from '@/lib/auth/client';
+import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 
 export default function RegisterPage() {
@@ -15,10 +15,26 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [invitationToken, setInvitationToken] = useState<string | null>(null);
+  const [registrationReady, setRegistrationReady] = useState(false);
+  const [publicRegistration, setPublicRegistration] = useState(false);
 
   useEffect(() => {
     if (!loading && profile) router.replace('/');
   }, [loading, profile, router]);
+
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get('invite');
+    if (window.location.hash) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    queueMicrotask(() => setInvitationToken(token));
+    void fetchAuthProviders()
+      .then((providers) => setPublicRegistration(providers.publicRegistration))
+      .catch(() => setPublicRegistration(false))
+      .finally(() => setRegistrationReady(true));
+  }, []);
 
   const passwordWeak = password.length > 0 && password.length < 8;
 
@@ -31,7 +47,12 @@ export default function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      await register({ displayName, email, password });
+      await register({
+        displayName,
+        email,
+        password,
+        ...(invitationToken ? { invitationToken } : {}),
+      });
       await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
       router.replace('/');
     } catch (err) {
@@ -47,10 +68,22 @@ export default function RegisterPage() {
         <div className="mb-8 text-center">
           <h1 className="font-heading text-3xl text-text-primary">Crear cuenta</h1>
           <p className="mt-2 text-sm text-text-secondary">
-            Tu armario, tus outfits, tu calendario
+            Tu armario, tus conjuntos, tu calendario
           </p>
         </div>
 
+        {!registrationReady ? (
+          <div className="card-surface flex min-h-32 items-center justify-center p-6" role="status">
+            <span className="text-sm text-text-secondary">Comprobando invitación…</span>
+          </div>
+        ) : !publicRegistration && !invitationToken ? (
+          <section className="card-surface p-6 text-center" aria-labelledby="invite-required-title">
+            <h2 id="invite-required-title" className="font-heading text-xl">Necesitas una invitación</h2>
+            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+              El registro público está cerrado. Abre el enlace de invitación que recibiste para crear tu cuenta.
+            </p>
+          </section>
+        ) : (
         <form onSubmit={handleSubmit} className="card-surface space-y-4 p-6" noValidate>
           <Field label="Nombre">
             <TextInput
@@ -79,9 +112,10 @@ export default function RegisterPage() {
             label="Contraseña"
             hint="Mínimo 8 caracteres"
             error={passwordWeak ? 'Al menos 8 caracteres' : undefined}
+            htmlFor="register-password"
           >
-            <TextInput
-              type="password"
+            <PasswordInput
+              id="register-password"
               name="password"
               autoComplete="new-password"
               placeholder="••••••••"
@@ -100,6 +134,7 @@ export default function RegisterPage() {
             Crear cuenta
           </Button>
         </form>
+        )}
 
         <p className="mt-6 text-center text-sm text-text-secondary">
           ¿Ya tienes cuenta?{' '}

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { getPublicGarment, getPublicOutfit } from '@/server/repositories/sync-repository';
-import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS, SIZE_LABELS } from '@/lib/domain/constants';
+import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
 import { HangerIcon, SparklesIcon } from '@/components/icons';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
   if (type === 'outfit') {
     const outfit = await getPublicOutfit(shareableId);
-    return { title: outfit?.name ?? 'Outfit compartido' };
+    return { title: outfit?.name ?? 'Conjunto compartido' };
   }
   return { title: 'Compartido · My Closet' };
 }
@@ -41,12 +41,6 @@ export default async function SharePage({ params }: PageProps) {
               {garment.brand ? ` · ${garment.brand}` : ''}
             </p>
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              {garment.size && (
-                <div>
-                  <dt className="text-xs uppercase text-text-muted">Talla</dt>
-                  <dd className="font-medium">{SIZE_LABELS[garment.size] ?? garment.size}</dd>
-                </div>
-              )}
               {garment.colors.length > 0 && (
                 <div>
                   <dt className="text-xs uppercase text-text-muted">Colores</dt>
@@ -77,7 +71,7 @@ export default async function SharePage({ params }: PageProps) {
     if (!outfit) notFound();
     return (
       <main className="mx-auto max-w-md px-4 py-10">
-        <ShareHeader icon={<SparklesIcon size={22} />} title={outfit.name ?? 'Outfit'} />
+        <ShareHeader icon={<SparklesIcon size={22} />} title={outfit.name ?? 'Conjunto'} />
         <div className="card-surface mt-6 divide-y divide-border">
           {outfit.slots.map((slot, index) => (
             <div key={index} className="flex items-center gap-3 p-4">

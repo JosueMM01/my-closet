@@ -1,49 +1,72 @@
 # Estado del proyecto
 
-Fecha: 2026-08-16 · Rama base: `development` (promovida a `main` al cierre).
+Fecha: 2026-08-20 · Rama actual: `feat/recommendations-auth-recovery`.
 
 ## ✅ Completado
 
 | Área | Estado | Evidencia |
 |---|---|---|
 | Build / TS / Lint | ✅ | `pnpm build`, `pnpm typecheck`, `pnpm lint` en verde |
-| Tests unit + integración | ✅ | 32 tests Vitest (conflictos, validación, repos locales con fake-indexeddb, sync server SQLite, scrypt) |
-| Tests E2E | ✅ | 39 Playwright (auth, wardrobe CRUD+filtros, outfits+builder, calendario, offline real, capturas) — 1 skip intencional (variante móvil del spec offline) |
-| Autenticación local | ✅ | registro/login/logout/sesión con cookie HttpOnly firmada; offline sin pérdida de datos |
-| Wardrobe | ✅ | CRUD completo, archivar, clonar, búsqueda, filtros (categoría/color/talla/marca/archivadas), categorías y colores personalizados |
-| Outfits | ✅ | builder por filas de categoría con ciclado ‹ ›, orden, nombre/notas, programar fecha |
-| Calendario | ✅ | vista semanal, mini-mes, día seleccionable, marcar vestido, quitar, historial |
-| Sharing | ✅ | invitaciones VIEW/MANAGE con token, cambio de permiso, revocación; enlaces públicos por shareableId |
-| Perfil | ✅ | datos, estado de sync, sesión expirada, logout sin borrar datos, datos de ejemplo |
-| Imágenes | ✅ | pipeline navegador (EXIF→resize→WebP en Worker), subida al backend local, abstracción Cloudinary preparada |
+| Tests unit + integración | ✅ | 124 pruebas Vitest en verde |
+| Tests E2E | ✅ | 62 Playwright aprobadas y 4 skips esperados; modelo real opt-in aprobado en Chromium desktop |
+| Autenticación local | ✅ | login/logout, alta solo por invitación, bootstrap seguro, recuperación y cookie HttpOnly firmada |
+| Google Sign-In | ✅ opt-in | vinculación explícita por correo verificado y login solo de identidad vinculada; desactivado sin red por defecto |
+| Armario | ✅ | CRUD, archivar, clonar, búsqueda, filtros, categorías/colores personalizados y notas opcionales; talla/condición retiradas de la UI |
+| Conjuntos | ✅ | editor y sugerencias locales deterministas con contexto manual, ranking e historial de IndexedDB |
+| Calendario | ✅ | mes navegable, día seleccionable, marcar vestido y quitar entradas |
+| Sharing | 🟡 | creación, permiso y revocación de enlaces VIEW/MANAGE; la aceptación de la invitación de armario sigue pendiente |
+| Perfil y administración | ✅ | nombre, contraseña, correo, foto WebP sin quitar fondo, cuentas, invitaciones y desactivación desde Perfil |
+| Imágenes | ✅ | EXIF→resize→WebP y eliminación de fondo ONNX opcional en workers one-shot, assets self-hosted, subida local |
 | PWA | ✅ | manifest + iconos + SW (precache shell, estrategias por tipo, actualización controlada, Background Sync) |
-| Offline-first | ✅ | IndexedDB fuente de la UI, outbox, reconexión → «Sincronizado» (E2E) |
-| Seguridad | ✅ | CSP y cabeceras, rate limit, validación Zod, IDOR protegido, secretos fuera de Git |
+| Offline-first | ✅ | IndexedDB fuente de la UI, outbox y reconexión a estado sincronizado |
+| Seguridad | ✅ | CSP, Zod, IDOR, reset hash-only, OAuth state/PKCE/nonce/JOSE y secretos fuera de Git |
 | Docs | ✅ | README, AGENTS.md, docs/ completa, 7 ADRs, PRs locales |
 
-## Servicios externos (preparados, NO conectados)
+## Servicios externos
 
-Neon (PostgreSQL) · Cloudinary · Google Sign-In · Vercel → ver
-`docs/EXTERNAL_SERVICES_SETUP.md`.
+Google Sign-In está implementado y es opt-in; permanece sin llamadas externas
+por defecto. Neon y Cloudinary tienen configuración/esquema parcial, pero sus
+runtimes de producción no están completos. Ningún servicio externo está
+conectado en el entorno local. Ver `docs/EXTERNAL_SERVICES_SETUP.md`.
 
 ## Limitaciones conocidas
 
 1. **Fotos en enlaces públicos**: la página pública `/share/...` muestra los
-   metadatos; las miniaturas requieren que la imagen del propietario esté
-   en el almacenamiento del servidor (sube con el sync online). Con
-   Cloudinary activo quedará completo.
-2. **Rate limiting en memoria**: adecuado a una instancia; en multi-instancia
-   mover a almacén compartido (documentado en SECURITY.md).
-3. **Repositorio PG espejo**: el esquema PostgreSQL y el dialecto están
-   listos, pero los upserts de sync están implementados contra SQLite;
-   al conectar Neon se replica el mismo contrato (EXTERNAL_SERVICES_SETUP).
-4. **Eliminar fondo** de fotos: opcional y no activado (modelo ONNX pesado);
-   el worker lo admite como extensión (ADR-005).
-5. **Conflicto por campo**: LWW por entidad (documentado), no merge fino.
-6. **Iconos de notificaciones push**: no implementadas (fuera de alcance).
+    metadatos; las miniaturas requieren que la imagen del propietario esté
+    en el almacenamiento del servidor (sube con el sync online). Cloudinary no
+    es una solución disponible aún: permanece desactivado hasta completarse.
+2. **Runtime PostgreSQL pendiente**: existen esquema y migraciones PG para
+   `password_reset_tokens`/`auth_accounts`, pero faltan repositorios y
+   migraciones base completas. Activarlo falla antes de conectar.
+3. **Eliminar fondo en móviles**: el modelo completo descarga cerca de 200 MB
+   y usa cientos de MB de RAM. CPU puede tardar minutos; Mobile Safari no está
+   certificado y dispositivos con poca memoria pueden finalizar el worker.
+4. **Conflicto por campo**: LWW por entidad (documentado), no merge fino.
+5. **Iconos de notificaciones push**: no implementadas (fuera de alcance).
+6. **Cloudinary**: la abstracción existe, pero la subida directa y finalización
+   de producción no están completadas; permanece desactivado.
+7. **Verificación de correo**: cambiar correo reautentica y rota sesiones, pero
+   aún no confirma la propiedad del nuevo buzón.
+8. **Rate limiting distribuido**: el limitador actual es en memoria y no sirve
+   para múltiples instancias.
+9. **Entrega de correo**: invitaciones y recuperación requieren SMTP operativo;
+   el volumen previsto es bajo y `disabled` no envía nada.
+
+## Notas de datos y acceso
+
+- Durante esta funcionalidad se vació intencionalmente la SQLite local. La
+  IndexedDB existente no se limpió: es almacenamiento por origen del navegador
+  y no se borra con una CLI del proyecto.
+- Las invitaciones de cuenta son independientes de los enlaces de compartir
+  armario. Las primeras son server-generated, hasheadas, expiran y son de un
+  uso; las acciones de administración y correo son solo online.
+- El registro público está cerrado en todos los entornos. El login no enlaza a
+  «Crear cuenta» y las altas reales usan fragmentos de invitación.
+- El contexto de sugerencias vive por usuario en el KV local y no se sincroniza.
+  El motor no usa IA, red ni análisis de fotos.
 
 ## Deuda técnica intencional
 
 - `waitForHydration` en E2E usa `networkidle` (determinista en la práctica).
-- CSP con `'unsafe-inline'` en script-src: compromiso documentado
-  (SECURITY.md) por los scripts inline de Next.
+- CSP con `'unsafe-inline'` y `'unsafe-eval'` en script-src: compromisos
+  documentados por Next y ONNX Runtime 1.21.
