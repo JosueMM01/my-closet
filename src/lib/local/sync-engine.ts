@@ -46,6 +46,7 @@ let running = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
+const imageUploads = new Map<string, Promise<boolean>>();
 
 export function subscribeSyncState(listener: SyncStateListener): () => void {
   listeners.add(listener);
@@ -187,8 +188,7 @@ export async function applyRemoteImageMetadata(remote: RemoteImageMetadata): Pro
   return true;
 }
 
-/** Sube una imagen procesada concreta; reutilizable por futuras fotos de perfil. */
-export async function uploadProcessedImage(imageId: string, userId: string): Promise<boolean> {
+async function uploadProcessedImageOnce(imageId: string, userId: string): Promise<boolean> {
   const db = getDB();
   const image = await db.images.get(imageId);
   if (!image || image.userId !== userId || !image.blob || image.width === null || image.height === null) {
@@ -256,6 +256,23 @@ export async function uploadProcessedImage(imageId: string, userId: string): Pro
   const uploaded = imageUploadResponseSchema.parse(await response.json());
   await applyRemoteImageMetadata(uploaded.image);
   return true;
+}
+
+/**
+ * Sube una imagen procesada concreta. Todos los consumidores de la misma
+ * imagen comparten una única promesa para evitar carreras entre la acción de
+ * Perfil y el ciclo automático de sincronización.
+ */
+export function uploadProcessedImage(imageId: string, userId: string): Promise<boolean> {
+  const key = `${userId}:${imageId}`;
+  const active = imageUploads.get(key);
+  if (active) return active;
+
+  const task = uploadProcessedImageOnce(imageId, userId).finally(() => {
+    if (imageUploads.get(key) === task) imageUploads.delete(key);
+  });
+  imageUploads.set(key, task);
+  return task;
 }
 
 async function pushPendingImages(userId: string): Promise<void> {

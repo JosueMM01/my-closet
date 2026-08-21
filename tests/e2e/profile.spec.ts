@@ -39,11 +39,21 @@ test.describe('Perfil', () => {
 
   test('procesa y sube la foto sin solicitar modelos ONNX', async ({ page }) => {
     const modelRequests: string[] = [];
+    let imageUploads = 0;
     page.on('request', (request) => {
       const url = request.url().toLowerCase();
       if (url.includes('imgly') || url.includes('/vendor/background-removal/') || url.includes('.onnx') || url.includes('isnet')) {
         modelRequests.push(url);
       }
+    });
+    await page.route('**/api/images', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      imageUploads += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      await route.continue();
     });
 
     await registerAndLogin(page, 'Foto Perfil');
@@ -55,6 +65,7 @@ test.describe('Perfil', () => {
 
     await expect(page.getByText('Foto de perfil actualizada.')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByAltText('Foto de perfil de Foto Perfil')).toBeVisible();
+    expect(imageUploads).toBe(1);
     expect(modelRequests).toEqual([]);
   });
 });
