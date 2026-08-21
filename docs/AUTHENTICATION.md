@@ -121,7 +121,7 @@ navegador; la sesión final sigue usando `mc_session`.
 
 `auth_accounts` y `password_reset_tokens` están declaradas en los esquemas y
 migraciones SQL de SQLite y PostgreSQL. El flujo operativo actual usa SQLite;
-los repositorios runtime de PostgreSQL/Neon siguen pendientes.
+los repositorios runtime de PostgreSQL/Neon comparten el contrato validado en staging.
 
 ## Passkeys / WebAuthn (preparado)
 
