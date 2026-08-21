@@ -47,6 +47,30 @@ test.describe('Autenticación', () => {
     await expect(page.getByTestId('home-greeting')).toContainText('Hola, Ana');
   });
 
+  test('restaura IndexedDB desde una sesión remota activa', async ({ page }) => {
+    await registerAndLogin(page, 'OAuth Local');
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('my-closet');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction('kv', 'readwrite');
+          transaction.objectStore('kv').delete('local-profile');
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      });
+    });
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByTestId('home-greeting')).toContainText('Hola, OAuth');
+  });
+
   test('credenciales incorrectas muestran error', async ({ page }) => {
     await page.goto('/login');
     await waitForHydration(page);

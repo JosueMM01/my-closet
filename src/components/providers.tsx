@@ -48,6 +48,22 @@ interface SyncContextValue {
 
 const SyncContext = createContext<SyncContextValue | null>(null);
 
+function toLocalProfile(
+  profile: Extract<
+    ReturnType<typeof sessionResponseSchema.parse>,
+    { authenticated: true }
+  >['profile'],
+): LocalProfile {
+  return {
+    userId: profile.userId,
+    email: profile.email,
+    displayName: profile.displayName,
+    createdAt: profile.createdAt,
+    role: profile.role,
+    profileImageId: profile.profileImageId,
+  };
+}
+
 export function useSync(): SyncContextValue {
   const context = useContext(SyncContext);
   if (!context) throw new Error('useSync fuera de SyncProvider');
@@ -74,11 +90,31 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    void getLocalProfile().then((loaded) => {
+    const loadProfile = async () => {
+      let loaded = await getLocalProfile();
+      if (!loaded && navigator.onLine) {
+        try {
+          const response = await fetch('/api/auth/session', {
+            headers: { 'x-requested-with': 'my-closet' },
+            cache: 'no-store',
+          });
+          if (response.ok) {
+            const parsed = sessionResponseSchema.safeParse(await response.json());
+            if (parsed.success && parsed.data.authenticated) {
+              await setLocalProfile(toLocalProfile(parsed.data.profile));
+              // IndexedDB sigue siendo la fuente que alimenta a la UI.
+              loaded = await getLocalProfile();
+            }
+          }
+        } catch {
+          // Sin red: un perfil local ausente equivale a sesión no disponible.
+        }
+      }
       if (cancelled) return;
       setProfile(loaded);
       setLoading(false);
-    });
+    };
+    void loadProfile();
     return () => {
       cancelled = true;
     };
@@ -129,14 +165,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         if (!parsed.success || cancelled) return;
         setRemoteExpired(!parsed.data.authenticated);
         if (parsed.data.authenticated) {
-          const remoteProfile: LocalProfile = {
-            userId: parsed.data.profile.userId,
-            email: parsed.data.profile.email,
-            displayName: parsed.data.profile.displayName,
-            createdAt: parsed.data.profile.createdAt,
-            role: parsed.data.profile.role,
-            profileImageId: parsed.data.profile.profileImageId,
-          };
+          const remoteProfile = toLocalProfile(parsed.data.profile);
           const changed = JSON.stringify(remoteProfile) !== JSON.stringify(profile);
           if (changed) {
             await setLocalProfile(remoteProfile);
