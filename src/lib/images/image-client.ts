@@ -19,6 +19,8 @@ export const PROCESSED_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 
 export interface SaveGarmentPhotoOptions {
   removeBackground?: boolean;
+  /** Reserva la imagen para un flujo que controla la subida explícitamente. */
+  queueForSync?: boolean;
   signal?: AbortSignal;
   onProgress?: (progress: ImageProgress) => void;
 }
@@ -218,9 +220,9 @@ export async function saveGarmentPhoto(
     remoteUrl: null,
     storageProvider: 'local',
     storageKey: null,
-    syncStatus: 'pending',
+    syncStatus: options.queueForSync === false ? 'syncing' : 'pending',
   };
   await getDB().images.put(record);
-  void maybeSync();
+  if (options.queueForSync !== false) void maybeSync();
   return record;
 }
