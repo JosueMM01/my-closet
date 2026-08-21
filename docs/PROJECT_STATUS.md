@@ -8,7 +8,7 @@ Fecha: 2026-08-21 · Rama actual: `codex/feat-neon-cloudinary-staging`.
 |---|---|---|
 | Build / TS / Lint | ✅ | `pnpm build`, `pnpm typecheck`, `pnpm lint` en verde |
 | Tests unit + integración | ✅ | 124 pruebas Vitest en verde |
-| Tests E2E | ✅ | 62 Playwright aprobadas y 4 skips esperados; modelo real opt-in aprobado en Chromium desktop |
+| Tests E2E | ✅ | 64 Playwright aprobadas y 4 skips esperados; modelo real opt-in aprobado en Chromium desktop |
 | Autenticación local | ✅ | login/logout, alta solo por invitación, bootstrap seguro, recuperación y cookie HttpOnly firmada |
 | Google Sign-In | ✅ opt-in | vinculación explícita por correo verificado y login solo de identidad vinculada; desactivado sin red por defecto |
 | Armario | ✅ | CRUD, archivar, clonar, búsqueda, filtros, categorías/colores personalizados y notas opcionales; talla/condición retiradas de la UI |

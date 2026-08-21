@@ -63,7 +63,7 @@ IA, red ni análisis de fotos y funciona offline.
 | `pnpm test` | Vitest: unitarios + integración |
 | `pnpm e2e` | build + Playwright (Chromium) |
 
-Estado conocido: **124 Vitest**; **62 E2E aprobadas y 4 skips esperados**. La
+Estado conocido: **124 Vitest**; **64 E2E aprobadas y 4 skips esperados**. La
 prueba del modelo real de eliminación de fondo es opt-in y se vuelve a ejecutar
 por separado.
 
