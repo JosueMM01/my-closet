@@ -5,10 +5,6 @@ import {
   isGoogleEnabled,
   parseServerEnv,
 } from '@/server/env';
-import {
-  createServerDB,
-  DatabaseProviderNotImplementedError,
-} from '@/server/db';
 
 describe('configuracion de proveedores externos', () => {
   it('usa solamente proveedores locales por defecto', () => {
@@ -156,14 +152,12 @@ describe('configuracion de proveedores externos', () => {
     expect(isGoogleEnabled(env)).toBe(true);
   });
 
-  it('falla antes de conectar cuando PostgreSQL se activa explicitamente', async () => {
+  it('activa PostgreSQL solamente con una URL explicita', () => {
     const env = parseServerEnv({
       DATABASE_PROVIDER: 'postgres',
       DATABASE_URL: 'postgresql://user:password@example.test/closet',
     });
 
-    await expect(createServerDB(env)).rejects.toBeInstanceOf(
-      DatabaseProviderNotImplementedError,
-    );
+    expect(getDatabaseDialect(env)).toBe('postgres');
   });
 });

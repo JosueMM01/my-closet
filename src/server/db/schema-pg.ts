@@ -24,8 +24,8 @@ export const users = pgTable(
     email: text('email').notNull().unique(),
     displayName: text('display_name').notNull(),
     passwordHash: text('password_hash').notNull(),
-    role: text('role').notNull().default('USER'),
-    status: text('status').notNull().default('ACTIVE'),
+    role: text('role', { enum: ['USER', 'ADMIN'] }).notNull().default('USER'),
+    status: text('status', { enum: ['ACTIVE', 'DISABLED'] }).notNull().default('ACTIVE'),
     adminSlot: integer('admin_slot'),
     profileImageId: text('profile_image_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -65,7 +65,7 @@ export const authAccounts = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    provider: text('provider').notNull(),
+    provider: text('provider', { enum: ['GOOGLE'] }).notNull(),
     providerSubject: text('provider_subject').notNull(),
     providerEmail: text('provider_email').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -108,7 +108,7 @@ export const accountInvitations = pgTable(
     id: text('id').primaryKey(),
     tokenHash: text('token_hash').notNull().unique(),
     email: text('email').notNull(),
-    role: text('role').notNull(),
+    role: text('role', { enum: ['USER', 'ADMIN'] }).notNull(),
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),
@@ -210,7 +210,7 @@ export const wardrobeShares = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     granteeId: text('grantee_id'),
     granteeEmail: text('grantee_email'),
-    permission: text('permission').notNull(),
+    permission: text('permission', { enum: ['VIEW', 'MANAGE'] }).notNull(),
     inviteToken: text('invite_token').notNull(),
     acceptedAt: text('accepted_at'),
     createdAt: text('created_at').notNull(),
@@ -221,26 +221,36 @@ export const wardrobeShares = pgTable(
   (table) => [
     uniqueIndex('shares_grantor_invite_idx').on(table.grantorId, table.inviteToken),
     index('shares_updated_idx').on(table.updatedAt),
+    check('wardrobe_shares_permission_check', sql`${table.permission} IN ('VIEW', 'MANAGE')`),
   ],
 );
 
-export const images = pgTable('images', {
-  id: text('id').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  mimeType: text('mime_type').notNull(),
-  width: integer('width'),
-  height: integer('height'),
-  byteSize: integer('byte_size').notNull(),
-  data: text('data'), // base64 solo para proveedores que almacenan binario en BD
-  remoteUrl: text('remote_url'),
-  storageProvider: text('storage_provider').notNull().default('local'),
-  storageKey: text('storage_key'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const images = pgTable(
+  'images',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    mimeType: text('mime_type').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    byteSize: integer('byte_size').notNull(),
+    data: text('data'), // base64 solo para proveedores que almacenan binario en BD
+    remoteUrl: text('remote_url'),
+    storageProvider: text('storage_provider', { enum: ['local', 'cloudinary'] })
+      .notNull()
+      .default('local'),
+    storageKey: text('storage_key'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    index('images_user_updated_idx').on(table.userId, table.updatedAt),
+    check('images_storage_provider_check', sql`${table.storageProvider} IN ('local', 'cloudinary')`),
+  ],
+);

@@ -1,8 +1,7 @@
 /**
- * Repositorio de sincronización (implementación SQLite para desarrollo;
- * la variante PostgreSQL espeja este contrato — ver docs/ARCHITECTURE.md).
+ * Repositorio de sincronización compartido por SQLite y PostgreSQL.
  */
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 import { resolveConflict } from '@/lib/domain/conflict';
 import type {
   CalendarEntry,
@@ -11,7 +10,7 @@ import type {
   Outfit,
   WardrobeShare,
 } from '@/lib/domain/types';
-import { getSqlite, sqliteSchema } from '@/server/db';
+import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
 
 export type UpsertOutcome<T> =
   | { status: 'applied'; entity: T }
@@ -19,11 +18,21 @@ export type UpsertOutcome<T> =
 
 // --- Mapeo fila ↔ entidad --------------------------------------------------
 
-type GarmentRow = typeof sqliteSchema.garments.$inferSelect;
-type OutfitRow = typeof sqliteSchema.outfits.$inferSelect;
-type CalendarRow = typeof sqliteSchema.calendarEntries.$inferSelect;
-type ShareRow = typeof sqliteSchema.wardrobeShares.$inferSelect;
-type ImageRow = typeof sqliteSchema.images.$inferSelect;
+type GarmentRow =
+  | typeof sqliteSchema.garments.$inferSelect
+  | typeof pgSchema.garments.$inferSelect;
+type OutfitRow =
+  | typeof sqliteSchema.outfits.$inferSelect
+  | typeof pgSchema.outfits.$inferSelect;
+type CalendarRow =
+  | typeof sqliteSchema.calendarEntries.$inferSelect
+  | typeof pgSchema.calendarEntries.$inferSelect;
+type ShareRow =
+  | typeof sqliteSchema.wardrobeShares.$inferSelect
+  | typeof pgSchema.wardrobeShares.$inferSelect;
+type ImageRow =
+  | typeof sqliteSchema.images.$inferSelect
+  | typeof pgSchema.images.$inferSelect;
 
 function fromGarmentRow(row: GarmentRow): Garment {
   return {
@@ -60,8 +69,8 @@ function fromImageRow(row: ImageRow): Omit<ImageRecord, 'blob' | 'syncStatus'> {
     remoteUrl: row.remoteUrl ?? `/api/images/${row.id}`,
     storageProvider: row.storageProvider,
     storageKey: row.storageKey,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
   };
 }
 
@@ -132,7 +141,43 @@ export async function upsertGarment(
   userId: string,
   garment: Garment,
 ): Promise<UpsertOutcome<Garment>> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const existingRow = await db.postgres
+      .select()
+      .from(pgSchema.garments)
+      .where(eq(pgSchema.garments.id, garment.id))
+      .limit(1);
+    const existing = existingRow[0] ? fromGarmentRow(existingRow[0]) : undefined;
+    if (existing && existing.userId !== userId) throw new OwnershipError();
+    const values = {
+      id: garment.id,
+      userId,
+      shareableId: garment.shareableId,
+      name: garment.name,
+      category: garment.category,
+      colors: JSON.stringify(garment.colors),
+      brand: garment.brand,
+      size: garment.size,
+      notes: garment.notes,
+      washingInstructions: garment.washingInstructions,
+      dateAcquired: garment.dateAcquired,
+      archived: garment.archived,
+      favorite: garment.favorite,
+      photoId: garment.photoId,
+      createdAt: garment.createdAt,
+      updatedAt: garment.updatedAt,
+      version: garment.version,
+      deletedAt: garment.deletedAt,
+    };
+    return upsertGeneric(existing, garment, async () => {
+      await db.postgres
+        .insert(pgSchema.garments)
+        .values(values)
+        .onConflictDoUpdate({ target: pgSchema.garments.id, set: values });
+    });
+  }
+  const sqlite = db.sqlite;
   const existingRow = await sqlite
     .select()
     .from(sqliteSchema.garments)
@@ -175,7 +220,35 @@ export async function upsertOutfit(
   userId: string,
   outfit: Outfit,
 ): Promise<UpsertOutcome<Outfit>> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const existingRow = await db.postgres
+      .select()
+      .from(pgSchema.outfits)
+      .where(eq(pgSchema.outfits.id, outfit.id))
+      .limit(1);
+    const existing = existingRow[0] ? fromOutfitRow(existingRow[0]) : undefined;
+    if (existing && existing.userId !== userId) throw new OwnershipError();
+    const values = {
+      id: outfit.id,
+      userId,
+      shareableId: outfit.shareableId,
+      name: outfit.name,
+      notes: outfit.notes,
+      slots: JSON.stringify(outfit.slots),
+      createdAt: outfit.createdAt,
+      updatedAt: outfit.updatedAt,
+      version: outfit.version,
+      deletedAt: outfit.deletedAt,
+    };
+    return upsertGeneric(existing, outfit, async () => {
+      await db.postgres
+        .insert(pgSchema.outfits)
+        .values(values)
+        .onConflictDoUpdate({ target: pgSchema.outfits.id, set: values });
+    });
+  }
+  const sqlite = db.sqlite;
   const existingRow = await sqlite
     .select()
     .from(sqliteSchema.outfits)
@@ -207,7 +280,35 @@ export async function upsertCalendarEntry(
   userId: string,
   entry: CalendarEntry,
 ): Promise<UpsertOutcome<CalendarEntry>> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const existingRow = await db.postgres
+      .select()
+      .from(pgSchema.calendarEntries)
+      .where(eq(pgSchema.calendarEntries.id, entry.id))
+      .limit(1);
+    const existing = existingRow[0] ? fromCalendarRow(existingRow[0]) : undefined;
+    if (existing && existing.userId !== userId) throw new OwnershipError();
+    const values = {
+      id: entry.id,
+      userId,
+      date: entry.date,
+      outfitId: entry.outfitId,
+      wornAt: entry.wornAt,
+      notes: entry.notes,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      version: entry.version,
+      deletedAt: entry.deletedAt,
+    };
+    return upsertGeneric(existing, entry, async () => {
+      await db.postgres
+        .insert(pgSchema.calendarEntries)
+        .values(values)
+        .onConflictDoUpdate({ target: pgSchema.calendarEntries.id, set: values });
+    });
+  }
+  const sqlite = db.sqlite;
   const existingRow = await sqlite
     .select()
     .from(sqliteSchema.calendarEntries)
@@ -239,7 +340,37 @@ export async function upsertWardrobeShare(
   userId: string,
   share: WardrobeShare,
 ): Promise<UpsertOutcome<WardrobeShare>> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const existingRow = await db.postgres
+      .select()
+      .from(pgSchema.wardrobeShares)
+      .where(eq(pgSchema.wardrobeShares.id, share.id))
+      .limit(1);
+    const existing = existingRow[0] ? fromShareRow(existingRow[0]) : undefined;
+    if (existing && existing.grantorId !== userId) throw new OwnershipError();
+    if (share.grantorId !== userId) throw new OwnershipError();
+    const values = {
+      id: share.id,
+      grantorId: userId,
+      granteeId: share.granteeId,
+      granteeEmail: share.granteeEmail,
+      permission: share.permission,
+      inviteToken: share.inviteToken,
+      acceptedAt: share.acceptedAt,
+      createdAt: share.createdAt,
+      updatedAt: share.updatedAt,
+      version: share.version,
+      deletedAt: share.deletedAt,
+    };
+    return upsertGeneric(existing, share, async () => {
+      await db.postgres
+        .insert(pgSchema.wardrobeShares)
+        .values(values)
+        .onConflictDoUpdate({ target: pgSchema.wardrobeShares.id, set: values });
+    });
+  }
+  const sqlite = db.sqlite;
   const existingRow = await sqlite
     .select()
     .from(sqliteSchema.wardrobeShares)
@@ -292,8 +423,58 @@ export async function pullAll(
   userId: string,
   since: string | null,
 ): Promise<PullResult> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
   const cutoff = since ?? '0000-01-01T00:00:00.000Z';
+
+  if (db.dialect === 'postgres') {
+    const imageCutoff = since ? new Date(since) : new Date(0);
+    const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
+      db.postgres
+        .select()
+        .from(pgSchema.images)
+        .where(
+          and(
+            eq(pgSchema.images.userId, userId),
+            gt(pgSchema.images.updatedAt, imageCutoff),
+          ),
+        ),
+      db.postgres
+        .select()
+        .from(pgSchema.garments)
+        .where(and(eq(pgSchema.garments.userId, userId), gt(pgSchema.garments.updatedAt, cutoff))),
+      db.postgres
+        .select()
+        .from(pgSchema.outfits)
+        .where(and(eq(pgSchema.outfits.userId, userId), gt(pgSchema.outfits.updatedAt, cutoff))),
+      db.postgres
+        .select()
+        .from(pgSchema.calendarEntries)
+        .where(
+          and(
+            eq(pgSchema.calendarEntries.userId, userId),
+            gt(pgSchema.calendarEntries.updatedAt, cutoff),
+          ),
+        ),
+      db.postgres
+        .select()
+        .from(pgSchema.wardrobeShares)
+        .where(
+          and(
+            eq(pgSchema.wardrobeShares.grantorId, userId),
+            gt(pgSchema.wardrobeShares.updatedAt, cutoff),
+          ),
+        ),
+    ]);
+    return {
+      serverTime: new Date().toISOString(),
+      images: imageRows.map(fromImageRow),
+      garments: garmentRows.map(fromGarmentRow),
+      outfits: outfitRows.map(fromOutfitRow),
+      calendarEntries: calendarRows.map(fromCalendarRow),
+      wardrobeShares: shareRows.map(fromShareRow),
+    };
+  }
+  const sqlite = db.sqlite;
 
   const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
     sqlite
@@ -335,24 +516,36 @@ export async function pullAll(
 // --- Lecturas públicas (shareableId) ----------------------------------------
 
 export async function getPublicGarment(shareableId: string): Promise<Garment | null> {
-  const sqlite = await getSqlite();
-  const rows = await sqlite
-    .select()
-    .from(sqliteSchema.garments)
-    .where(eq(sqliteSchema.garments.shareableId, shareableId))
-    .limit(1);
+  const db = await getServerDB();
+  const rows = db.dialect === 'postgres'
+    ? await db.postgres
+        .select()
+        .from(pgSchema.garments)
+        .where(eq(pgSchema.garments.shareableId, shareableId))
+        .limit(1)
+    : await db.sqlite
+        .select()
+        .from(sqliteSchema.garments)
+        .where(eq(sqliteSchema.garments.shareableId, shareableId))
+        .limit(1);
   const row = rows[0];
   if (!row || row.deletedAt) return null;
   return fromGarmentRow(row);
 }
 
 export async function getPublicOutfit(shareableId: string): Promise<Outfit | null> {
-  const sqlite = await getSqlite();
-  const rows = await sqlite
-    .select()
-    .from(sqliteSchema.outfits)
-    .where(eq(sqliteSchema.outfits.shareableId, shareableId))
-    .limit(1);
+  const db = await getServerDB();
+  const rows = db.dialect === 'postgres'
+    ? await db.postgres
+        .select()
+        .from(pgSchema.outfits)
+        .where(eq(pgSchema.outfits.shareableId, shareableId))
+        .limit(1)
+    : await db.sqlite
+        .select()
+        .from(sqliteSchema.outfits)
+        .where(eq(sqliteSchema.outfits.shareableId, shareableId))
+        .limit(1);
   const row = rows[0];
   if (!row || row.deletedAt) return null;
   return fromOutfitRow(row);
@@ -360,11 +553,17 @@ export async function getPublicOutfit(shareableId: string): Promise<Outfit | nul
 
 /** Prendas de un outfit público (para renderizar el share con miniaturas). */
 export async function getPublicOutfitGarments(outfit: Outfit): Promise<Garment[]> {
-  const sqlite = await getSqlite();
   const ids = outfit.slots.map((s) => s.garmentId).filter((id): id is string => Boolean(id));
   if (ids.length === 0) return [];
-  const rows = await sqlite.select().from(sqliteSchema.garments);
-  return rows
-    .filter((row) => ids.includes(row.id) && !row.deletedAt)
-    .map(fromGarmentRow);
+  const db = await getServerDB();
+  const rows = db.dialect === 'postgres'
+    ? await db.postgres
+        .select()
+        .from(pgSchema.garments)
+        .where(inArray(pgSchema.garments.id, ids))
+    : await db.sqlite
+        .select()
+        .from(sqliteSchema.garments)
+        .where(inArray(sqliteSchema.garments.id, ids));
+  return rows.filter((row) => !row.deletedAt).map(fromGarmentRow);
 }
