@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getDB } from '@/lib/local/db';
+import { getDB, readSyncStats } from '@/lib/local/db';
 import { claimPendingOperations, countPending } from '@/lib/local/outbox';
 import {
   applyRemoteGarment,
@@ -207,6 +207,22 @@ describe('repositorio local de prendas', () => {
     expect(claimed).toHaveLength(1);
     expect(claimed[0]?.userId).toBe(USER);
     expect(await countPending(OTHER)).toBe(1);
+  });
+
+  it('muestra estadísticas únicamente de la cuenta activa', async () => {
+    await createGarment(USER, { name: 'Mía', category: 'tops', colors: [] });
+    await createGarment(OTHER, { name: 'Ajena', category: 'tops', colors: [] });
+
+    await expect(readSyncStats(USER)).resolves.toMatchObject({
+      pending: 1,
+      syncing: 0,
+      failed: 0,
+    });
+    await expect(readSyncStats(OTHER)).resolves.toMatchObject({
+      pending: 1,
+      syncing: 0,
+      failed: 0,
+    });
   });
 });
 

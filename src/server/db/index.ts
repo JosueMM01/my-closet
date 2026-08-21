@@ -1,13 +1,14 @@
 /**
  * Fabrica de conexiones Drizzle segun proveedor.
  *  - SQLite (desarrollo local): better-sqlite3 + DDL idempotente.
- *  - PostgreSQL: esquema tipado preparado, sin adaptador de repositorios aun.
+ *  - PostgreSQL/Neon: postgres.js + migraciones Drizzle.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { drizzle as drizzleSqlite, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle as drizzlePostgres, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Sql } from 'postgres';
 import { getEnv, getSqliteUrl, type ServerEnv } from '@/server/env';
 import { uuid } from '@/lib/domain/ids';
 import { hashPassword } from '@/server/auth/password';
@@ -26,6 +27,7 @@ export interface SqliteServerDB {
 export interface PostgresServerDB {
   dialect: 'postgres';
   postgres: PostgresDB;
+  raw: Sql;
 }
 
 export type ServerDB = SqliteServerDB | PostgresServerDB;
@@ -48,8 +50,26 @@ export class DatabaseProviderNotImplementedError extends Error {
 
 export async function createServerDB(env: ServerEnv): Promise<ServerDB> {
   if (env.DATABASE_PROVIDER === 'postgres') {
-    // Debe ocurrir antes de importar un driver o abrir una conexion externa.
-    throw new DatabaseProviderNotImplementedError('postgres');
+    if (!env.DATABASE_URL) {
+      throw new Error('DATABASE_URL es obligatorio para PostgreSQL');
+    }
+    const { default: postgres } = await import('postgres');
+    const raw = postgres(env.DATABASE_URL, {
+      // Neon ya aporta PgBouncer en la URL pooled; evitar doble pooling.
+      max: 1,
+      prepare: false,
+      connect_timeout: 15,
+      idle_timeout: 20,
+    });
+    const db = drizzlePostgres(raw, { schema: pgSchema });
+    try {
+      await db.execute(sql`select 1`);
+      await ensureBootstrapAdminPostgres(db, env);
+      return { dialect: 'postgres', postgres: db, raw };
+    } catch (error) {
+      await raw.end({ timeout: 5 });
+      throw error;
+    }
   }
 
   const sqlitePath = getSqliteUrl(env).slice('file:'.length);
@@ -332,9 +352,38 @@ async function ensureBootstrapAdmin(
   }).immediate();
 }
 
+async function ensureBootstrapAdminPostgres(
+  db: PostgresDB,
+  env: ServerEnv,
+): Promise<void> {
+  const email = env.BOOTSTRAP_ADMIN_EMAIL;
+  const password = env.BOOTSTRAP_ADMIN_PASSWORD;
+  if (!email || !password) return;
+
+  const passwordHash = await hashPassword(password);
+  await db.transaction(async (tx) => {
+    // Serializa bootstraps concurrentes de distintas instancias.
+    await tx.execute(sql`select pg_advisory_xact_lock(728194512)`);
+    const existing = await tx.select({ id: pgSchema.users.id }).from(pgSchema.users).limit(1);
+    if (existing[0]) return;
+    await tx.insert(pgSchema.users).values({
+      id: uuid(),
+      email,
+      displayName: 'Administrador',
+      passwordHash,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      adminSlot: 1,
+      profileImageId: null,
+    });
+  });
+}
+
 export async function closeServerDB(): Promise<void> {
   if (instance?.dialect === 'sqlite') {
     instance.raw.close();
+  } else if (instance?.dialect === 'postgres') {
+    await instance.raw.end({ timeout: 5 });
   }
   instance = null;
 }
@@ -350,6 +399,14 @@ export async function getSqlite(): Promise<SqliteDB> {
     throw new DatabaseProviderNotImplementedError(db.dialect);
   }
   return db.sqlite;
+}
+
+export async function getPostgres(): Promise<PostgresDB> {
+  const db = await getServerDB();
+  if (db.dialect !== 'postgres') {
+    throw new DatabaseProviderNotImplementedError(db.dialect);
+  }
+  return db.postgres;
 }
 
 export { pgSchema, sqliteSchema };

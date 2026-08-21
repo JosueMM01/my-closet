@@ -17,7 +17,7 @@
        local images                     │
             │                    ┌───────┴────────┐
             │                    │                │
-            │              SQLite (dev)    PostgreSQL (prod futuro)
+            │              SQLite (dev)    PostgreSQL (staging/prod)
             │              better-sqlite3   Neon + postgres.js
             │                    │                │
             └──── imágenes ──────┴── LocalImageStorage / CloudinaryImageStorage
@@ -44,7 +44,8 @@ acción usuario → repositorio local (transacción Dexie)
 → useLiveQuery actualiza la UI al instante
 → maybeSync() (debounce) → runSync():
      push outbox por lotes → POST /api/sync/push
-     subir imágenes pendientes → POST /api/images
+     subir imágenes pendientes → local: POST /api/images
+                                → cloud: firma + Cloudinary + POST /api/images/finalize
      pull incremental (entidades + metadatos de imágenes) → GET /api/sync/pull?since=…
 ```
 
@@ -74,9 +75,9 @@ fotos; `/outfits/suggestions` está en el shell offline.
 
 Ver ADR-002. SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL
 usa `boolean`/`timestamp` en tablas de sistema y `text` para campos de sync.
-`auth_accounts` y `password_reset_tokens` tienen declaraciones y migraciones en
-ambos dialectos. Esto no habilita Neon: la conexión y los repositorios runtime
-PostgreSQL siguen pendientes.
+Los diez conjuntos de tablas tienen declaraciones en ambos dialectos. Neon usa
+postgres.js, una migración base Drizzle y repositorios con el mismo contrato;
+las migraciones usan URL directa y el runtime una URL pooled.
 
 ## Decisiones registradas
 

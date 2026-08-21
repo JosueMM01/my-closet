@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
 import type { UserRole } from '@/lib/domain/types';
 import { uuid } from '@/lib/domain/ids';
-import { getSqlite, sqliteSchema } from '@/server/db';
+import { getServerDB, getSqlite, pgSchema, sqliteSchema } from '@/server/db';
 import { hashInvitationToken, normalizeEmail } from './users-repository';
 
 export interface InvitationRecord {
@@ -46,18 +46,20 @@ function assertActiveAdmin(
 }
 
 function publicInvitation(
-  row: typeof sqliteSchema.accountInvitations.$inferSelect,
+  row:
+    | typeof sqliteSchema.accountInvitations.$inferSelect
+    | typeof pgSchema.accountInvitations.$inferSelect,
 ): InvitationRecord {
   return {
     id: row.id,
     email: row.email,
     role: row.role,
     createdBy: row.createdBy,
-    expiresAt: row.expiresAt,
-    acceptedAt: row.acceptedAt,
-    revokedAt: row.revokedAt,
+    expiresAt: row.expiresAt instanceof Date ? row.expiresAt.toISOString() : row.expiresAt,
+    acceptedAt: row.acceptedAt instanceof Date ? row.acceptedAt.toISOString() : row.acceptedAt,
+    revokedAt: row.revokedAt instanceof Date ? row.revokedAt.toISOString() : row.revokedAt,
     acceptedBy: row.acceptedBy,
-    createdAt: row.createdAt,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   };
 }
 
@@ -70,7 +72,7 @@ export async function createInvitation(input: {
   if (input.expiresAt <= new Date().toISOString()) {
     throw new InvitationOperationError('La expiración debe estar en el futuro');
   }
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
   const token = randomBytes(32).toString('base64url');
   const invitation: InvitationRecord = {
     id: uuid(),
@@ -83,6 +85,29 @@ export async function createInvitation(input: {
     acceptedBy: null,
     createdAt: new Date().toISOString(),
   };
+  if (db.dialect === 'postgres') {
+    return db.postgres.transaction(async (tx) => {
+      const actors = await tx
+        .select({ role: pgSchema.users.role, status: pgSchema.users.status })
+        .from(pgSchema.users)
+        .where(eq(pgSchema.users.id, input.actorId))
+        .limit(1);
+      const actor = actors[0];
+      if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
+        throw new AdminAuthorizationError();
+      }
+      await tx.insert(pgSchema.accountInvitations).values({
+        ...invitation,
+        tokenHash: hashInvitationToken(token),
+        expiresAt: new Date(invitation.expiresAt),
+        acceptedAt: null,
+        revokedAt: null,
+        createdAt: new Date(invitation.createdAt),
+      });
+      return { invitation, token };
+    });
+  }
+  const sqlite = db.sqlite;
   return sqlite.transaction((tx) => {
     assertActiveAdmin(tx, input.actorId);
     tx.insert(sqliteSchema.accountInvitations)
@@ -93,7 +118,26 @@ export async function createInvitation(input: {
 }
 
 export async function listInvitations(actorId: string): Promise<InvitationRecord[]> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    return db.postgres.transaction(async (tx) => {
+      const actors = await tx
+        .select({ role: pgSchema.users.role, status: pgSchema.users.status })
+        .from(pgSchema.users)
+        .where(eq(pgSchema.users.id, actorId))
+        .limit(1);
+      const actor = actors[0];
+      if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
+        throw new AdminAuthorizationError();
+      }
+      return (await tx
+        .select()
+        .from(pgSchema.accountInvitations)
+        .orderBy(desc(pgSchema.accountInvitations.createdAt)))
+        .map(publicInvitation);
+    });
+  }
+  const sqlite = db.sqlite;
   return sqlite.transaction((tx) => {
     assertActiveAdmin(tx, actorId);
     return tx
@@ -106,7 +150,40 @@ export async function listInvitations(actorId: string): Promise<InvitationRecord
 }
 
 export async function revokeInvitation(actorId: string, invitationId: string): Promise<InvitationRecord> {
-  const sqlite = await getSqlite();
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    return db.postgres.transaction(async (tx) => {
+      const actors = await tx
+        .select({ role: pgSchema.users.role, status: pgSchema.users.status })
+        .from(pgSchema.users)
+        .where(eq(pgSchema.users.id, actorId))
+        .limit(1);
+      const actor = actors[0];
+      if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
+        throw new AdminAuthorizationError();
+      }
+      const invitations = await tx
+        .select()
+        .from(pgSchema.accountInvitations)
+        .where(eq(pgSchema.accountInvitations.id, invitationId))
+        .limit(1)
+        .for('update');
+      const invitation = invitations[0];
+      if (!invitation) throw new InvitationOperationError('Invitación no encontrada');
+      if (invitation.acceptedAt) throw new InvitationOperationError('La invitación ya fue utilizada');
+      if (invitation.revokedAt) throw new InvitationOperationError('La invitación ya fue revocada');
+      const revokedAt = new Date();
+      const updated = await tx
+        .update(pgSchema.accountInvitations)
+        .set({ revokedAt })
+        .where(eq(pgSchema.accountInvitations.id, invitationId))
+        .returning();
+      const row = updated[0];
+      if (!row) throw new InvitationOperationError('No se pudo revocar la invitación');
+      return publicInvitation(row);
+    });
+  }
+  const sqlite = db.sqlite;
   return sqlite.transaction((tx) => {
     assertActiveAdmin(tx, actorId);
     const invitation = tx

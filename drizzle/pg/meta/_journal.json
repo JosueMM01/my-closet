@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1787263200000,
-      "tag": "0000_password_reset_tokens",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1787266800000,
-      "tag": "0001_auth_accounts",
+      "when": 1787335388530,
+      "tag": "0000_damp_phil_sheldon",
       "breakpoints": true
     }
   ]

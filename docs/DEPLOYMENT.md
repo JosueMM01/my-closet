@@ -11,12 +11,12 @@
 ## Checklist previo a Vercel
 
 1. `pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e` en verde.
-2. Repositorios runtime Neon PostgreSQL y migraciones completas aplicadas y
-   probadas; las declaraciones PG de auth no bastan para activar el proveedor.
+2. Migración PostgreSQL aplicada y contratos ejecutados en una rama Neon de
+   staging; usar URL pooled en runtime y directa para Drizzle Kit.
 3. `AUTH_SECRET` generado (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`).
 4. `NEXT_PUBLIC_APP_URL` con el dominio final.
-5. Subida directa Cloudinary implementada, finalizada y probada si habrá fotos
-   en producción; hoy Cloudinary es un bloqueador y debe permanecer desactivado.
+5. Subida directa Cloudinary probada en staging y en dos dispositivos; revisar
+   convivencia histórica y garbage collection antes de producción.
 6. Rate limiting distribuido y cambio de correo de perfil con verificación de
    propiedad del nuevo buzón.
 7. SMTP de bajo volumen configurado para entregar invitaciones y recuperación;
@@ -38,9 +38,9 @@
 
 ## Nota
 
-Este proyecto se construyó **completamente local**; no se ha conectado
-ninguna cuenta ni ejecutado ningún deploy. Los bloqueadores explícitos son los
-repositorios runtime Neon, la subida directa/finalización Cloudinary, el rate
-limit distribuido y la verificación del cambio de correo de perfil. También se
+El proyecto tiene una rama Neon de staging y Cloudinary conectado para pruebas;
+no se ha ejecutado ningún deploy de Vercel. Los bloqueadores explícitos son el
+rate limit distribuido, la verificación del cambio de correo, el garbage
+collection seguro y las pruebas prolongadas/multidispositivo. También se
 debe operar SMTP para invitaciones y recuperación de bajo volumen. Los pasos
 exactos están en docs/EXTERNAL_SERVICES_SETUP.md.
