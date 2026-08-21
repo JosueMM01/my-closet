@@ -1,7 +1,7 @@
 # My Closet
 
-Tu armario digital: prendas, conjuntos y calendario, **una PWA offline-first**
-que funciona siempre, con o sin conexión.
+Tu armario digital: prendas, conjuntos, sugerencias y calendario, **una PWA
+offline-first** que funciona siempre, con o sin conexión.
 
 Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-closet)
 (referencia de dominio), con arquitectura propia en Next.js App Router.
@@ -26,12 +26,18 @@ pnpm install
 pnpm dev          # → http://localhost:3000
 ```
 
-**No necesitas configurar nada**: sin variables de entorno la app usa
-SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. En desarrollo
-o pruebas el registro público está permitido por defecto; la primera cuenta de
-una base local vacía recibe el rol `ADMIN` en el slot 1. En producción el
-registro público está cerrado por defecto y solo se abre con
-`PUBLIC_REGISTRATION_ENABLED=true`.
+**No necesitas configurar servicios externos**: sin variables de entorno la
+app usa SQLite (`./data/my-closet.db`, se crea solo) e imágenes locales. El
+registro público está desactivado por defecto en todos los entornos y el login
+no ofrece «Crear cuenta». Las personas usuarias se registran mediante el
+fragmento de un enlace de invitación de cuenta.
+
+Para crear de forma segura el primer administrador, define tus propios
+`BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` juntos únicamente en el
+archivo ignorado `.env.local`, inicia la app una vez con `users` vacía y elimina
+después ambas variables bootstrap, en especial la contraseña. Solo se persiste
+su hash scrypt. `PUBLIC_REGISTRATION_ENABLED=true` se reserva para E2E
+explícitos.
 
 La base SQLite local se vació intencionalmente durante la funcionalidad de
 cuentas y administración. Esto no borra IndexedDB: esa base pertenece a cada
@@ -40,6 +46,12 @@ origen del navegador y no se limpia mediante la CLI del proyecto.
 El perfil permite cambiar nombre, contraseña, correo y foto. La foto se
 redimensiona y convierte a WebP en el navegador, sin eliminación de fondo.
 Ya no hay UI para cargar datos de demostración.
+
+`/outfits/suggestions` propone hasta tres conjuntos de forma determinista y
+local desde IndexedDB. Considera favoritas, compatibilidad básica de colores,
+coocurrencia en conjuntos guardados, uso reciente y el contexto manual de
+ocasión, temperatura, lluvia y estilo. Explica el resultado en español, no usa
+IA, red ni análisis de fotos y funciona offline.
 
 ## Scripts principales
 
@@ -51,6 +63,10 @@ Ya no hay UI para cargar datos de demostración.
 | `pnpm test` | Vitest: unitarios + integración |
 | `pnpm e2e` | build + Playwright (Chromium) |
 
+Estado conocido: **124 Vitest**; **62 E2E aprobadas y 4 skips esperados**. La
+prueba del modelo real de eliminación de fondo es opt-in y se vuelve a ejecutar
+por separado.
+
 Chromium de Playwright se instala **dentro del proyecto**:
 
 ```bash
@@ -59,12 +75,12 @@ PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers pnpm exec playwright install chr
 
 ## Funciona sin servicios externos
 
-Neon, Cloudinary, Google Sign-In y Vercel tienen selectores y contratos
-**preparados y desactivados**. Los adaptadores externos no se activan solo por
-encontrar credenciales y siguen pendientes de implementación/verificación.
-La app completa (auth local, sync contra SQLite, imágenes, PWA, offline)
-se desarrolla, prueba y demuestra sin ninguna cuenta externa. Para
-activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
+Neon, Cloudinary, Google Sign-In y Vercel requieren selectores explícitos.
+Google Sign-In está implementado pero es opt-in; solo inicia sesión en una
+cuenta existente que antes se vinculó desde Perfil con el mismo correo
+verificado. Neon y Cloudinary aún tienen bloqueadores de runtime. La app local
+no realiza llamadas externas con los proveedores desactivados. Detalles:
+**`docs/EXTERNAL_SERVICES_SETUP.md`**.
 
 ## Versiones principales utilizadas
 
@@ -80,6 +96,7 @@ activarlos más adelante: **`docs/EXTERNAL_SERVICES_SETUP.md`**.
 | better-sqlite3 | 13.0.3 |
 | dexie / dexie-react-hooks | 4.4.5 / 4.4.0 |
 | zod | 4.4.3 |
+| jose | 6.2.9 |
 | @imgly/background-removal | 1.7.0 |
 | onnxruntime-web | 1.21.0 |
 | @playwright/test | 1.62.1 |

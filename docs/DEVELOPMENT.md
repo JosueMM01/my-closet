@@ -14,10 +14,24 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-No se necesita ninguna variable de entorno: la base de datos es SQLite en
-`./data/my-closet.db` (se crea sola) y las imágenes se guardan localmente. El
-registro público está permitido por defecto en desarrollo/pruebas; el primer
-registro con SQLite vacía crea el `ADMIN` del slot 1.
+No se necesita ningún servicio externo: la base es SQLite en
+`./data/my-closet.db` y las imágenes se guardan localmente. El registro público
+está desactivado por defecto también en desarrollo y pruebas. Las cuentas reales
+se crean con invitación; el flag público solo se activa en E2E explícitos.
+
+Para inicializar una base vacía, escribe tus propios valores juntos solo en
+`.env.local` (ignorado por Git):
+
+```dotenv
+BOOTSTRAP_ADMIN_EMAIL=<correo elegido>
+BOOTSTRAP_ADMIN_PASSWORD=<contraseña elegida de al menos 8 caracteres>
+```
+
+Inicia la app una vez. Si `users` está vacía se crea el administrador del slot 1
+y solo se persiste el hash scrypt. Cuando puedas entrar, elimina ambas variables
+de `.env.local`, especialmente `BOOTSTRAP_ADMIN_PASSWORD`; una configuración
+parcial no es válida. No pongas valores reales en archivos versionados, comandos
+compartidos, logs, docs ni fixtures.
 
 ## Scripts
 
@@ -46,24 +60,28 @@ navegador y la CLI no la elimina. La UI de datos de ejemplo fue retirada.
 
 ## Variables opcionales
 
-Ver `.env.example`. Todo funciona sin configurar nada; los selectores deben
-activarse de forma explícita. Ejemplos para `.env.local`:
+Ver `.env.example`. La app arranca sin servicios externos; los selectores deben
+activarse de forma explícita. Ejemplo para `.env.local`:
 
 ```dotenv
-# Abrir registro público de forma explícita en local/test.
-PUBLIC_REGISTRATION_ENABLED=true
-
 # Capturar correos sin conexión externa.
 EMAIL_PROVIDER=capture
 ```
+
+`PUBLIC_REGISTRATION_ENABLED=true` se reserva para el entorno aislado de E2E.
+El login no muestra un enlace de creación aunque el flag esté activo.
 
 Para SMTP con Gmail App Password, usar exactamente las variables documentadas
 en `docs/EXTERNAL_SERVICES_SETUP.md#correo-smtp`. `SMTP_PASSWORD` es solo de
 servidor. No activar Cloudinary ni SMTP en desarrollo normal.
 
+Google Sign-In está implementado, pero permanece sin red con
+`GOOGLE_AUTH_ENABLED=false`. Su activación opt-in se documenta en
+`docs/EXTERNAL_SERVICES_SETUP.md`.
+
 ## Estructura
 
-Ver docs/ARCHITECTURE.md. Lo essencial: `src/lib/domain` (dominio),
+Ver docs/ARCHITECTURE.md. Lo esencial: `src/lib/domain` (dominio),
 `src/lib/local` (IndexedDB/sync), `src/server` (backend Drizzle/auth),
 `src/app` (rutas UI y API).
 

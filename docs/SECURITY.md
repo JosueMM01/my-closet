@@ -22,6 +22,8 @@
   (`AUTH_RATE_LIMIT_REGISTER` ajustable). In-memory: adecuado para una
   instancia; en multi-instancia mover a almacén compartido (bloqueador de
   producción).
+- Solicitud de recuperación: 5/60 s por IP manteniendo siempre la misma
+  respuesta. Consumo de reset: 10/60 s por IP.
 
 ## Validación y autorización
 
@@ -39,6 +41,25 @@
 - No hay borrado duro de cuentas desde la administración. Desactivar una
   cuenta elimina sus sesiones; las restricciones de base de datos preservan al
   menos un administrador activo y un máximo de dos.
+- El registro público parte de `false` en todos los entornos. El login no ofrece
+  alta y las cuentas reales requieren un fragmento de invitación de un uso;
+  `PUBLIC_REGISTRATION_ENABLED=true` queda limitado a E2E explícitos.
+
+## Recuperación y Google
+
+- La recuperación no permite enumerar cuentas: responde igual para correos
+  activos, inexistentes o deshabilitados y oculta errores de entrega.
+- Los tokens de reset son aleatorios, duran 30 minutos, se guardan solo como
+  SHA-256 y son de un uso. Al consumirlos se rota la contraseña y se eliminan
+  todas las sesiones.
+- Google Sign-In no crea cuentas ni enlaza por correo implícitamente. Vincular
+  exige sesión activa y coincidencia exacta con el correo verificado de Google;
+  login exige un `subject` previamente vinculado.
+- OAuth usa `state`, PKCE S256 y `nonce`. JOSE valida firma RS256 mediante JWKS,
+  emisor, audiencia, expiración, claims y `email_verified=true`. Las cookies de
+  flujo son HttpOnly, `SameSite=Lax`, limitadas a la ruta OAuth y a 10 minutos.
+- Con `GOOGLE_AUTH_ENABLED=false` no se anuncia el proveedor ni se llama a
+  endpoints o JWKS de Google.
 
 ## Cabeceras (next.config.ts)
 
@@ -94,12 +115,18 @@ a compilarse fuera de Turbopack, debe retirarse esta excepción.
   un valor de prueba local explícito.
 - `SMTP_PASSWORD` es un secreto solo de servidor: nunca lleva prefijo
   `NEXT_PUBLIC_`, no se expone a la UI ni se escribe en logs.
+- `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` se configuran juntos
+  solo en `.env.local`. Se usan una vez si `users` está vacía y solo se persiste
+  el hash scrypt. Tras crear el administrador deben retirarse ambas del entorno,
+  en especial la contraseña; nunca se versionan valores reales.
 
 ## Correo y cambios de cuenta
 
 - `EMAIL_PROVIDER=disabled` es el predeterminado y no abre conexiones. El
   modo `capture` guarda los mensajes para desarrollo/pruebas; solo `smtp`
   conecta al proveedor configurado.
+- Invitaciones y recuperación necesitan `capture` o SMTP para entregar sus
+  enlaces; `disabled` no envía nada. SMTP está planteado para bajo volumen.
 - El cambio de correo exige reautenticación con la contraseña actual y rota
   sesiones, pero aún no confirma la propiedad del nuevo buzón. La verificación
   de correo es un requisito pendiente para producción.

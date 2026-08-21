@@ -58,6 +58,50 @@ export const sessions = pgTable(
   (table) => [index('sessions_user_idx').on(table.userId)],
 );
 
+export const authAccounts = pgTable(
+  'auth_accounts',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    providerSubject: text('provider_subject').notNull(),
+    providerEmail: text('provider_email').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    uniqueIndex('auth_accounts_provider_subject_unique').on(
+      table.provider,
+      table.providerSubject,
+    ),
+    uniqueIndex('auth_accounts_user_provider_unique').on(table.userId, table.provider),
+    check('auth_accounts_provider_check', sql`${table.provider} = 'GOOGLE'`),
+  ],
+);
+
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => [
+    index('password_reset_tokens_user_idx').on(table.userId),
+    index('password_reset_tokens_expiry_idx').on(table.expiresAt),
+  ],
+);
+
 export const accountInvitations = pgTable(
   'account_invitations',
   {

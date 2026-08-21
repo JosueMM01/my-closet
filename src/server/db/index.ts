@@ -9,6 +9,8 @@ import { sql } from 'drizzle-orm';
 import { drizzle as drizzleSqlite, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { getEnv, getSqliteUrl, type ServerEnv } from '@/server/env';
+import { uuid } from '@/lib/domain/ids';
+import { hashPassword } from '@/server/auth/password';
 import * as pgSchema from './schema-pg';
 import * as sqliteSchema from './schema-sqlite';
 
@@ -60,6 +62,7 @@ export async function createServerDB(env: ServerEnv): Promise<ServerDB> {
 
   const db = drizzleSqlite({ client: raw, schema: sqliteSchema });
   ensureSqliteSchema(db, raw);
+  await ensureBootstrapAdmin(raw, env);
   return { dialect: 'sqlite', sqlite: db, raw };
 }
 
@@ -135,6 +138,30 @@ function ensureSqliteSchema(
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS auth_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider = 'GOOGLE'),
+    provider_subject TEXT NOT NULL,
+    provider_email TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (provider, provider_subject),
+    UNIQUE (user_id, provider)
+  )`);
+  db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS auth_accounts_provider_subject_unique
+    ON auth_accounts(provider, provider_subject)`);
+  db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS auth_accounts_user_provider_unique
+    ON auth_accounts(user_id, provider)`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_expiry_idx ON password_reset_tokens(expires_at)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS account_invitations (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,
@@ -279,6 +306,30 @@ function ensureSqliteSchema(
       raw.exec('DROP TABLE images_before_nullable_data');
     })();
   }
+}
+
+async function ensureBootstrapAdmin(
+  raw: import('better-sqlite3').Database,
+  env: ServerEnv,
+): Promise<void> {
+  const email = env.BOOTSTRAP_ADMIN_EMAIL;
+  const password = env.BOOTSTRAP_ADMIN_PASSWORD;
+  if (!email || !password) return;
+
+  const existing = raw.prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM users').get();
+  if ((existing?.count ?? 0) !== 0) return;
+
+  const passwordHash = await hashPassword(password);
+  raw.transaction(() => {
+    raw.prepare(`
+      INSERT INTO users (
+        id, email, display_name, password_hash, role, status, admin_slot,
+        profile_image_id, created_at
+      )
+      SELECT ?, ?, 'Administrador', ?, 'ADMIN', 'ACTIVE', 1, NULL, ?
+      WHERE NOT EXISTS (SELECT 1 FROM users)
+    `).run(uuid(), email, passwordHash, new Date().toISOString());
+  }).immediate();
 }
 
 export async function closeServerDB(): Promise<void> {

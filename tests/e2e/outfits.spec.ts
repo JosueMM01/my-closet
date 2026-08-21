@@ -2,6 +2,34 @@ import { expect, test } from '@playwright/test';
 import { createGarment, registerAndLogin, waitForHydration } from './helpers';
 
 test.describe('Conjuntos y calendario', () => {
+  test('genera y guarda una sugerencia sin conexión', async ({ page, context }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'service worker estable en desktop');
+
+    await registerAndLogin(page);
+    await createGarment(page, 'Camisa crema');
+    await createGarment(page, 'Pantalón negro', 'Partes de abajo');
+    await createGarment(page, 'Zapatos negros', 'Calzado');
+
+    await page.goto('/outfits');
+    await waitForHydration(page);
+    await page.getByTestId('outfit-suggestions').click();
+    await expect(page.getByRole('heading', { name: 'Ideas para vestirte' })).toBeVisible();
+    await expect(page.getByTestId('suggestion-card')).toHaveCount(1);
+    await page.waitForTimeout(2_500);
+
+    await context.setOffline(true);
+    await page.getByTestId('other-suggestions').click();
+    await page.getByTestId('save-suggestion').click();
+    await expect(page.getByTestId('save-suggestion')).toContainText('Guardado');
+
+    await page.reload();
+    await waitForHydration(page);
+    await expect(page.getByText('Estas sugerencias se crean únicamente en este dispositivo', { exact: false })).toBeVisible();
+    await expect(page.getByTestId('save-suggestion')).toContainText('Guardado');
+
+    await context.setOffline(false);
+  });
+
   test('crear conjunto en el editor', async ({ page }) => {
     await registerAndLogin(page);
     await createGarment(page, 'Camisa blanca');

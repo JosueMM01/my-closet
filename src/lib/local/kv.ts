@@ -4,8 +4,17 @@
 import { getDB } from './db';
 import type { LocalProfile } from '@/lib/domain/types';
 import { localProfileSchema } from '@/lib/domain/validation';
+import {
+  recommendationContextSchema,
+  type RecommendationContext,
+} from '@/lib/domain/recommendations';
 
 const PROFILE_KEY = 'local-profile';
+const RECOMMENDATION_CONTEXT_PREFIX = 'recommendations:context:';
+
+function recommendationContextKey(userId: string): string {
+  return `${RECOMMENDATION_CONTEXT_PREFIX}${userId}`;
+}
 
 export async function getLocalProfile(): Promise<LocalProfile | null> {
   const db = getDB();
@@ -48,4 +57,23 @@ export async function getKV<T>(key: string): Promise<T | null> {
 
 export async function setKV(key: string, value: unknown): Promise<void> {
   await getDB().kv.put({ key, value });
+}
+
+export async function getRecommendationContext(userId: string): Promise<RecommendationContext | null> {
+  const row = await getDB().kv.get(recommendationContextKey(userId));
+  if (!row) return null;
+  const parsed = recommendationContextSchema.safeParse(row.value);
+  return parsed.success ? parsed.data : null;
+}
+
+export async function setRecommendationContext(
+  userId: string,
+  context: RecommendationContext,
+): Promise<void> {
+  const value = recommendationContextSchema.parse(context);
+  await getDB().kv.put({ key: recommendationContextKey(userId), value });
+}
+
+export async function clearRecommendationContext(userId: string): Promise<void> {
+  await getDB().kv.delete(recommendationContextKey(userId));
 }

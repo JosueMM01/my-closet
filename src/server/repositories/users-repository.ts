@@ -1,6 +1,6 @@
 /** Repositorio transaccional de cuentas para SQLite local. */
 import { createHash } from 'node:crypto';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { uuid } from '@/lib/domain/ids';
 import { getSqlite, sqliteSchema } from '@/server/db';
@@ -79,7 +79,6 @@ export async function registerAccount(input: {
   passwordHash: string;
   invitationToken?: string;
   publicRegistrationEnabled: boolean;
-  bootstrapAdminEnabled: boolean;
 }): Promise<UserRecord> {
   const sqlite = await getSqlite();
   const email = normalizeEmail(input.email);
@@ -125,11 +124,6 @@ export async function registerAccount(input: {
           'El registro público está deshabilitado; necesitas una invitación',
         );
       }
-      const userCount = tx
-        .select({ value: sql<number>`count(*)` })
-        .from(sqliteSchema.users)
-        .get()?.value ?? 0;
-      if (userCount === 0 && input.bootstrapAdminEnabled) role = 'ADMIN';
     }
 
     const adminSlot = role === 'ADMIN'

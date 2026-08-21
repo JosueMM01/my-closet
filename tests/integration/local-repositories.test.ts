@@ -16,7 +16,13 @@ import type { Garment } from '@/lib/domain/types';
 import { filterGarments, EMPTY_FILTERS } from '@/lib/local/queries';
 import { applyRemoteImageMetadata } from '@/lib/local/sync-engine';
 import { replaceAdminInvitations, replaceAdminUsers } from '@/lib/local/admin-cache';
-import { clearLocalProfile, setLocalProfile } from '@/lib/local/kv';
+import {
+  clearLocalProfile,
+  clearRecommendationContext,
+  getRecommendationContext,
+  setLocalProfile,
+  setRecommendationContext,
+} from '@/lib/local/kv';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -309,5 +315,23 @@ describe('repositorio local de outfits', () => {
     });
     expect(outfit.slots).toHaveLength(2);
     expect(await countPending()).toBe(1);
+  });
+});
+
+describe('contexto local de recomendaciones', () => {
+  it('persiste por usuario, valida al leer y no crea operaciones de outbox', async () => {
+    const context = { occasion: 'work', temperature: 'cold', rain: true, style: 'classic' } as const;
+    await setRecommendationContext(USER, context);
+
+    expect(await getRecommendationContext(USER)).toEqual(context);
+    expect(await getRecommendationContext(OTHER)).toBeNull();
+    expect(await getDB().outbox.count()).toBe(0);
+
+    await getDB().kv.put({ key: `recommendations:context:${OTHER}`, value: { occasion: 'invalid' } });
+    expect(await getRecommendationContext(OTHER)).toBeNull();
+
+    await clearRecommendationContext(USER);
+    expect(await getRecommendationContext(USER)).toBeNull();
+    expect(await getDB().outbox.count()).toBe(0);
   });
 });

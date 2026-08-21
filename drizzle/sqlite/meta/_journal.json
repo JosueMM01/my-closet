@@ -8,6 +8,20 @@
       "when": 1786911995295,
       "tag": "0000_complete_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787263200000,
+      "tag": "0001_password_reset_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787266800000,
+      "tag": "0002_auth_accounts",
+      "breakpoints": true
     }
   ]
 }

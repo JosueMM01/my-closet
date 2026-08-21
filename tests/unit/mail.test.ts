@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseServerEnv } from '@/server/env';
 import { createInvitationEmail, buildInvitationUrl } from '@/server/mail/invitation-email';
+import { buildPasswordResetUrl, createPasswordResetEmail } from '@/server/mail/password-reset-email';
 import { createMailProvider, type MailProvider, type OutboundMailMessage } from '@/server/mail';
 import {
   readCapturedMessagesForTests,
@@ -10,6 +11,7 @@ import {
   createAndDeliverInvitation,
   InvitationDeliveryError,
 } from '@/server/services/invitation-service';
+import { requestPasswordReset } from '@/server/services/password-recovery-service';
 
 const smtpMocks = vi.hoisted(() => ({
   createTransport: vi.fn(),
@@ -138,6 +140,82 @@ describe('correo de invitación', () => {
     expect(email.html).toContain('atacante&lt;script&gt;@example.test');
     expect(email.html).toContain('&amp;next=&quot;&lt;script&gt;');
     expect(email.text).toContain('Completa tu registro:');
+  });
+});
+
+describe('correo de recuperación', () => {
+  it('captura una URL con fragmento y entrega al repositorio solo el hash', async () => {
+    const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
+    const rawToken = 'r'.repeat(43);
+    const replaceToken = vi.fn(async () => undefined);
+
+    await requestPasswordReset('owner@example.test', {
+      env,
+      generateToken: () => rawToken,
+      replaceToken,
+      findUser: async () => ({
+        id: '11111111-1111-4111-8111-111111111111',
+        email: 'owner@example.test',
+        displayName: 'Owner',
+        passwordHash: 'stored-hash',
+        role: 'USER',
+        status: 'ACTIVE',
+        adminSlot: null,
+        profileImageId: null,
+        createdAt: '2029-01-01T00:00:00.000Z',
+      }),
+    });
+
+    expect(replaceToken).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+    );
+    expect(JSON.stringify(replaceToken.mock.calls)).not.toContain(rawToken);
+    const captured = readCapturedMessagesForTests();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.text).toContain(`/reset-password#token=${rawToken}`);
+    expect(captured[0]?.text).not.toContain('/reset-password?token=');
+  });
+
+  it('construye y escapa la plantilla española', () => {
+    const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
+    const resetUrl = buildPasswordResetUrl('token-seguro', env);
+    const email = createPasswordResetEmail({
+      email: 'owner<script>@example.test',
+      resetUrl: `${resetUrl}&next="<script>`,
+    });
+    expect(resetUrl).toBe('http://localhost:3000/reset-password#token=token-seguro');
+    expect(email.html).not.toContain('<script>');
+    expect(email.html).toContain('30 minutos');
+  });
+
+  it('no propaga detalles cuando falla la entrega', async () => {
+    const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
+    const mailProvider: MailProvider = {
+      kind: 'smtp',
+      send: async () => {
+        throw new Error('detalle privado del transporte');
+      },
+    };
+
+    await expect(
+      requestPasswordReset('owner@example.test', {
+        env,
+        mailProvider,
+        generateToken: () => 'f'.repeat(43),
+        replaceToken: async () => undefined,
+        findUser: async () => ({
+          id: '11111111-1111-4111-8111-111111111111',
+          email: 'owner@example.test',
+          displayName: 'Owner',
+          passwordHash: 'stored-hash',
+          role: 'USER',
+          status: 'ACTIVE',
+          adminSlot: null,
+          profileImageId: null,
+          createdAt: '2029-01-01T00:00:00.000Z',
+        }),
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

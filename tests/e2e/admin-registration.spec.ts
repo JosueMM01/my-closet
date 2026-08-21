@@ -23,12 +23,12 @@ test.describe('Registro por invitación', () => {
     await expect(page.getByRole('button', { name: 'Crear cuenta' })).toHaveCount(0);
   });
 
-  test('login oculta Crear cuenta cuando el registro público está cerrado', async ({ page }) => {
+  test('login nunca muestra Crear cuenta aunque el registro público esté habilitado', async ({ page }) => {
     await page.route('**/api/auth/providers', (route) => route.fulfill({
       json: {
         credentials: true,
         google: false,
-        publicRegistration: false,
+        publicRegistration: true,
         invitationRegistration: true,
       },
     }));
@@ -86,7 +86,7 @@ test.describe('Administración', () => {
     await expect(invitedPage).toHaveURL(/\/register$/);
     await invitedPage.getByLabel('Nombre').fill('Persona Invitada');
     await invitedPage.getByLabel('Correo electrónico').fill(invitedEmail);
-    await invitedPage.getByLabel('Contraseña', { exact: false }).fill('contrasena-invitada');
+    await invitedPage.getByLabel('Contraseña', { exact: true }).fill('contrasena-invitada');
     await invitedPage.getByRole('button', { name: 'Crear cuenta' }).click();
     await expect(invitedPage.getByTestId('home-greeting')).toContainText('Hola, Persona');
     await invitedContext.close();

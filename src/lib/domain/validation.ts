@@ -126,6 +126,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'La contraseña es obligatoria').max(128),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: accountEmailSchema,
+});
+
+export const passwordResetTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/, 'El enlace de recuperación no es válido');
+
+export const resetPasswordSchema = z.object({
+  token: passwordResetTokenSchema,
+  newPassword: accountPasswordSchema,
+});
+
 export const accountProfileSchema = z.object({
   userId: z.string().uuid(),
   email: accountEmailSchema,
@@ -156,6 +169,11 @@ export const authProvidersResponseSchema = z.object({
   publicRegistration: z.boolean(),
   invitationRegistration: z.literal(true),
 });
+
+export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
+  z.object({ linked: z.literal(false), providerEmail: z.null() }),
+  z.object({ linked: z.literal(true), providerEmail: accountEmailSchema }),
+]);
 
 export const apiErrorResponseSchema = z.object({ error: z.string().min(1) });
 export const operationSuccessResponseSchema = z.object({ ok: z.literal(true) });
@@ -231,6 +249,8 @@ export const adminUserUpdateSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 /** Payload de la API de sincronización. */
 export const syncPushOperationSchema = z.object({

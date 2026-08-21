@@ -20,6 +20,16 @@ const optionalSmtpPort = z.preprocess(
   z.coerce.number().int().min(1).max(65_535).optional(),
 );
 
+const optionalBootstrapEmail = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.string().trim().toLowerCase().pipe(z.email().max(120)).optional(),
+);
+
+const optionalBootstrapPassword = z.preprocess(
+  (value) => (typeof value === 'string' && value === '' ? undefined : value),
+  z.string().min(8).max(128).optional(),
+);
+
 const explicitBoolean = z
   .enum(['true', 'false'])
   .default('false')
@@ -39,10 +49,12 @@ export const serverEnvSchema = z
     CLOUDINARY_API_KEY: optionalEnvString,
     CLOUDINARY_API_SECRET: optionalEnvString,
     GOOGLE_AUTH_ENABLED: explicitBoolean,
-    PUBLIC_REGISTRATION_ENABLED: optionalExplicitBoolean,
+    PUBLIC_REGISTRATION_ENABLED: explicitBoolean,
     GOOGLE_CLIENT_ID: optionalEnvString,
     GOOGLE_CLIENT_SECRET: optionalEnvString,
     AUTH_SECRET: optionalEnvString,
+    BOOTSTRAP_ADMIN_EMAIL: optionalBootstrapEmail,
+    BOOTSTRAP_ADMIN_PASSWORD: optionalBootstrapPassword,
     NEXT_PUBLIC_APP_URL: optionalEnvString,
     EMAIL_PROVIDER: z.enum(['disabled', 'capture', 'smtp']).default('disabled'),
     EMAIL_FROM: optionalHeaderSafeString,
@@ -108,6 +120,22 @@ export const serverEnvSchema = z
       }
     }
 
+    const bootstrapConfiguration = [
+      env.BOOTSTRAP_ADMIN_EMAIL,
+      env.BOOTSTRAP_ADMIN_PASSWORD,
+    ];
+    const bootstrapConfigurationCount = bootstrapConfiguration.filter(Boolean).length;
+    if (
+      bootstrapConfigurationCount > 0 &&
+      bootstrapConfigurationCount < bootstrapConfiguration.length
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'El administrador bootstrap debe configurarse como un grupo completo',
+        path: ['BOOTSTRAP_ADMIN_EMAIL'],
+      });
+    }
+
     const smtpConfiguration = [
       env.EMAIL_FROM,
       env.SMTP_HOST,
@@ -157,13 +185,14 @@ export const serverEnvSchema = z
         path: ['NEXT_PUBLIC_APP_URL'],
       });
     }
-  })
-  .transform((env) => ({
-    ...env,
-    // Contrato: producción es invite-only salvo habilitación explícita.
-    PUBLIC_REGISTRATION_ENABLED:
-      env.PUBLIC_REGISTRATION_ENABLED ?? env.NODE_ENV !== 'production',
-  }));
+    if (env.GOOGLE_AUTH_ENABLED && !appUrlIsValid) {
+      context.addIssue({
+        code: 'custom',
+        message: 'GOOGLE_AUTH_ENABLED=true requiere NEXT_PUBLIC_APP_URL',
+        path: ['NEXT_PUBLIC_APP_URL'],
+      });
+    }
+  });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type DatabaseDialect = ServerEnv['DATABASE_PROVIDER'];
@@ -193,16 +222,37 @@ export function getSqliteUrl(env: ServerEnv = getEnv()): string {
     : 'file:./data/my-closet.db';
 }
 
-// No hay rutas OAuth de Google todavia; las credenciales no implican capacidad.
-const GOOGLE_AUTH_IMPLEMENTATION_READY = false;
+export const GOOGLE_AUTH_IMPLEMENTATION_READY = true;
 
 export function isGoogleEnabled(env: ServerEnv = getEnv()): boolean {
   return Boolean(
     env.GOOGLE_AUTH_ENABLED &&
       GOOGLE_AUTH_IMPLEMENTATION_READY &&
       env.GOOGLE_CLIENT_ID &&
-      env.GOOGLE_CLIENT_SECRET,
+      env.GOOGLE_CLIENT_SECRET &&
+      env.NEXT_PUBLIC_APP_URL,
   );
+}
+
+export interface GoogleAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  appUrl: string;
+  callbackUrl: string;
+}
+
+export function getGoogleAuthConfig(env: ServerEnv = getEnv()): GoogleAuthConfig | null {
+  if (!isGoogleEnabled(env)) return null;
+  const clientId = env.GOOGLE_CLIENT_ID;
+  const clientSecret = env.GOOGLE_CLIENT_SECRET;
+  const appUrl = env.NEXT_PUBLIC_APP_URL;
+  if (!clientId || !clientSecret || !appUrl) return null;
+  return {
+    clientId,
+    clientSecret,
+    appUrl,
+    callbackUrl: new URL('/api/auth/google/callback', appUrl).toString(),
+  };
 }
 
 export function isPublicRegistrationEnabled(env: ServerEnv = getEnv()): boolean {

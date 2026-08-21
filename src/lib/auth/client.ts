@@ -9,8 +9,10 @@ import {
   authResponseSchema,
   apiErrorResponseSchema,
   operationSuccessResponseSchema,
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resetPasswordSchema,
   sessionResponseSchema,
 } from '@/lib/domain/validation';
 import { setLocalProfile, clearLocalProfile } from '@/lib/local/kv';
@@ -78,6 +80,32 @@ export async function login(input: { email: string; password: string }): Promise
   }
   const response = await postJSON('/api/auth/login', parsed.data);
   return handleAuthResponse(response);
+}
+
+export async function requestPasswordRecovery(email: string): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse({ email });
+  if (!parsed.success) {
+    throw new AuthError(parsed.error.issues[0]?.message ?? 'Correo inválido', 400);
+  }
+  const response = await postJSON('/api/auth/forgot-password', parsed.data);
+  if (!response.ok) {
+    const error = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
+    throw new AuthError(error.success ? error.data.error : 'No se pudo procesar la solicitud', response.status);
+  }
+  operationSuccessResponseSchema.parse(await response.json());
+}
+
+export async function resetPassword(input: { token: string; newPassword: string }): Promise<void> {
+  const parsed = resetPasswordSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new AuthError(parsed.error.issues[0]?.message ?? 'Datos de recuperación inválidos', 400);
+  }
+  const response = await postJSON('/api/auth/reset-password', parsed.data);
+  if (!response.ok) {
+    const error = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
+    throw new AuthError(error.success ? error.data.error : 'No se pudo cambiar la contraseña', response.status);
+  }
+  operationSuccessResponseSchema.parse(await response.json());
 }
 
 export async function logout(): Promise<void> {

@@ -7,17 +7,17 @@ pnpm test          # vitest run
 pnpm test:watch
 ```
 
-- `tests/unit/` — lógica pura: resolución de conflictos, validación Zod,
-  normalización de tallas, utilidades de fechas.
+- `tests/unit/` — lógica pura: conflictos, Zod, sugerencias deterministas,
+  proveedores, correo y validación criptográfica de Google con mocks.
 - `tests/integration/` —
   - repositorios locales con **fake-indexeddb**: persistencia, outbox,
     tombstones, aislamiento por usuario, conflictos;
   - repositorio de sync del servidor con **SQLite en memoria**: upserts,
-     conflictos de versión, pull incremental, protección IDOR, scrypt.
+     conflictos de versión, pull incremental, protección IDOR y scrypt;
+  - cuentas/invitaciones, bootstrap, recuperación hash-only, migraciones e
+    identidades Google con red/JWKS simulados.
 
-Estado conocido: **86 pruebas Vitest pasan**. Incluyen cuentas, invitaciones de
-cuenta, administración, proveedores de correo, migraciones runtime, perfil,
-imágenes y sincronización.
+Estado conocido: **124 pruebas Vitest pasan**.
 
 ## E2E (Playwright 1.62, Chromium)
 
@@ -36,19 +36,20 @@ pnpm e2e           # next build + playwright test
 
 | Spec | Flujos |
 |---|---|
-| `auth.spec.ts` | registro, login, logout+login, credenciales inválidas, rutas privadas → /login |
+| `auth.spec.ts` | Google oculto/opt-in, login, ojo de contraseña, recuperación anti-enumeración y rutas privadas |
 | `wardrobe.spec.ts` | crear, editar, archivar, clonar, eliminar, búsqueda, filtros por categoría |
-| `outfits.spec.ts` | builder, lista, programar → calendario, marcar vestido, quitar del calendario |
+| `outfits.spec.ts` | sugerencia guardada offline, builder, lista, calendario y marcar vestido |
 | `offline.spec.ts` | online → offline → crear → recargar (persiste) → online → «Sincronizado» |
 | `visual.spec.ts` | capturas en móvil/desktop: login, home, armario, detalle, formulario, outfits, calendario |
-| `admin-registration.spec.ts` | bootstrap local/test, registro por invitación y gestión de cuentas |
+| `admin-registration.spec.ts` | registro cerrado, login sin «Crear cuenta», invitaciones y gestión de cuentas |
 | `profile.spec.ts` | cambios de perfil y foto |
 
 Las capturas se guardan en `tests/e2e/screenshots/` para revisión visual
 contra `UI-Reference/`.
 
-Estado conocido: **53 pruebas E2E aprobadas y 3 skips intencionales**. El flujo
-del modelo real se ejecuta por separado y es opt-in:
+Estado conocido: **62 pruebas E2E aprobadas y 4 skips esperados**. Esta cifra no
+incluye una nueva ejecución del modelo real de eliminación de fondo: sigue
+siendo opt-in y debe repetirse por separado:
 
 ```bash
 RUN_BACKGROUND_MODEL_E2E=1 PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers \

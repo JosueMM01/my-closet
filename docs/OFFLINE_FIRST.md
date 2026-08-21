@@ -19,13 +19,14 @@ locales; la red solo interviene en segundo plano para replicar.
 | `wardrobeShares` | Invitaciones de compartir armario |
 | `images` | Blobs WebP procesados + `remoteUrl` + estado de sync |
 | `outbox` | Operaciones pendientes (ver docs/SYNC.md) |
-| `kv` | Perfil local (sin secretos), estado de sync, preferencias |
+| `kv` | Perfil local, estado de sync y contexto de sugerencias por usuario; sin secretos |
 | `adminUsers`, `adminInvitations` | Caché de lectura de administración; no autoriza acciones de servidor |
 
 ## Service Worker (`public/sw.js`)
 
 - **Precache** del shell: `/`, `/wardrobe`, `/wardrobe/new`, `/outfits`,
-  `/outfits/new`, `/calendar`, `/profile`, `/offline`, iconos y manifest.
+  `/outfits/new`, `/outfits/suggestions`, `/calendar`, `/profile`, `/offline`,
+  iconos y manifest.
 - Estrategias:
   - `/_next/static` e iconos → **CacheFirst** (inmutables).
   - Navegaciones → **NetworkFirst** → caché runtime → shell precacheado →
@@ -47,6 +48,14 @@ locales; la red solo interviene en segundo plano para replicar.
 - Fotos: se procesan y guardan localmente; la subida queda pendiente.
 - Favoritas: el booleano de la prenda se actualiza localmente y queda en la
   outbox como cualquier otra edición.
+- Sugerencias: `/outfits/suggestions` lee prendas, conjuntos y calendario de
+  IndexedDB. Combina favoritas, compatibilidad básica de colores, coocurrencia
+  guardada y penalizaciones por uso reciente con ocasión, temperatura, lluvia y
+  estilo elegidos manualmente. El contexto validado se guarda por usuario en
+  `kv`; las explicaciones son españolas y deterministas.
+- El motor de sugerencias no usa IA, red ni análisis de fotos. Puede abrirse,
+  variar opciones y guardar un conjunto sin conexión; guardar usa la misma
+  transacción local y outbox que el editor normal.
 - Administración de cuentas y envío de invitaciones: solo online. Sin conexión
   se puede consultar la caché administrativa disponible, pero no mutarla.
 
