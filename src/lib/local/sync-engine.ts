@@ -16,6 +16,7 @@ import type {
   WardrobeShare,
 } from '@/lib/domain/types';
 import {
+  cloudinaryUploadSignatureSchema,
   imageUploadResponseSchema,
   remoteImageMetadataSchema,
   syncPullResponseSchema,
@@ -193,6 +194,50 @@ export async function uploadProcessedImage(imageId: string, userId: string): Pro
   if (!image || image.userId !== userId || !image.blob || image.width === null || image.height === null) {
     return false;
   }
+
+  const signatureResponse = await fetch(`/api/images/sign?id=${encodeURIComponent(image.id)}`, {
+    headers: { 'x-requested-with': 'my-closet' },
+  });
+  if (signatureResponse.status === 401) throw new SessionExpiredError();
+  if (signatureResponse.ok) {
+    const signed = cloudinaryUploadSignatureSchema.parse(await signatureResponse.json());
+    const cloudinaryForm = new FormData();
+    cloudinaryForm.append('file', image.blob, `${image.id}.webp`);
+    cloudinaryForm.append('api_key', signed.apiKey);
+    cloudinaryForm.append('timestamp', String(signed.timestamp));
+    cloudinaryForm.append('folder', signed.folder);
+    cloudinaryForm.append('public_id', signed.publicId);
+    cloudinaryForm.append('signature', signed.signature);
+    const uploadedToCloudinary = await fetch(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloudName)}/image/upload`,
+      { method: 'POST', body: cloudinaryForm },
+    );
+    if (!uploadedToCloudinary.ok) {
+      await db.images.put({ ...image, syncStatus: 'failed' });
+      return false;
+    }
+    const finalized = await fetch('/api/images/finalize', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-requested-with': 'my-closet',
+      },
+      body: JSON.stringify({ id: image.id }),
+    });
+    if (finalized.status === 401) throw new SessionExpiredError();
+    if (!finalized.ok) {
+      await db.images.put({ ...image, syncStatus: 'failed' });
+      return false;
+    }
+    const result = imageUploadResponseSchema.parse(await finalized.json());
+    await applyRemoteImageMetadata(result.image);
+    return true;
+  }
+  if (signatureResponse.status !== 501) {
+    await db.images.put({ ...image, syncStatus: 'failed' });
+    return false;
+  }
+
   const form = new FormData();
   form.append('id', image.id);
   form.append('width', String(image.width));

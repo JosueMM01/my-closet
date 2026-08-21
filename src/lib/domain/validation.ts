@@ -305,6 +305,30 @@ export const imageUploadResponseSchema = z.object({
   image: remoteImageMetadataSchema,
 });
 
+export const cloudinaryUploadSignatureSchema = z.object({
+  cloudName: z.string().min(1),
+  apiKey: z.string().min(1),
+  timestamp: z.number().int().positive(),
+  signature: z.string().regex(/^[a-f0-9]{40}$/),
+  folder: z.string().min(1),
+  publicId: z.string().uuid(),
+}).strict();
+
+export const cloudinaryFinalizeRequestSchema = z.object({
+  id: z.string().uuid(),
+}).strict();
+
+/** Respuesta mínima validada de Cloudinary Admin API al finalizar. */
+export const cloudinaryResourceSchema = z.object({
+  public_id: z.string().min(1),
+  secure_url: z.url(),
+  resource_type: z.literal('image'),
+  format: z.literal('webp'),
+  bytes: z.number().int().positive().max(3 * 1024 * 1024),
+  width: z.number().int().positive().max(LIMITS.processedImageMaxDimension),
+  height: z.number().int().positive().max(LIMITS.processedImageMaxDimension),
+}).passthrough();
+
 // ---------------------------------------------------------------------------
 // Validación de entidades completas (payloads de sync push, lado servidor)
 // ---------------------------------------------------------------------------
