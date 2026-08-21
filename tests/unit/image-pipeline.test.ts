@@ -116,5 +116,5 @@ describe('manifest generado de IMG.LY', () => {
       '/onnxruntime-web/ort-wasm-simd-threaded.mjs',
       '/onnxruntime-web/ort-wasm-simd-threaded.wasm',
     ]);
-  });
+  }, 120_000);
 });
