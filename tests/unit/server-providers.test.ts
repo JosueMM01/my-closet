@@ -19,14 +19,16 @@ describe('configuracion de proveedores externos', () => {
       IMAGE_PROVIDER: 'local',
       GOOGLE_AUTH_ENABLED: false,
       EMAIL_PROVIDER: 'disabled',
-      PUBLIC_REGISTRATION_ENABLED: true,
+      PUBLIC_REGISTRATION_ENABLED: false,
     });
     expect(getDatabaseDialect(env)).toBe('sqlite');
     expect(isCloudinaryEnabled(env)).toBe(false);
     expect(isGoogleEnabled(env)).toBe(false);
   });
 
-  it('deshabilita el registro público por defecto en producción', () => {
+  it('deshabilita el registro público por defecto en todos los entornos', () => {
+    expect(parseServerEnv({ NODE_ENV: 'development' }).PUBLIC_REGISTRATION_ENABLED).toBe(false);
+    expect(parseServerEnv({ NODE_ENV: 'test' }).PUBLIC_REGISTRATION_ENABLED).toBe(false);
     expect(parseServerEnv({ NODE_ENV: 'production' }).PUBLIC_REGISTRATION_ENABLED).toBe(false);
     expect(
       parseServerEnv({
@@ -40,6 +42,8 @@ describe('configuracion de proveedores externos', () => {
   it.each([
     [{ CLOUDINARY_CLOUD_NAME: 'closet' }],
     [{ GOOGLE_CLIENT_ID: 'client-id' }],
+    [{ BOOTSTRAP_ADMIN_EMAIL: 'admin@example.test' }],
+    [{ BOOTSTRAP_ADMIN_PASSWORD: 'bootstrap-test-password' }],
   ])('rechaza grupos de credenciales parciales: %o', (input) => {
     expect(() => parseServerEnv(input)).toThrow();
   });
@@ -141,14 +145,15 @@ describe('configuracion de proveedores externos', () => {
     expect(() => parseServerEnv(input)).toThrow();
   });
 
-  it('no anuncia Google mientras no exista la implementacion OAuth', () => {
+  it('anuncia Google solo con activación, credenciales y URL completas', () => {
     const env = parseServerEnv({
       GOOGLE_AUTH_ENABLED: 'true',
       GOOGLE_CLIENT_ID: 'client-id',
       GOOGLE_CLIENT_SECRET: 'client-secret',
+      NEXT_PUBLIC_APP_URL: 'https://closet.example.test',
     });
 
-    expect(isGoogleEnabled(env)).toBe(false);
+    expect(isGoogleEnabled(env)).toBe(true);
   });
 
   it('falla antes de conectar cuando PostgreSQL se activa explicitamente', async () => {

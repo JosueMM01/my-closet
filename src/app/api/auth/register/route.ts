@@ -2,7 +2,7 @@ import { authResponseSchema, registerSchema } from '@/lib/domain/validation';
 import { hashPassword } from '@/server/auth/password';
 import { rateLimit } from '@/server/auth/rate-limit';
 import { createSession } from '@/server/auth/session';
-import { isProduction, isPublicRegistrationEnabled } from '@/server/env';
+import { isPublicRegistrationEnabled } from '@/server/env';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import { AccountError, registerAccount } from '@/server/repositories/users-repository';
 
@@ -33,7 +33,6 @@ export async function POST(request: Request) {
       passwordHash,
       invitationToken,
       publicRegistrationEnabled: isPublicRegistrationEnabled(),
-      bootstrapAdminEnabled: !isProduction(),
     });
     await createSession(user.id);
     return jsonOk(

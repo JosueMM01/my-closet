@@ -50,6 +50,46 @@ export const sessions = sqliteTable(
   (table) => [index('sessions_user_idx').on(table.userId)],
 );
 
+export const authAccounts = sqliteTable(
+  'auth_accounts',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider', { enum: ['GOOGLE'] }).notNull(),
+    providerSubject: text('provider_subject').notNull(),
+    providerEmail: text('provider_email').notNull(),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex('auth_accounts_provider_subject_unique').on(
+      table.provider,
+      table.providerSubject,
+    ),
+    uniqueIndex('auth_accounts_user_provider_unique').on(table.userId, table.provider),
+    check('auth_accounts_provider_check', sql`${table.provider} = 'GOOGLE'`),
+  ],
+);
+
+export const passwordResetTokens = sqliteTable(
+  'password_reset_tokens',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: text('expires_at').notNull(),
+    usedAt: text('used_at'),
+    createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index('password_reset_tokens_user_idx').on(table.userId),
+    index('password_reset_tokens_expiry_idx').on(table.expiresAt),
+  ],
+);
+
 export const accountInvitations = sqliteTable(
   'account_invitations',
   {

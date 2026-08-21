@@ -26,7 +26,7 @@ export async function registerAndLogin(page: Page, displayName = 'María'): Prom
   await waitForHydration(page);
   await page.getByLabel('Nombre').fill(displayName);
   await page.getByLabel('Correo electrónico').fill(email);
-  await page.getByLabel('Contraseña', { exact: false }).fill('contrasena-segura');
+  await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-segura');
   await page.getByRole('button', { name: 'Crear cuenta' }).click();
   await expect(page.getByTestId('home-greeting')).toContainText(
     `Hola, ${displayName.trim().split(/\s+/)[0] ?? displayName}`,

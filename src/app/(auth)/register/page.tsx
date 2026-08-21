@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AuthError, fetchAuthProviders, register } from '@/lib/auth/client';
-import { Button, Field, TextInput } from '@/components/ui';
+import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 
 export default function RegisterPage() {
@@ -112,9 +112,10 @@ export default function RegisterPage() {
             label="Contraseña"
             hint="Mínimo 8 caracteres"
             error={passwordWeak ? 'Al menos 8 caracteres' : undefined}
+            htmlFor="register-password"
           >
-            <TextInput
-              type="password"
+            <PasswordInput
+              id="register-password"
               name="password"
               autoComplete="new-password"
               placeholder="••••••••"

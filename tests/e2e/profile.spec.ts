@@ -32,7 +32,7 @@ test.describe('Perfil', () => {
 
     await page.getByTestId('logout').click();
     await page.getByLabel('Correo electrónico').fill(email);
-    await page.getByLabel('Contraseña', { exact: false }).fill('contrasena-nueva');
+    await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-nueva');
     await page.getByRole('button', { name: 'Entrar' }).click();
     await expect(page.getByTestId('home-greeting')).toContainText('Hola, Perfil');
   });

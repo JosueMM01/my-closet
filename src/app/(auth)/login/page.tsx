@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
-import { Button, Field, TextInput } from '@/components/ui';
+import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 
 export default function LoginPage() {
@@ -15,21 +15,26 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
-  const [publicRegistration, setPublicRegistration] = useState(false);
 
   useEffect(() => {
     if (!loading && profile) router.replace('/');
   }, [loading, profile, router]);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const googleDenied = url.searchParams.get('google') === 'denied';
+    if (googleDenied) {
+      url.searchParams.delete('google');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
     void fetchAuthProviders()
       .then((providers) => {
+        if (googleDenied) setError('No se pudo iniciar sesión con Google.');
         setGoogleEnabled(providers.google);
-        setPublicRegistration(providers.publicRegistration);
       })
       .catch(() => {
+        if (googleDenied) setError('No se pudo iniciar sesión con Google.');
         setGoogleEnabled(false);
-        setPublicRegistration(false);
       });
   }, []);
 
@@ -101,23 +106,31 @@ export default function LoginPage() {
                 />
               </div>
             </Field>
-            <Field label="Contraseña">
+            <Field label="Contraseña" htmlFor="login-password">
               <div className="relative">
                 <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </span>
-                <TextInput
-                  type="password"
+                <PasswordInput
+                  id="login-password"
                   name="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 pr-10"
+                  className="pl-10"
                   required
                 />
               </div>
             </Field>
+            <div className="text-right">
+              <Link
+                href="/forgot-password"
+                className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:text-primary-hover"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
             {error && (
               <p role="alert" className="text-sm text-danger font-medium">
                 {error}
@@ -128,14 +141,6 @@ export default function LoginPage() {
               <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
                 Entrar
               </Button>
-              {publicRegistration ? (
-                <Link
-                  href="/register"
-                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
-                >
-                  Crear cuenta
-                </Link>
-              ) : null}
             </div>
 
             {googleEnabled && (
@@ -146,7 +151,7 @@ export default function LoginPage() {
                   <div className="flex-grow border-t border-border"></div>
                 </div>
                 <a
-                  href="/api/auth/google"
+                  href="/api/auth/google/start?intent=login"
                   className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
                 >
                   Continuar con Google

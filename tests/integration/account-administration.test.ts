@@ -8,6 +8,7 @@ import { closeServerDB, createServerDB, getServerDB, sqliteSchema } from '@/serv
 import { parseServerEnv } from '@/server/env';
 import {
   AccountError,
+  findUserByEmail,
   findUserById,
   registerAccount,
   updateEmail,
@@ -26,19 +27,30 @@ import {
 } from '@/server/repositories/admin-users-repository';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
 
+const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.test';
+const BOOTSTRAP_PASSWORD = 'bootstrap-test-password';
+
 async function register(email: string, overrides: Partial<Parameters<typeof registerAccount>[0]> = {}) {
   return registerAccount({
     email,
     displayName: email.split('@')[0] ?? 'Usuario',
     passwordHash: await hashPassword('contrasena-segura'),
     publicRegistrationEnabled: true,
-    bootstrapAdminEnabled: true,
     ...overrides,
   });
 }
 
+async function bootstrapAdmin() {
+  await getServerDB();
+  const admin = await findUserByEmail(BOOTSTRAP_EMAIL);
+  if (!admin) throw new Error('No se creó el administrador bootstrap de prueba');
+  return admin;
+}
+
 beforeEach(async () => {
   process.env.DATABASE_URL = 'file::memory:';
+  process.env.BOOTSTRAP_ADMIN_EMAIL = BOOTSTRAP_EMAIL;
+  process.env.BOOTSTRAP_ADMIN_PASSWORD = BOOTSTRAP_PASSWORD;
   await closeServerDB();
 });
 
@@ -87,11 +99,13 @@ describe('cuentas, roles y administradores', () => {
     }
   });
 
-  it('convierte solo el primer registro local en administrador slot 1', async () => {
+  it('mantiene como usuarios las cuentas del registro público explícito', async () => {
+    const admin = await bootstrapAdmin();
     const first = await register('primera@example.test');
     const second = await register('segunda@example.test');
 
-    expect(first).toMatchObject({ role: 'ADMIN', status: 'ACTIVE', adminSlot: 1 });
+    expect(admin).toMatchObject({ role: 'ADMIN', status: 'ACTIVE', adminSlot: 1 });
+    expect(first).toMatchObject({ role: 'USER', status: 'ACTIVE', adminSlot: null });
     expect(second).toMatchObject({ role: 'USER', status: 'ACTIVE', adminSlot: null });
   });
 
@@ -99,13 +113,12 @@ describe('cuentas, roles y administradores', () => {
     await expect(
       register('cerrado@example.test', {
         publicRegistrationEnabled: false,
-        bootstrapAdminEnabled: false,
       }),
     ).rejects.toMatchObject({ code: 'PUBLIC_REGISTRATION_DISABLED' } satisfies Partial<AccountError>);
   });
 
   it('limita a dos administradores activos y protege el acceso propio/último admin', async () => {
-    const admin = await register('admin@example.test');
+    const admin = await bootstrapAdmin();
     const second = await register('dos@example.test');
     const third = await register('tres@example.test');
 
@@ -134,7 +147,7 @@ describe('cuentas, roles y administradores', () => {
   });
 
   it('rechaza usuarios no administradores dentro del repositorio', async () => {
-    await register('admin@example.test');
+    await bootstrapAdmin();
     const user = await register('user@example.test');
 
     await expect(listUsersForAdmin(user.id)).rejects.toBeInstanceOf(AdminAuthorizationError);
@@ -149,7 +162,7 @@ describe('cuentas, roles y administradores', () => {
   });
 
   it('revoca sesiones al deshabilitar un usuario', async () => {
-    const admin = await register('admin@example.test');
+    const admin = await bootstrapAdmin();
     const user = await register('user@example.test');
     const db = await getServerDB();
     if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
@@ -168,7 +181,7 @@ describe('cuentas, roles y administradores', () => {
 
 describe('invitaciones de cuenta', () => {
   it('guarda solo el hash, vincula correo/rol y permite un único uso', async () => {
-    const admin = await register('admin@example.test');
+    const admin = await bootstrapAdmin();
     const created = await createInvitation({
       actorId: admin.id,
       email: ' Invitada@Example.Test ',
@@ -189,7 +202,6 @@ describe('invitaciones de cuenta', () => {
     const accepted = await register('invitada@example.test', {
       invitationToken: created.token,
       publicRegistrationEnabled: false,
-      bootstrapAdminEnabled: false,
     });
     expect(accepted).toMatchObject({ role: 'ADMIN', adminSlot: 2 });
     await expect(
@@ -198,7 +210,7 @@ describe('invitaciones de cuenta', () => {
   });
 
   it('rechaza invitaciones expiradas', async () => {
-    const admin = await register('admin@example.test');
+    const admin = await bootstrapAdmin();
     const created = await createInvitation({
       actorId: admin.id,
       email: 'tarde@example.test',

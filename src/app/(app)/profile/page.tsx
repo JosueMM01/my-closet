@@ -17,8 +17,9 @@ import { uploadProcessedImage } from '@/lib/local/sync-engine';
 import { useSession, useSync } from '@/components/providers';
 import { ProfileAdmin } from '@/components/profile-admin';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { ProfileGoogle } from '@/components/profile-google';
 import { ShareIcon } from '@/components/icons';
-import { Button, Field, TextInput } from '@/components/ui';
+import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 
 function readableError(error: unknown, fallback: string): string {
   if (
@@ -279,18 +280,20 @@ export default function ProfilePage() {
           <form onSubmit={savePassword} className="rounded-2xl bg-surface-alt p-4" noValidate>
             <h3 className="font-heading text-base">Cambiar contraseña</h3>
             <div className="mt-3 space-y-3">
-              <Field label="Contraseña actual">
-                <TextInput
-                  type="password"
+              <Field label="Contraseña actual" htmlFor="current-password-for-password">
+                <PasswordInput
+                  id="current-password-for-password"
+                  name="currentPassword"
                   autoComplete="current-password"
                   value={currentPasswordForPassword}
                   onChange={(event) => setCurrentPasswordForPassword(event.target.value)}
                   required
                 />
               </Field>
-              <Field label="Nueva contraseña" hint="Mínimo 8 caracteres">
-                <TextInput
-                  type="password"
+              <Field label="Nueva contraseña" hint="Mínimo 8 caracteres" htmlFor="new-password">
+                <PasswordInput
+                  id="new-password"
+                  name="newPassword"
                   autoComplete="new-password"
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
@@ -298,9 +301,10 @@ export default function ProfilePage() {
                   minLength={8}
                 />
               </Field>
-              <Field label="Repite la nueva contraseña">
-                <TextInput
-                  type="password"
+              <Field label="Repite la nueva contraseña" htmlFor="confirm-password">
+                <PasswordInput
+                  id="confirm-password"
+                  name="confirmPassword"
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
@@ -330,9 +334,10 @@ export default function ProfilePage() {
                   required
                 />
               </Field>
-              <Field label="Contraseña actual">
-                <TextInput
-                  type="password"
+              <Field label="Contraseña actual" htmlFor="current-password-for-email">
+                <PasswordInput
+                  id="current-password-for-email"
+                  name="currentPassword"
                   autoComplete="current-password"
                   value={currentPasswordForEmail}
                   onChange={(event) => setCurrentPasswordForEmail(event.target.value)}
@@ -351,6 +356,8 @@ export default function ProfilePage() {
           {status ? <p className="text-sm font-medium text-success">{status}</p> : null}
         </div>
       </section>
+
+      <ProfileGoogle online={online} />
 
       {profile.role === 'ADMIN' ? <ProfileAdmin profile={profile} /> : null}
 
