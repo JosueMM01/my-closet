@@ -12,11 +12,13 @@ test.describe('Eliminacion de fondo local', () => {
 
     const externalRequests: string[] = [];
     const browserErrors: string[] = [];
+    const imageSignRequests: string[] = [];
     page.on('request', (request) => {
       const url = new URL(request.url());
       if ((url.protocol === 'http:' || url.protocol === 'https:') && url.hostname !== 'localhost') {
         externalRequests.push(url.href);
       }
+      if (url.pathname === '/api/images/sign') imageSignRequests.push(url.href);
     });
     page.on('requestfailed', (request) => {
       browserErrors.push(`${request.url()}: ${request.failure()?.errorText ?? 'fallo de red'}`);
@@ -48,6 +50,17 @@ test.describe('Eliminacion de fondo local', () => {
       throw error;
     });
     await expect(processingError).toHaveCount(0);
+    const editor = page.getByRole('region', { name: 'Ajustar recorte' });
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Borrar', exact: true })).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'Restaurar', exact: true })).toBeVisible();
+    await expect(editor.getByLabel('Tamaño del pincel: 48px')).toBeVisible();
+    expect(imageSignRequests).toEqual([]);
+
+    await editor.locator('canvas').click({ position: { x: 8, y: 8 } });
+    await expect(editor.getByText('Sin guardar')).toBeVisible();
+    await editor.getByRole('button', { name: 'Aplicar edición' }).click();
+    await expect(editor.getByText('Sin guardar')).toHaveCount(0);
     expect(externalRequests).toEqual([]);
 
     const hasTransparency = await preview.evaluate(async (image) => {

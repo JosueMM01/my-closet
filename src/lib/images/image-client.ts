@@ -274,3 +274,30 @@ export async function saveGarmentPhoto(
   if (options.queueForSync !== false) void maybeSync();
   return record;
 }
+
+/** Reemplaza el blob local de una imagen sin iniciar una subida remota. */
+export async function replaceLocalImageBlob(
+  imageId: string,
+  blob: Blob,
+  width: number,
+  height: number,
+): Promise<ImageRecord> {
+  const processed = { blob, width, height, mimeType: 'image/webp' as const };
+  await validateProcessedImage(processed);
+  const current = await getDB().images.get(imageId);
+  if (!current) throw new ImageProcessingError('La imagen local ya no está disponible');
+  const updated: ImageRecord = {
+    ...current,
+    width,
+    height,
+    byteSize: blob.size,
+    updatedAt: new Date().toISOString(),
+    blob,
+    remoteUrl: null,
+    storageProvider: 'local',
+    storageKey: null,
+    syncStatus: 'syncing',
+  };
+  await getDB().images.put(updated);
+  return updated;
+}

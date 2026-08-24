@@ -11,12 +11,15 @@ import type { Garment, ImageRecord } from '@/lib/domain/types';
 import {
   ImageProcessingError,
   ImageValidationError,
+  replaceLocalImageBlob,
   saveGarmentPhoto,
 } from '@/lib/images/image-client';
 import type { ImageProgress } from '@/lib/images/worker-protocol';
 import { createGarment, updateGarment } from '@/lib/local/repositories';
+import { queueProcessedImage } from '@/lib/local/sync-engine';
 import { useImageUrl } from './garment-photo';
 import { CameraIcon, CheckIcon, PlusIcon } from './icons';
+import { ImageEditor, type ImageEditorHandle, type ImageEditorUpdate } from './image-editor';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
@@ -47,8 +50,10 @@ export function GarmentForm({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingControllerRef = useRef<AbortController>(null);
+  const imageEditorRef = useRef<ImageEditorHandle>(null);
   const [form, setForm] = useState<FormState>(() => toFormState(garment));
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
+  const [originalPhoto, setOriginalPhoto] = useState<Blob | null>(null);
   const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -85,10 +90,12 @@ export function GarmentForm({
     try {
       const record = await saveGarmentPhoto(userId, file, {
         removeBackground,
+        queueForSync: false,
         signal: controller.signal,
         onProgress: setPhotoProgress,
       });
       setPhoto(record);
+      setOriginalPhoto(file);
       setRemoveExistingPhoto(false);
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === 'AbortError') {
@@ -115,6 +122,7 @@ export function GarmentForm({
 
   function removePhoto() {
     setPhoto(null);
+    setOriginalPhoto(null);
     setRemoveExistingPhoto(true);
     setError(null);
   }
@@ -164,13 +172,20 @@ export function GarmentForm({
 
     setSaving(true);
     try {
+      if (imageEditorRef.current) {
+        await imageEditorRef.current.commit();
+      }
+      const pendingPhoto = photo;
+      let destination: string;
       if (garment) {
         await updateGarment(garment.id, input);
-        router.push(`/wardrobe/${garment.id}`);
+        destination = `/wardrobe/${garment.id}`;
       } else {
         const created = await createGarment(userId, input);
-        router.push(navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe');
+        destination = navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe';
       }
+      if (pendingPhoto) await queueProcessedImage(pendingPhoto.id, userId);
+      router.push(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo guardar la prenda');
       setSaving(false);
@@ -262,6 +277,21 @@ export function GarmentForm({
           aria-label="Subir foto de la prenda"
         />
       </div>
+
+      {photo?.blob && originalPhoto && removeBackground ? (
+        <ImageEditor
+          ref={imageEditorRef}
+          imageId={photo.id}
+          resultBlob={photo.blob}
+          originalBlob={originalPhoto}
+          width={photo.width ?? 1}
+          height={photo.height ?? 1}
+          onCommit={async (update: ImageEditorUpdate) => {
+            const updated = await replaceLocalImageBlob(photo.id, update.blob, update.width, update.height);
+            setPhoto(updated);
+          }}
+        />
+      ) : null}
 
       <div className="rounded-2xl border border-border bg-surface-alt p-4">
         <label className="flex cursor-pointer items-start gap-3">
