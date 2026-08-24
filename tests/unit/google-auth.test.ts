@@ -76,7 +76,12 @@ describe('Google OAuth', () => {
         config,
         dependencies: { fetch: fetchMock, jwks },
       }),
-    ).resolves.toEqual({ subject: 'google-subject', email: 'person@example.test' });
+    ).resolves.toEqual({
+      subject: 'google-subject',
+      email: 'person@example.test',
+      displayName: null,
+      pictureUrl: null,
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
     const request = fetchMock.mock.calls[0]?.[1];
     expect(String(request?.body)).toContain('code_verifier=pkce-verifier');

@@ -22,6 +22,8 @@ export type AccountErrorCode =
   | 'INVITATION_INVALID'
   | 'INVITATION_EMAIL_MISMATCH'
   | 'INVITATION_EXPIRED'
+  | 'EMAIL_REQUIRED'
+  | 'GOOGLE_ACCOUNT_EXISTS'
   | 'PUBLIC_REGISTRATION_DISABLED'
   | 'ADMIN_LIMIT';
 
@@ -69,7 +71,7 @@ function toUserRecord(row: UserRow): UserRecord {
 }
 
 interface RegisterAccountInput {
-  email: string;
+  email?: string;
   displayName: string;
   passwordHash: string;
   invitationToken?: string;
@@ -79,10 +81,40 @@ interface RegisterAccountInput {
 async function registerPostgres(
   postgres: PostgresDB,
   input: RegisterAccountInput,
-  email: string,
   now: string,
 ): Promise<UserRecord> {
   return postgres.transaction(async (tx) => {
+    let role: UserRole = 'USER';
+    let invitationId: string | null = null;
+    let email: string;
+    if (input.invitationToken) {
+      const invitations = await tx
+        .select()
+        .from(pgSchema.accountInvitations)
+        .where(eq(pgSchema.accountInvitations.tokenHash, hashInvitationToken(input.invitationToken)))
+        .limit(1)
+        .for('update');
+      const invitation = invitations[0];
+      if (!invitation || invitation.acceptedAt || invitation.revokedAt) {
+        throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
+      }
+      if (invitation.expiresAt <= new Date(now)) {
+        throw new AccountError('INVITATION_EXPIRED', 'La invitación ha expirado');
+      }
+      email = normalizeEmail(invitation.email);
+      role = invitation.role;
+      invitationId = invitation.id;
+    } else {
+      if (!input.publicRegistrationEnabled) {
+        throw new AccountError(
+          'PUBLIC_REGISTRATION_DISABLED',
+          'El registro público está deshabilitado; necesitas una invitación',
+        );
+      }
+      if (!input.email) throw new AccountError('EMAIL_REQUIRED', 'El correo es obligatorio');
+      email = normalizeEmail(input.email);
+    }
+
     const duplicate = await tx
       .select({ id: pgSchema.users.id })
       .from(pgSchema.users)
@@ -90,33 +122,6 @@ async function registerPostgres(
       .limit(1);
     if (duplicate[0]) {
       throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
-    }
-
-    let role: UserRole = 'USER';
-    let invitationId: string | null = null;
-    if (input.invitationToken) {
-      const invitations = await tx
-        .select()
-        .from(pgSchema.accountInvitations)
-        .where(eq(pgSchema.accountInvitations.tokenHash, hashInvitationToken(input.invitationToken)))
-        .limit(1);
-      const invitation = invitations[0];
-      if (!invitation || invitation.acceptedAt || invitation.revokedAt) {
-        throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
-      }
-      if (invitation.email !== email) {
-        throw new AccountError('INVITATION_EMAIL_MISMATCH', 'La invitación corresponde a otro correo');
-      }
-      if (invitation.expiresAt <= new Date(now)) {
-        throw new AccountError('INVITATION_EXPIRED', 'La invitación ha expirado');
-      }
-      role = invitation.role;
-      invitationId = invitation.id;
-    } else if (!input.publicRegistrationEnabled) {
-      throw new AccountError(
-        'PUBLIC_REGISTRATION_DISABLED',
-        'El registro público está deshabilitado; necesitas una invitación',
-      );
     }
 
     const activeAdmins = role === 'ADMIN'
@@ -172,26 +177,17 @@ function availableAdminSlot(
 
 export async function registerAccount(input: RegisterAccountInput): Promise<UserRecord> {
   const db = await getServerDB();
-  const email = normalizeEmail(input.email);
   const now = new Date().toISOString();
 
   if (db.dialect === 'postgres') {
-    return registerPostgres(db.postgres, input, email, now);
+    return registerPostgres(db.postgres, input, now);
   }
   const sqlite = db.sqlite;
 
   return sqlite.transaction((tx) => {
-    const duplicate = tx
-      .select({ id: sqliteSchema.users.id })
-      .from(sqliteSchema.users)
-      .where(eq(sqliteSchema.users.email, email))
-      .get();
-    if (duplicate) {
-      throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
-    }
-
     let role: UserRole = 'USER';
     let invitationId: string | null = null;
+    let email: string;
     if (input.invitationToken) {
       const invitation = tx
         .select()
@@ -201,15 +197,10 @@ export async function registerAccount(input: RegisterAccountInput): Promise<User
       if (!invitation || invitation.acceptedAt || invitation.revokedAt) {
         throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
       }
-      if (invitation.email !== email) {
-        throw new AccountError(
-          'INVITATION_EMAIL_MISMATCH',
-          'La invitación corresponde a otro correo',
-        );
-      }
       if (invitation.expiresAt <= now) {
         throw new AccountError('INVITATION_EXPIRED', 'La invitación ha expirado');
       }
+      email = normalizeEmail(invitation.email);
       role = invitation.role;
       invitationId = invitation.id;
     } else {
@@ -220,6 +211,17 @@ export async function registerAccount(input: RegisterAccountInput): Promise<User
           'El registro público está deshabilitado; necesitas una invitación',
         );
       }
+      if (!input.email) throw new AccountError('EMAIL_REQUIRED', 'El correo es obligatorio');
+      email = normalizeEmail(input.email);
+    }
+
+    const duplicate = tx
+      .select({ id: sqliteSchema.users.id })
+      .from(sqliteSchema.users)
+      .where(eq(sqliteSchema.users.email, email))
+      .get();
+    if (duplicate) {
+      throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
     }
 
     const adminSlot = role === 'ADMIN'
@@ -265,6 +267,164 @@ export async function registerAccount(input: RegisterAccountInput): Promise<User
       if (accepted.changes !== 1) {
         throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
       }
+    }
+    return record;
+  });
+}
+
+interface RegisterInvitedGoogleAccountInput {
+  invitationToken: string;
+  providerSubject: string;
+  providerEmail: string;
+  displayName: string;
+  passwordHash: string;
+}
+
+/** Crea cuenta, vínculo Google y consumo de invitación en una sola transacción. */
+export async function registerInvitedGoogleAccount(
+  input: RegisterInvitedGoogleAccountInput,
+): Promise<UserRecord> {
+  const db = await getServerDB();
+  const now = new Date().toISOString();
+  const providerEmail = normalizeEmail(input.providerEmail);
+
+  if (db.dialect === 'postgres') {
+    return db.postgres.transaction(async (tx) => {
+      const invitations = await tx
+        .select()
+        .from(pgSchema.accountInvitations)
+        .where(eq(pgSchema.accountInvitations.tokenHash, hashInvitationToken(input.invitationToken)))
+        .limit(1)
+        .for('update');
+      const invitation = invitations[0];
+      if (!invitation || invitation.acceptedAt || invitation.revokedAt) {
+        throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
+      }
+      if (invitation.expiresAt <= new Date(now)) {
+        throw new AccountError('INVITATION_EXPIRED', 'La invitación ha expirado');
+      }
+      const email = normalizeEmail(invitation.email);
+      if (email !== providerEmail) {
+        throw new AccountError('INVITATION_EMAIL_MISMATCH', 'La cuenta de Google corresponde a otro correo');
+      }
+      const [duplicateUsers, duplicateAccounts] = await Promise.all([
+        tx.select({ id: pgSchema.users.id }).from(pgSchema.users).where(eq(pgSchema.users.email, email)).limit(1),
+        tx.select({ id: pgSchema.authAccounts.id }).from(pgSchema.authAccounts).where(
+          and(
+            eq(pgSchema.authAccounts.provider, 'GOOGLE'),
+            eq(pgSchema.authAccounts.providerSubject, input.providerSubject),
+          ),
+        ).limit(1),
+      ]);
+      if (duplicateUsers[0]) throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
+      if (duplicateAccounts[0]) throw new AccountError('GOOGLE_ACCOUNT_EXISTS', 'La cuenta de Google ya está vinculada');
+
+      const activeAdmins = invitation.role === 'ADMIN'
+        ? await tx
+            .select({ adminSlot: pgSchema.users.adminSlot })
+            .from(pgSchema.users)
+            .where(and(eq(pgSchema.users.role, 'ADMIN'), eq(pgSchema.users.status, 'ACTIVE')))
+            .for('update')
+        : [];
+      const record: UserRecord = {
+        id: uuid(),
+        email,
+        displayName: input.displayName.trim().slice(0, 60) || email.split('@')[0] || 'Usuario',
+        passwordHash: input.passwordHash,
+        role: invitation.role,
+        status: 'ACTIVE',
+        adminSlot: invitation.role === 'ADMIN' ? availableAdminSlot(activeAdmins) : null,
+        profileImageId: null,
+        createdAt: now,
+      };
+      await tx.insert(pgSchema.users).values({ ...record, createdAt: new Date(now) });
+      await tx.insert(pgSchema.authAccounts).values({
+        id: uuid(),
+        userId: record.id,
+        provider: 'GOOGLE',
+        providerSubject: input.providerSubject,
+        providerEmail,
+      });
+      const accepted = await tx
+        .update(pgSchema.accountInvitations)
+        .set({ acceptedAt: new Date(now), acceptedBy: record.id })
+        .where(
+          and(
+            eq(pgSchema.accountInvitations.id, invitation.id),
+            isNull(pgSchema.accountInvitations.acceptedAt),
+            isNull(pgSchema.accountInvitations.revokedAt),
+            gt(pgSchema.accountInvitations.expiresAt, new Date(now)),
+          ),
+        )
+        .returning({ id: pgSchema.accountInvitations.id });
+      if (accepted.length !== 1) {
+        throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
+      }
+      return record;
+    });
+  }
+
+  return db.sqlite.transaction((tx) => {
+    const invitation = tx
+      .select()
+      .from(sqliteSchema.accountInvitations)
+      .where(eq(sqliteSchema.accountInvitations.tokenHash, hashInvitationToken(input.invitationToken)))
+      .get();
+    if (!invitation || invitation.acceptedAt || invitation.revokedAt) {
+      throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
+    }
+    if (invitation.expiresAt <= now) {
+      throw new AccountError('INVITATION_EXPIRED', 'La invitación ha expirado');
+    }
+    const email = normalizeEmail(invitation.email);
+    if (email !== providerEmail) {
+      throw new AccountError('INVITATION_EMAIL_MISMATCH', 'La cuenta de Google corresponde a otro correo');
+    }
+    const duplicateUser = tx.select({ id: sqliteSchema.users.id }).from(sqliteSchema.users)
+      .where(eq(sqliteSchema.users.email, email)).get();
+    const duplicateAccount = tx.select({ id: sqliteSchema.authAccounts.id }).from(sqliteSchema.authAccounts)
+      .where(and(
+        eq(sqliteSchema.authAccounts.provider, 'GOOGLE'),
+        eq(sqliteSchema.authAccounts.providerSubject, input.providerSubject),
+      )).get();
+    if (duplicateUser) throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
+    if (duplicateAccount) throw new AccountError('GOOGLE_ACCOUNT_EXISTS', 'La cuenta de Google ya está vinculada');
+
+    const record: UserRecord = {
+      id: uuid(),
+      email,
+      displayName: input.displayName.trim().slice(0, 60) || email.split('@')[0] || 'Usuario',
+      passwordHash: input.passwordHash,
+      role: invitation.role,
+      status: 'ACTIVE',
+      adminSlot: invitation.role === 'ADMIN'
+        ? availableAdminSlot(tx.select({ adminSlot: sqliteSchema.users.adminSlot })
+            .from(sqliteSchema.users)
+            .where(and(eq(sqliteSchema.users.role, 'ADMIN'), eq(sqliteSchema.users.status, 'ACTIVE')))
+            .all())
+        : null,
+      profileImageId: null,
+      createdAt: now,
+    };
+    tx.insert(sqliteSchema.users).values(record).run();
+    tx.insert(sqliteSchema.authAccounts).values({
+      id: uuid(),
+      userId: record.id,
+      provider: 'GOOGLE',
+      providerSubject: input.providerSubject,
+      providerEmail,
+      createdAt: now,
+    }).run();
+    const accepted = tx.update(sqliteSchema.accountInvitations)
+      .set({ acceptedAt: now, acceptedBy: record.id })
+      .where(and(
+        eq(sqliteSchema.accountInvitations.id, invitation.id),
+        isNull(sqliteSchema.accountInvitations.acceptedAt),
+        isNull(sqliteSchema.accountInvitations.revokedAt),
+        gt(sqliteSchema.accountInvitations.expiresAt, now),
+      )).run();
+    if (accepted.changes !== 1) {
+      throw new AccountError('INVITATION_INVALID', 'La invitación no es válida o ya fue utilizada');
     }
     return record;
   });

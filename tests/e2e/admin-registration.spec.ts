@@ -84,8 +84,9 @@ test.describe('Administración', () => {
     await invitedPage.goto(inviteUrl);
     await waitForHydration(invitedPage);
     await expect(invitedPage).toHaveURL(/\/register$/);
+    await expect(invitedPage.getByText(invitedEmail, { exact: true })).toBeVisible();
     await invitedPage.getByLabel('Nombre').fill('Persona Invitada');
-    await invitedPage.getByLabel('Correo electrónico').fill(invitedEmail);
+    await expect(invitedPage.getByLabel('Correo electrónico')).toHaveCount(0);
     await invitedPage.getByLabel('Contraseña', { exact: true }).fill('contrasena-invitada');
     await invitedPage.getByRole('button', { name: 'Crear cuenta' }).click();
     await expect(invitedPage.getByTestId('home-greeting')).toContainText('Hola, Persona');
