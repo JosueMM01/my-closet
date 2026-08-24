@@ -50,7 +50,10 @@ test.describe('Eliminacion de fondo local', () => {
       throw error;
     });
     await expect(processingError).toHaveCount(0);
-    const editor = page.getByRole('region', { name: 'Ajustar recorte' });
+    const editPhoto = page.getByRole('button', { name: 'Editar recorte de la prenda' });
+    await expect(editPhoto).toBeVisible();
+    await editPhoto.click();
+    const editor = page.getByRole('dialog', { name: 'Ajustar recorte' });
     await expect(editor).toBeVisible();
     await expect(editor.getByRole('button', { name: 'Borrar', exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: 'Restaurar', exact: true })).toBeVisible();
@@ -60,7 +63,7 @@ test.describe('Eliminacion de fondo local', () => {
     await editor.locator('canvas').click({ position: { x: 8, y: 8 } });
     await expect(editor.getByText('Sin guardar')).toBeVisible();
     await editor.getByRole('button', { name: 'Aplicar edición' }).click();
-    await expect(editor.getByText('Sin guardar')).toHaveCount(0);
+    await expect(editor).toHaveCount(0);
     expect(externalRequests).toEqual([]);
 
     const hasTransparency = await preview.evaluate(async (image) => {

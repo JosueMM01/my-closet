@@ -18,8 +18,8 @@ import type { ImageProgress } from '@/lib/images/worker-protocol';
 import { createGarment, updateGarment } from '@/lib/local/repositories';
 import { queueProcessedImage } from '@/lib/local/sync-engine';
 import { useImageUrl } from './garment-photo';
-import { CameraIcon, CheckIcon, PlusIcon } from './icons';
-import { ImageEditor, type ImageEditorHandle, type ImageEditorUpdate } from './image-editor';
+import { CameraIcon, CheckIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
+import { ImageEditor, type ImageEditorUpdate } from './image-editor';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
@@ -50,10 +50,10 @@ export function GarmentForm({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingControllerRef = useRef<AbortController>(null);
-  const imageEditorRef = useRef<ImageEditorHandle>(null);
   const [form, setForm] = useState<FormState>(() => toFormState(garment));
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
   const [originalPhoto, setOriginalPhoto] = useState<Blob | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -69,6 +69,7 @@ export function GarmentForm({
   const visiblePhotoId = photo?.id ?? (removeExistingPhoto ? null : (garment?.photoId ?? null));
   const existingPhotoUrl = useImageUrl(visiblePhotoId);
   const hasPhoto = visiblePhotoId !== null;
+  const canEditPhoto = Boolean(photo?.blob && originalPhoto && removeBackground);
 
   useEffect(() => () => processingControllerRef.current?.abort(), []);
 
@@ -82,6 +83,7 @@ export function GarmentForm({
     if (!file) return;
 
     processingControllerRef.current?.abort();
+    setEditorOpen(false);
     const controller = new AbortController();
     processingControllerRef.current = controller;
     setError(null);
@@ -123,6 +125,7 @@ export function GarmentForm({
   function removePhoto() {
     setPhoto(null);
     setOriginalPhoto(null);
+    setEditorOpen(false);
     setRemoveExistingPhoto(true);
     setError(null);
   }
@@ -172,9 +175,6 @@ export function GarmentForm({
 
     setSaving(true);
     try {
-      if (imageEditorRef.current) {
-        await imageEditorRef.current.commit();
-      }
       const pendingPhoto = photo;
       let destination: string;
       if (garment) {
@@ -237,16 +237,26 @@ export function GarmentForm({
             )}
           </button>
           {hasPhoto && !photoBusy ? (
+            <>
+              {canEditPhoto ? (
+                <button
+                  type="button"
+                  onClick={() => setEditorOpen(true)}
+                  className="absolute right-16 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft transition-colors hover:text-primary"
+                  aria-label="Editar recorte de la prenda"
+                >
+                  <PencilIcon size={20} />
+                </button>
+              ) : null}
             <button
               type="button"
               onClick={removePhoto}
               className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft transition-colors hover:text-danger"
               aria-label="Quitar foto de la prenda"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M10 11v6M14 11v6" />
-              </svg>
+              <TrashIcon size={20} />
             </button>
+            </>
           ) : null}
           {photoBusy ? (
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface/95 px-6 text-center" aria-live="polite">
@@ -278,9 +288,8 @@ export function GarmentForm({
         />
       </div>
 
-      {photo?.blob && originalPhoto && removeBackground ? (
+      {editorOpen && photo?.blob && originalPhoto && removeBackground ? (
         <ImageEditor
-          ref={imageEditorRef}
           imageId={photo.id}
           resultBlob={photo.blob}
           originalBlob={originalPhoto}
@@ -290,6 +299,7 @@ export function GarmentForm({
             const updated = await replaceLocalImageBlob(photo.id, update.blob, update.width, update.height);
             setPhoto(updated);
           }}
+          onClose={() => setEditorOpen(false)}
         />
       ) : null}
 
