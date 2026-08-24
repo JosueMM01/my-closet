@@ -62,7 +62,7 @@ export function GarmentForm({
   const [saving, setSaving] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
   const [customCategoryOpen, setCustomCategoryOpen] = useState(false);
-  const [customColor, setCustomColor] = useState('');
+  const [customColor, setCustomColor] = useState('#8E44AD');
   const [customColorOpen, setCustomColorOpen] = useState(false);
 
   const isCustomCategory = !GARMENT_CATEGORIES.some((category) => category === form.category);
@@ -142,12 +142,20 @@ export function GarmentForm({
   }
 
   function addCustomColor() {
-    const value = customColor.trim().toLowerCase();
+    const value = customColor.toLowerCase();
     if (value && !form.colors.includes(value) && form.colors.length < 8) {
       set('colors', [...form.colors, value]);
     }
-    setCustomColor('');
     setCustomColorOpen(false);
+  }
+
+  function usesDarkIcon(color: string): boolean {
+    const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
+    if (!match) return false;
+    const red = Number.parseInt(match[1] ?? '0', 16);
+    const green = Number.parseInt(match[2] ?? '0', 16);
+    const blue = Number.parseInt(match[3] ?? '0', 16);
+    return (red * 299 + green * 587 + blue * 114) / 1000 > 180;
   }
 
   function applyCustomCategory() {
@@ -399,11 +407,13 @@ export function GarmentForm({
                 key={color}
                 type="button"
                 onClick={() => toggleColor(color)}
-                className="flex h-11 min-w-11 items-center justify-center rounded-full border border-primary bg-primary px-3 text-xs text-white ring-2 ring-primary/20"
-                aria-label={`Quitar color ${color}`}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-primary ring-2 ring-primary/20 transition-transform hover:scale-105"
+                style={{ backgroundColor: color }}
+                aria-label={`Quitar color personalizado ${color}`}
                 aria-pressed="true"
+                title={color}
               >
-                {color}
+                <CheckIcon size={20} className={usesDarkIcon(color) ? 'text-black' : 'text-white'} />
               </button>
             ))}
           <button
@@ -417,15 +427,25 @@ export function GarmentForm({
           </button>
         </div>
         {customColorOpen ? (
-          <div className="mt-3 flex gap-2">
-            <TextInput
-              value={customColor}
-              onChange={(event) => setCustomColor(event.target.value)}
-              placeholder="Color personalizado"
-              maxLength={30}
-              aria-label="Color personalizado"
+          <div className="mt-3 flex items-center gap-3 rounded-2xl border border-border bg-surface-alt p-3">
+            <label className="relative flex h-12 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-border bg-surface shadow-soft" aria-label="Elegir color personalizado">
+              <input
+                type="color"
+                value={customColor}
+                onChange={(event) => setCustomColor(event.target.value)}
+                className="absolute -inset-2 h-[calc(100%+1rem)] w-[calc(100%+1rem)] cursor-pointer border-0 bg-transparent p-0"
+                aria-label="Elegir color personalizado"
+              />
+            </label>
+            <span
+              className="h-11 w-11 shrink-0 rounded-full border border-border shadow-inner"
+              style={{ backgroundColor: customColor }}
+              aria-label={`Vista previa del color ${customColor}`}
+              role="img"
             />
-            <Button type="button" variant="secondary" onClick={addCustomColor}>Añadir</Button>
+            <Button type="button" variant="secondary" onClick={addCustomColor} className="ml-auto">
+              Añadir color
+            </Button>
           </div>
         ) : null}
       </div>
