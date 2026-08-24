@@ -14,7 +14,7 @@
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
@@ -77,8 +77,36 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+  if (event.data?.type === 'CACHE_OFFLINE_ROUTES' && Array.isArray(event.data.routes)) {
+    event.waitUntil(cacheOfflineRoutes(event.data.routes));
   }
 });
+
+function isAllowedOfflineRoute(pathname) {
+  return (
+    /^\/wardrobe\/[0-9a-f-]{36}(?:\/edit)?$/i.test(pathname) ||
+    /^\/outfits\/[0-9a-f-]{36}$/i.test(pathname)
+  );
+}
+
+async function cacheOfflineRoutes(routes) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  const safeRoutes = [...new Set(routes)]
+    .filter((route) => typeof route === 'string' && isAllowedOfflineRoute(route))
+    .slice(0, 500);
+  await Promise.all(
+    safeRoutes.map(async (route) => {
+      try {
+        const response = await fetch(route, { credentials: 'same-origin' });
+        if (response.ok) await cache.put(route, response);
+      } catch {
+        /* Se reintentará al volver a montar con conexión. */
+      }
+    }),
+  );
+}
 
 function isStaticAsset(url) {
   return url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icon');

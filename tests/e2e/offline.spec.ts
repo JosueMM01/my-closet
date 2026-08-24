@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { registerAndLogin, waitForHydration } from './helpers';
+import { createGarment, registerAndLogin, waitForHydration } from './helpers';
 
 /**
  * Flujo offline real:
@@ -7,6 +7,22 @@ import { registerAndLogin, waitForHydration } from './helpers';
  *  online → sincroniza → badge "Sincronizado".
  */
 test.describe('Offline-first', () => {
+  test('recarga el detalle de una prenda conocida sin conexión', async ({
+    page,
+    context,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'solo en desktop para estado estable');
+    await registerAndLogin(page);
+    await createGarment(page, 'Detalle disponible offline');
+    await expect(page.getByTestId('garment-name')).toContainText('Detalle disponible offline');
+    await page.waitForTimeout(2_500);
+
+    await context.setOffline(true);
+    await page.reload();
+    await waitForHydration(page);
+    await expect(page.getByTestId('garment-name')).toContainText('Detalle disponible offline');
+  });
+
   test('crear y persistir sin conexión, luego sincronizar', async ({
     page,
     context,

@@ -5,9 +5,9 @@
  * Diseñado para funcionar con pocos usuarios; el grantee acepta luego
  * el enlace con token. Los cambios se sincronizan como cualquier entidad.
  */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useSession } from '@/components/providers';
+import { useSession, useSync } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
 import {
   createWardrobeShare,
@@ -19,13 +19,16 @@ import { z } from 'zod';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button, Chip, Field, TextInput } from '@/components/ui';
 import { EyeIcon, PencilIcon, ShareIcon, TrashIcon } from '@/components/icons';
+import { StatusToast } from '@/components/status-toast';
 
 export default function SharingPage() {
   const { profile } = useSession();
+  const { online } = useSync();
   const [email, setEmail] = useState('');
   const [permission, setPermission] = useState<'VIEW' | 'MANAGE'>('VIEW');
   const [error, setError] = useState<string | null>(null);
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const dismissShareStatus = useCallback(() => setShareStatus(null), []);
   const [toDelete, setToDelete] = useState<string | null>(null);
 
   const shares = useLiveQuery(
@@ -43,7 +46,11 @@ export default function SharingPage() {
   async function handleInvite(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
-    setInviteUrl(null);
+    setShareStatus(null);
+    if (!online) {
+      setShareStatus('Necesitas conexión para crear una invitación de armario.');
+      return;
+    }
     if (!profile) return;
     const parsed = z.object({ email: z.email('Correo inválido') }).safeParse({ email });
     if (!parsed.success) {
@@ -55,13 +62,19 @@ export default function SharingPage() {
 
     const share = await createWardrobeShare(profile.userId, parsed.data.email, permission);
     const url = `${window.location.origin}/share/wardrobe/${share.inviteToken}`;
-    setInviteUrl(url);
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+      setShareStatus('Enlace de invitación copiado.');
+    } catch {
+      setShareStatus(`No se pudo copiar. Enlace: ${url}`);
+    }
     setEmail('');
   }
 
   return (
     <div className="mx-auto max-w-xl space-y-5">
+      <StatusToast message={shareStatus} onDismiss={dismissShareStatus} />
       <h1 className="font-heading text-2xl">Compartir armario</h1>
 
       <section className="card-surface p-5">
@@ -97,17 +110,12 @@ export default function SharingPage() {
               {error}
             </p>
           )}
-          <Button type="submit" data-testid="create-invite">
+          <Button type="submit" data-testid="create-invite" disabled={!online}>
             <ShareIcon size={16} />
             Crear invitación
           </Button>
         </form>
 
-        {inviteUrl && (
-          <div className="mt-4 rounded-xl bg-primary-soft p-3 text-xs text-primary" data-testid="invite-url" role="status">
-            Enlace copiado: {inviteUrl}
-          </div>
-        )}
       </section>
 
       <section className="space-y-3">
