@@ -7,6 +7,11 @@ export type BackgroundRemovalAttempt = Extract<
   { type: 'remove-background' }
 >;
 
+/** WebGPU móvil todavía presenta resultados corruptos en algunos drivers Android. */
+export function shouldAttemptWebGpu(hasWebGpu: boolean, userAgent: string): boolean {
+  return hasWebGpu && !/Android/i.test(userAgent);
+}
+
 /** Cada intento se ejecuta en un worker nuevo para aislar el runtime ONNX. */
 export function backgroundRemovalAttempts(webGpuAvailable: boolean): BackgroundRemovalAttempt[] {
   return [

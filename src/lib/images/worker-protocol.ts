@@ -7,7 +7,7 @@ const blobSchema = z.custom<Blob>(
 
 export const imageProgressStageSchema = z.enum([
   'Preparando imagen',
-  'Descargando modelo local',
+  'Cargando modelo local',
   'Eliminando fondo',
   'Aplicando transparencia',
   'Codificando WebP',
@@ -69,7 +69,7 @@ const failureMessageSchema = z
   .object({
     type: z.literal('failure'),
     id: z.string().uuid(),
-    code: z.enum(['processing', 'resource', 'inference']),
+    code: z.enum(['decode', 'processing', 'resource', 'inference']),
     error: z.string().min(1).max(500),
   })
   .strict();

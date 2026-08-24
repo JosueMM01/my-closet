@@ -11,12 +11,15 @@ import type { Garment, ImageRecord } from '@/lib/domain/types';
 import {
   ImageProcessingError,
   ImageValidationError,
+  replaceLocalImageBlob,
   saveGarmentPhoto,
 } from '@/lib/images/image-client';
 import type { ImageProgress } from '@/lib/images/worker-protocol';
 import { createGarment, updateGarment } from '@/lib/local/repositories';
+import { queueProcessedImage } from '@/lib/local/sync-engine';
 import { useImageUrl } from './garment-photo';
-import { CameraIcon, CheckIcon, PlusIcon } from './icons';
+import { CameraIcon, CheckIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
+import { ImageEditor, type ImageEditorUpdate } from './image-editor';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
@@ -49,6 +52,8 @@ export function GarmentForm({
   const processingControllerRef = useRef<AbortController>(null);
   const [form, setForm] = useState<FormState>(() => toFormState(garment));
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
+  const [originalPhoto, setOriginalPhoto] = useState<Blob | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -57,13 +62,14 @@ export function GarmentForm({
   const [saving, setSaving] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
   const [customCategoryOpen, setCustomCategoryOpen] = useState(false);
-  const [customColor, setCustomColor] = useState('');
+  const [customColor, setCustomColor] = useState('#8E44AD');
   const [customColorOpen, setCustomColorOpen] = useState(false);
 
   const isCustomCategory = !GARMENT_CATEGORIES.some((category) => category === form.category);
   const visiblePhotoId = photo?.id ?? (removeExistingPhoto ? null : (garment?.photoId ?? null));
   const existingPhotoUrl = useImageUrl(visiblePhotoId);
   const hasPhoto = visiblePhotoId !== null;
+  const canEditPhoto = Boolean(photo?.blob && originalPhoto && removeBackground);
 
   useEffect(() => () => processingControllerRef.current?.abort(), []);
 
@@ -77,6 +83,7 @@ export function GarmentForm({
     if (!file) return;
 
     processingControllerRef.current?.abort();
+    setEditorOpen(false);
     const controller = new AbortController();
     processingControllerRef.current = controller;
     setError(null);
@@ -85,10 +92,12 @@ export function GarmentForm({
     try {
       const record = await saveGarmentPhoto(userId, file, {
         removeBackground,
+        queueForSync: false,
         signal: controller.signal,
         onProgress: setPhotoProgress,
       });
       setPhoto(record);
+      setOriginalPhoto(file);
       setRemoveExistingPhoto(false);
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === 'AbortError') {
@@ -115,6 +124,8 @@ export function GarmentForm({
 
   function removePhoto() {
     setPhoto(null);
+    setOriginalPhoto(null);
+    setEditorOpen(false);
     setRemoveExistingPhoto(true);
     setError(null);
   }
@@ -131,12 +142,20 @@ export function GarmentForm({
   }
 
   function addCustomColor() {
-    const value = customColor.trim().toLowerCase();
+    const value = customColor.toLowerCase();
     if (value && !form.colors.includes(value) && form.colors.length < 8) {
       set('colors', [...form.colors, value]);
     }
-    setCustomColor('');
     setCustomColorOpen(false);
+  }
+
+  function usesDarkIcon(color: string): boolean {
+    const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
+    if (!match) return false;
+    const red = Number.parseInt(match[1] ?? '0', 16);
+    const green = Number.parseInt(match[2] ?? '0', 16);
+    const blue = Number.parseInt(match[3] ?? '0', 16);
+    return (red * 299 + green * 587 + blue * 114) / 1000 > 180;
   }
 
   function applyCustomCategory() {
@@ -164,13 +183,17 @@ export function GarmentForm({
 
     setSaving(true);
     try {
+      const pendingPhoto = photo;
+      let destination: string;
       if (garment) {
         await updateGarment(garment.id, input);
-        router.push(`/wardrobe/${garment.id}`);
+        destination = `/wardrobe/${garment.id}`;
       } else {
         const created = await createGarment(userId, input);
-        router.push(navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe');
+        destination = navigator.onLine ? `/wardrobe/${created.id}` : '/wardrobe';
       }
+      if (pendingPhoto) await queueProcessedImage(pendingPhoto.id, userId);
+      router.push(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo guardar la prenda');
       setSaving(false);
@@ -178,7 +201,7 @@ export function GarmentForm({
   }
 
   const determinateProgress =
-    photoProgress?.stage === 'Descargando modelo local' &&
+    photoProgress?.stage === 'Cargando modelo local' &&
     photoProgress.current !== null &&
     photoProgress.total !== null
       ? photoProgress
@@ -222,16 +245,26 @@ export function GarmentForm({
             )}
           </button>
           {hasPhoto && !photoBusy ? (
+            <>
+              {canEditPhoto ? (
+                <button
+                  type="button"
+                  onClick={() => setEditorOpen(true)}
+                  className="absolute right-16 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft transition-colors hover:text-primary"
+                  aria-label="Editar recorte de la prenda"
+                >
+                  <PencilIcon size={20} />
+                </button>
+              ) : null}
             <button
               type="button"
               onClick={removePhoto}
               className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white text-text-secondary shadow-soft transition-colors hover:text-danger"
               aria-label="Quitar foto de la prenda"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M10 11v6M14 11v6" />
-              </svg>
+              <TrashIcon size={20} />
             </button>
+            </>
           ) : null}
           {photoBusy ? (
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface/95 px-6 text-center" aria-live="polite">
@@ -262,6 +295,21 @@ export function GarmentForm({
           aria-label="Subir foto de la prenda"
         />
       </div>
+
+      {editorOpen && photo?.blob && originalPhoto && removeBackground ? (
+        <ImageEditor
+          imageId={photo.id}
+          resultBlob={photo.blob}
+          originalBlob={originalPhoto}
+          width={photo.width ?? 1}
+          height={photo.height ?? 1}
+          onCommit={async (update: ImageEditorUpdate) => {
+            const updated = await replaceLocalImageBlob(photo.id, update.blob, update.width, update.height);
+            setPhoto(updated);
+          }}
+          onClose={() => setEditorOpen(false)}
+        />
+      ) : null}
 
       <div className="rounded-2xl border border-border bg-surface-alt p-4">
         <label className="flex cursor-pointer items-start gap-3">
@@ -359,11 +407,13 @@ export function GarmentForm({
                 key={color}
                 type="button"
                 onClick={() => toggleColor(color)}
-                className="flex h-11 min-w-11 items-center justify-center rounded-full border border-primary bg-primary px-3 text-xs text-white ring-2 ring-primary/20"
-                aria-label={`Quitar color ${color}`}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-primary ring-2 ring-primary/20 transition-transform hover:scale-105"
+                style={{ backgroundColor: color }}
+                aria-label={`Quitar color personalizado ${color}`}
                 aria-pressed="true"
+                title={color}
               >
-                {color}
+                <CheckIcon size={20} className={usesDarkIcon(color) ? 'text-black' : 'text-white'} />
               </button>
             ))}
           <button
@@ -377,15 +427,25 @@ export function GarmentForm({
           </button>
         </div>
         {customColorOpen ? (
-          <div className="mt-3 flex gap-2">
-            <TextInput
-              value={customColor}
-              onChange={(event) => setCustomColor(event.target.value)}
-              placeholder="Color personalizado"
-              maxLength={30}
-              aria-label="Color personalizado"
+          <div className="mt-3 flex items-center gap-3 rounded-2xl border border-border bg-surface-alt p-3">
+            <label className="relative flex h-12 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-border bg-surface shadow-soft" aria-label="Elegir color personalizado">
+              <input
+                type="color"
+                value={customColor}
+                onChange={(event) => setCustomColor(event.target.value)}
+                className="absolute -inset-2 h-[calc(100%+1rem)] w-[calc(100%+1rem)] cursor-pointer border-0 bg-transparent p-0"
+                aria-label="Elegir color personalizado"
+              />
+            </label>
+            <span
+              className="h-11 w-11 shrink-0 rounded-full border border-border shadow-inner"
+              style={{ backgroundColor: customColor }}
+              aria-label={`Vista previa del color ${customColor}`}
+              role="img"
             />
-            <Button type="button" variant="secondary" onClick={addCustomColor}>Añadir</Button>
+            <Button type="button" variant="secondary" onClick={addCustomColor} className="ml-auto">
+              Añadir color
+            </Button>
           </div>
         ) : null}
       </div>
