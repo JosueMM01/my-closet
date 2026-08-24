@@ -1,6 +1,6 @@
 /** Web Worker de una sola operación. El cliente lo termina al recibir resultado. */
 import { BACKGROUND_REMOVAL_PUBLIC_PATH } from './background-removal';
-import { decodeImageFile, encodeBitmapToWebp } from './processor';
+import { closeDecodedImage, decodeImageFile, encodeBitmapToWebp, type DecodedImage } from './processor';
 import {
   imageWorkerMessageSchema,
   imageWorkerRequestSchema,
@@ -27,13 +27,13 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
   if (!parsed.success) return;
   const { id, file, operation } = parsed.data;
   void (async () => {
-    let bitmap: ImageBitmap | null = null;
-    let failureCode: ImageWorkerFailureCode = 'processing';
+    let decoded: DecodedImage | null = null;
+    let failureCode: ImageWorkerFailureCode = 'decode';
     try {
       report(id, { stage: 'Preparando imagen', current: null, total: null });
-      const decoded = await decodeImageFile(file);
-      bitmap = decoded.bitmap;
-      const resized = await encodeBitmapToWebp(bitmap, decoded.width, decoded.height);
+      decoded = await decodeImageFile(file);
+      failureCode = 'processing';
+      const resized = await encodeBitmapToWebp(decoded.source, decoded.width, decoded.height);
 
       if (operation.type === 'resize') {
         report(id, { stage: 'Codificando WebP', current: null, total: null });
@@ -53,7 +53,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
         output: { format: 'image/webp', quality: 0.82 },
         progress: (key: string, current: number, total: number) => {
           if (key.startsWith('fetch:')) {
-            report(id, { stage: 'Descargando modelo local', current, total });
+            report(id, { stage: 'Cargando modelo local', current, total });
             return;
           }
           failureCode = 'inference';
@@ -81,7 +81,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
         error: readableError(error),
       });
     } finally {
-      bitmap?.close();
+      if (decoded) closeDecodedImage(decoded.source);
     }
   })();
 });

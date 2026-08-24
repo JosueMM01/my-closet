@@ -11,6 +11,54 @@ export interface ProcessedImage {
   mimeType: 'image/webp';
 }
 
+export type DetectedImageFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'heif';
+
+export interface DecodedImage {
+  source: ImageBitmap | HTMLImageElement;
+  width: number;
+  height: number;
+}
+
+export class ImageDecodeError extends Error {
+  constructor(message = 'El navegador no pudo leer esta imagen') {
+    super(message);
+    this.name = 'ImageDecodeError';
+  }
+}
+
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...bytes.slice(start, start + length));
+}
+
+/** Detecta el formato por contenido; la extensión y el MIME pueden ser incorrectos en Android. */
+export async function detectImageFormat(blob: Blob): Promise<DetectedImageFormat | null> {
+  const bytes = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'jpeg';
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return 'png';
+  }
+  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WEBP') {
+    return 'webp';
+  }
+  if (bytes.length >= 12 && ascii(bytes, 4, 4) === 'ftyp') {
+    const brands: string[] = [];
+    for (let offset = 8; offset + 4 <= bytes.length; offset += 4) {
+      brands.push(ascii(bytes, offset, 4));
+    }
+    if (brands.some((brand) => brand === 'avif' || brand === 'avis')) return 'avif';
+    if (brands.some((brand) => ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand))) {
+      return 'heif';
+    }
+  }
+  return null;
+}
+
 export function computeTargetSize(
   width: number,
   height: number,
@@ -71,10 +119,37 @@ export async function encodeBitmapToWebp(
   };
 }
 
-/** Decodifica un File/Blob corrigiendo la orientación EXIF. */
+async function decodeWithHtmlImage(file: Blob): Promise<DecodedImage> {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') {
+    throw new ImageDecodeError();
+  }
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.decoding = 'async';
+  try {
+    image.src = objectUrl;
+    await image.decode();
+    if (image.naturalWidth < 1 || image.naturalHeight < 1) throw new ImageDecodeError();
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight };
+  } catch {
+    throw new ImageDecodeError();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/** Decodifica corrigiendo orientación EXIF y usa `<img>` como fallback móvil. */
 export async function decodeImageFile(
   file: Blob,
-): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  return { bitmap, width: bitmap.width, height: bitmap.height };
+): Promise<DecodedImage> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    return { source: bitmap, width: bitmap.width, height: bitmap.height };
+  } catch {
+    return decodeWithHtmlImage(file);
+  }
+}
+
+export function closeDecodedImage(source: DecodedImage['source']): void {
+  if ('close' in source && typeof source.close === 'function') source.close();
 }

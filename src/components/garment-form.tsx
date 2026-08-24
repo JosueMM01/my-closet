@@ -178,7 +178,7 @@ export function GarmentForm({
   }
 
   const determinateProgress =
-    photoProgress?.stage === 'Descargando modelo local' &&
+    photoProgress?.stage === 'Cargando modelo local' &&
     photoProgress.current !== null &&
     photoProgress.total !== null
       ? photoProgress

@@ -2,12 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { backgroundRemovalAttempts } from '@/lib/images/background-removal';
+import {
+  backgroundRemovalAttempts,
+  shouldAttemptWebGpu,
+} from '@/lib/images/background-removal';
 import {
   PROCESSED_IMAGE_MAX_BYTES,
+  validateImageContent,
   validateProcessedImage,
 } from '@/lib/images/image-client';
-import { computeTargetSize } from '@/lib/images/processor';
+import { computeTargetSize, detectImageFormat } from '@/lib/images/processor';
 import {
   imageProgressSchema,
   imageWorkerMessageSchema,
@@ -23,6 +27,27 @@ describe('pipeline de imágenes', () => {
     expect(computeTargetSize(4000, 2000)).toEqual({ width: 1080, height: 540 });
     expect(computeTargetSize(600, 900)).toEqual({ width: 600, height: 900 });
     expect(computeTargetSize(1000, 3000, 600)).toEqual({ width: 200, height: 600 });
+  });
+
+  it('detecta el formato por firma y no por extensión', async () => {
+    const jpeg = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], { type: 'image/jpeg' });
+    const png = new Blob([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ], { type: 'image/png' });
+    const avif = new Blob([new Uint8Array([0, 0, 0, 24]), 'ftyp', 'avif', new Uint8Array(4), 'avif']);
+
+    await expect(detectImageFormat(jpeg)).resolves.toBe('jpeg');
+    await expect(detectImageFormat(png)).resolves.toBe('png');
+    await expect(detectImageFormat(avif)).resolves.toBe('avif');
+    await expect(detectImageFormat(new Blob(['no-es-imagen']))).resolves.toBeNull();
+  });
+
+  it('rechaza un archivo nombrado como JPEG cuyo contenido es otro formato', async () => {
+    const fakeJpeg = new File([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ], 'foto.jpg', { type: 'image/jpeg' });
+
+    await expect(validateImageContent(fakeJpeg)).rejects.toThrow('no coincide');
   });
 
   it('valida MIME real, dimensiones y límite de sincronización', async () => {
@@ -61,13 +86,13 @@ describe('protocolo del worker', () => {
     expect(imageWorkerMessageSchema.safeParse({
       type: 'progress',
       id,
-      progress: { stage: 'Descargando modelo local', current: 50, total: 100 },
+      progress: { stage: 'Cargando modelo local', current: 50, total: 100 },
     }).success).toBe(true);
   });
 
   it('rechaza progreso ambiguo y payloads desconocidos', () => {
     expect(imageProgressSchema.safeParse({
-      stage: 'Descargando modelo local',
+      stage: 'Cargando modelo local',
       current: 1,
       total: null,
     }).success).toBe(false);
@@ -92,6 +117,12 @@ describe('orquestación de eliminación de fondo', () => {
       { type: 'remove-background', device: 'cpu', model: 'isnet' },
       { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
     ]);
+  });
+
+  it('evita WebGPU en Android por compatibilidad de drivers', () => {
+    expect(shouldAttemptWebGpu(true, 'Mozilla/5.0 (Linux; Android 14)')).toBe(false);
+    expect(shouldAttemptWebGpu(true, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(true);
+    expect(shouldAttemptWebGpu(false, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
   });
 });
 
