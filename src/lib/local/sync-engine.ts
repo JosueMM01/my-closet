@@ -23,7 +23,13 @@ import {
   type RemoteImageMetadata,
 } from '@/lib/domain/validation';
 import { z } from 'zod';
-import { getDB, readSyncStats, writeLastSyncedAt } from './db';
+import {
+  getDB,
+  readSyncState,
+  readSyncStats,
+  writeLastSyncedAt,
+  writeSyncState,
+} from './db';
 import { getLocalProfile } from './kv';
 import {
   claimPendingOperations,
@@ -310,10 +316,9 @@ async function pushPendingImages(userId: string): Promise<void> {
   }
 }
 
-async function pull(): Promise<void> {
-  const db = getDB();
-  const stored = await db.kv.get('sync-state');
-  const since = ((stored?.value as { lastPulledAt?: string } | undefined)?.lastPulledAt) ?? null;
+async function pull(userId: string): Promise<void> {
+  const state = await readSyncState(userId);
+  const since = state.lastPulledAt ?? null;
   const query = since ? `?since=${encodeURIComponent(since)}` : '';
   const response = await fetch(`/api/sync/pull${query}`, {
     headers: { 'x-requested-with': 'my-closet' },
@@ -328,11 +333,7 @@ async function pull(): Promise<void> {
   for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
   for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
 
-  const state = (await db.kv.get('sync-state'))?.value as object | undefined;
-  await db.kv.put({
-    key: 'sync-state',
-    value: { ...(state ?? {}), lastPulledAt: data.serverTime },
-  });
+  await writeSyncState(userId, { lastPulledAt: data.serverTime });
 }
 
 /** Ejecuta un ciclo completo push+pull. Lanza si la sesión expiró. */
@@ -355,8 +356,8 @@ export async function runSync(): Promise<void> {
       if (batch.length === 0) break;
       await pushBatch(batch);
     }
-    await pull();
-    await writeLastSyncedAt(new Date().toISOString());
+    await pull(profile.userId);
+    await writeLastSyncedAt(profile.userId, new Date().toISOString());
   } finally {
     running = false;
     notify();

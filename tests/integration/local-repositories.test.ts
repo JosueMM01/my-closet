@@ -1,7 +1,11 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getDB, readSyncStats } from '@/lib/local/db';
-import { claimPendingOperations, countPending } from '@/lib/local/outbox';
+import { getDB, readSyncState, readSyncStats, writeSyncState } from '@/lib/local/db';
+import {
+  claimPendingOperations,
+  countPending,
+  markOperationFailed,
+} from '@/lib/local/outbox';
 import {
   applyRemoteGarment,
   archiveGarment,
@@ -223,6 +227,40 @@ describe('repositorio local de prendas', () => {
       syncing: 0,
       failed: 0,
     });
+  });
+
+  it('particiona cursores y última sincronización por cuenta', async () => {
+    await writeSyncState(USER, {
+      lastPulledAt: '2026-08-25T01:00:00.000Z',
+      lastSyncedAt: '2026-08-25T01:01:00.000Z',
+    });
+    await writeSyncState(OTHER, {
+      lastPulledAt: '2026-08-25T02:00:00.000Z',
+    });
+
+    await expect(readSyncState(USER)).resolves.toMatchObject({
+      lastPulledAt: '2026-08-25T01:00:00.000Z',
+      lastSyncedAt: '2026-08-25T01:01:00.000Z',
+    });
+    await expect(readSyncState(OTHER)).resolves.toEqual({
+      lastPulledAt: '2026-08-25T02:00:00.000Z',
+    });
+    await expect(readSyncStats(OTHER)).resolves.toMatchObject({ lastSyncedAt: null });
+  });
+
+  it('no vuelve a reclamar una operación rechazada permanentemente', async () => {
+    const garment = await createGarment(USER, {
+      name: 'Operación inválida',
+      category: 'tops',
+      colors: [],
+    });
+    const [claimed] = await claimPendingOperations(1, USER);
+    expect(claimed?.entityId).toBe(garment.id);
+
+    await markOperationFailed(claimed!.operationId, 'rechazada', true);
+
+    await expect(claimPendingOperations(50, USER)).resolves.toEqual([]);
+    await expect(readSyncStats(USER)).resolves.toMatchObject({ failed: 1, syncing: 0 });
   });
 });
 
