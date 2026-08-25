@@ -296,10 +296,40 @@ export const syncPushSchema = z.object({
   operations: z.array(syncPushOperationSchema).min(1).max(100),
 });
 
-export const syncPullSchema = z.object({
+export const syncPullQuerySchema = z
+  .object({
+    since: isoDateTime.nullable().optional(),
+    cursor: z.string().min(1).max(4096).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(100),
+  })
+  .strict()
+  .refine((value) => !(value.since && value.cursor), {
+    message: 'No se puede combinar since y cursor',
+  });
+
+const syncPullPositionSchema = z.object({
+  at: isoDateTime,
+  id: z.string().min(1).max(64),
+}).strict();
+
+const syncPullEntityCursorSchema = z.object({
+  done: z.boolean(),
+  position: syncPullPositionSchema.nullable(),
+}).strict();
+
+export const syncPullCursorPayloadSchema = z.object({
   since: isoDateTime.nullable(),
-  entityType: z.enum(['garment', 'outfit', 'calendarEntry', 'wardrobeShare']).optional(),
-});
+  upperBound: isoDateTime,
+  entities: z.object({
+    images: syncPullEntityCursorSchema,
+    garments: syncPullEntityCursorSchema,
+    outfits: syncPullEntityCursorSchema,
+    calendarEntries: syncPullEntityCursorSchema,
+    wardrobeShares: syncPullEntityCursorSchema,
+  }).strict(),
+}).strict();
+
+export type SyncPullCursorPayload = z.infer<typeof syncPullCursorPayloadSchema>;
 
 export const imageStorageProviderSchema = z.enum(['local', 'cloudinary']);
 
@@ -417,12 +447,25 @@ export const wardrobeShareEntitySchema = z.object({
 
 export const syncPullResponseSchema = z.object({
   serverTime: isoDateTime,
+  hasMore: z.boolean(),
+  nextCursor: z.string().min(1).max(4096).nullable(),
   images: z.array(remoteImageMetadataSchema),
   garments: z.array(garmentEntitySchema),
   outfits: z.array(outfitEntitySchema),
   calendarEntries: z.array(calendarEntryEntitySchema),
   wardrobeShares: z.array(wardrobeShareEntitySchema),
-});
+}).strict();
+
+export const syncPushResultSchema = z.object({
+  operationId: z.string().uuid(),
+  status: z.enum(['applied', 'conflict', 'invalid']),
+  remote: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export const syncPushResponseSchema = z.object({
+  results: z.array(syncPushResultSchema).max(100),
+  serverTime: isoDateTime,
+}).strict();
 
 /** Valida un payload de sync según el tipo de entidad. */
 export function validateEntityPayload(

@@ -213,6 +213,7 @@ function ensureSqliteSchema(
     photo_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    server_updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     deleted_at TEXT
   )`);
@@ -222,8 +223,13 @@ function ensureSqliteSchema(
   if (!garmentColumns.has('favorite')) {
     raw.exec('ALTER TABLE garments ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
   }
+  if (!garmentColumns.has('server_updated_at')) {
+    raw.exec("ALTER TABLE garments ADD COLUMN server_updated_at TEXT NOT NULL DEFAULT ''");
+    raw.exec("UPDATE garments SET server_updated_at = updated_at WHERE server_updated_at = ''");
+  }
   db.run(sql`CREATE INDEX IF NOT EXISTS garments_user_idx ON garments(user_id)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS garments_updated_idx ON garments(updated_at)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS garments_user_server_updated_idx ON garments(user_id, server_updated_at, id)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS outfits (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -233,11 +239,20 @@ function ensureSqliteSchema(
     slots TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    server_updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     deleted_at TEXT
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS outfits_user_idx ON outfits(user_id)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS outfits_updated_idx ON outfits(updated_at)`);
+  const outfitColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(outfits)').all().map((column) => column.name),
+  );
+  if (!outfitColumns.has('server_updated_at')) {
+    raw.exec("ALTER TABLE outfits ADD COLUMN server_updated_at TEXT NOT NULL DEFAULT ''");
+    raw.exec("UPDATE outfits SET server_updated_at = updated_at WHERE server_updated_at = ''");
+  }
+  db.run(sql`CREATE INDEX IF NOT EXISTS outfits_user_server_updated_idx ON outfits(user_id, server_updated_at, id)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS calendar_entries (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -247,11 +262,20 @@ function ensureSqliteSchema(
     notes TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    server_updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     deleted_at TEXT
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS calendar_user_date_idx ON calendar_entries(user_id, date)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS calendar_updated_idx ON calendar_entries(updated_at)`);
+  const calendarColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(calendar_entries)').all().map((column) => column.name),
+  );
+  if (!calendarColumns.has('server_updated_at')) {
+    raw.exec("ALTER TABLE calendar_entries ADD COLUMN server_updated_at TEXT NOT NULL DEFAULT ''");
+    raw.exec("UPDATE calendar_entries SET server_updated_at = updated_at WHERE server_updated_at = ''");
+  }
+  db.run(sql`CREATE INDEX IF NOT EXISTS calendar_user_server_updated_idx ON calendar_entries(user_id, server_updated_at, id)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS wardrobe_shares (
     id TEXT PRIMARY KEY,
     grantor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -262,11 +286,20 @@ function ensureSqliteSchema(
     accepted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    server_updated_at TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     deleted_at TEXT
   )`);
   db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS shares_grantor_invite_idx ON wardrobe_shares(grantor_id, invite_token)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS shares_updated_idx ON wardrobe_shares(updated_at)`);
+  const shareColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(wardrobe_shares)').all().map((column) => column.name),
+  );
+  if (!shareColumns.has('server_updated_at')) {
+    raw.exec("ALTER TABLE wardrobe_shares ADD COLUMN server_updated_at TEXT NOT NULL DEFAULT ''");
+    raw.exec("UPDATE wardrobe_shares SET server_updated_at = updated_at WHERE server_updated_at = ''");
+  }
+  db.run(sql`CREATE INDEX IF NOT EXISTS shares_grantor_server_updated_idx ON wardrobe_shares(grantor_id, server_updated_at, id)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS images (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -148,12 +148,16 @@ export const garments = pgTable(
     photoId: text('photo_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    serverUpdatedAt: timestamp('server_updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
     version: integer('version').notNull().default(1),
     deletedAt: text('deleted_at'),
   },
   (table) => [
     index('garments_user_idx').on(table.userId),
     index('garments_updated_idx').on(table.updatedAt),
+    index('garments_user_server_updated_idx').on(table.userId, table.serverUpdatedAt, table.id),
   ],
 );
 
@@ -170,12 +174,16 @@ export const outfits = pgTable(
     slots: text('slots').notNull().default('[]'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    serverUpdatedAt: timestamp('server_updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
     version: integer('version').notNull().default(1),
     deletedAt: text('deleted_at'),
   },
   (table) => [
     index('outfits_user_idx').on(table.userId),
     index('outfits_updated_idx').on(table.updatedAt),
+    index('outfits_user_server_updated_idx').on(table.userId, table.serverUpdatedAt, table.id),
   ],
 );
 
@@ -192,12 +200,16 @@ export const calendarEntries = pgTable(
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    serverUpdatedAt: timestamp('server_updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
     version: integer('version').notNull().default(1),
     deletedAt: text('deleted_at'),
   },
   (table) => [
     index('calendar_user_date_idx').on(table.userId, table.date),
     index('calendar_updated_idx').on(table.updatedAt),
+    index('calendar_user_server_updated_idx').on(table.userId, table.serverUpdatedAt, table.id),
   ],
 );
 
@@ -215,12 +227,16 @@ export const wardrobeShares = pgTable(
     acceptedAt: text('accepted_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    serverUpdatedAt: timestamp('server_updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
     version: integer('version').notNull().default(1),
     deletedAt: text('deleted_at'),
   },
   (table) => [
     uniqueIndex('shares_grantor_invite_idx').on(table.grantorId, table.inviteToken),
     index('shares_updated_idx').on(table.updatedAt),
+    index('shares_grantor_server_updated_idx').on(table.grantorId, table.serverUpdatedAt, table.id),
     check('wardrobe_shares_permission_check', sql`${table.permission} IN ('VIEW', 'MANAGE')`),
   ],
 );

@@ -1,6 +1,10 @@
 import { getSessionUser } from '@/server/auth/session';
-import { jsonOk, unauthorized } from '@/server/http';
-import { pullAll } from '@/server/repositories/sync-repository';
+import { syncPullQuerySchema } from '@/lib/domain/validation';
+import { invalidBody, jsonOk, unauthorized } from '@/server/http';
+import {
+  InvalidPullCursorError,
+  pullAll,
+} from '@/server/repositories/sync-repository';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,8 +14,21 @@ export async function GET(request: Request) {
   if (!user) return unauthorized();
 
   const url = new URL(request.url);
-  const since = url.searchParams.get('since');
-  // since opcional: null = pull completo (primera sincronización del dispositivo).
-  const result = await pullAll(user.userId, since && !Number.isNaN(Date.parse(since)) ? since : null);
-  return jsonOk(result);
+  const parsed = syncPullQuerySchema.safeParse({
+    since: url.searchParams.get('since') ?? undefined,
+    cursor: url.searchParams.get('cursor') ?? undefined,
+    limit: url.searchParams.get('limit') ?? undefined,
+  });
+  if (!parsed.success) return invalidBody();
+
+  try {
+    const result = await pullAll(user.userId, parsed.data.since ?? null, {
+      cursor: parsed.data.cursor,
+      limit: parsed.data.limit,
+    });
+    return jsonOk(result);
+  } catch (error) {
+    if (error instanceof InvalidPullCursorError) return invalidBody();
+    throw error;
+  }
 }

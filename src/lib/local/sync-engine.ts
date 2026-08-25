@@ -20,6 +20,7 @@ import {
   imageUploadResponseSchema,
   remoteImageMetadataSchema,
   syncPullResponseSchema,
+  syncPushResponseSchema,
   type RemoteImageMetadata,
 } from '@/lib/domain/validation';
 import { z } from 'zod';
@@ -97,16 +98,6 @@ async function assertRemoteSession(userId: string): Promise<void> {
   if (session.profile.userId !== userId) throw new SessionIdentityMismatchError();
 }
 
-interface PushOperationResult {
-  operationId: string;
-  status: 'applied' | 'conflict' | 'invalid';
-  remote?: Record<string, unknown>;
-}
-
-interface PushResponse {
-  results: PushOperationResult[];
-}
-
 async function pushBatch(ops: OutboxOperation[]): Promise<void> {
   const response = await fetch('/api/sync/push', {
     method: 'POST',
@@ -127,7 +118,7 @@ async function pushBatch(ops: OutboxOperation[]): Promise<void> {
   if (response.status === 401) throw new SessionExpiredError();
   if (!response.ok) throw new Error(`push HTTP ${response.status}`);
 
-  const data = (await response.json()) as PushResponse;
+  const data = syncPushResponseSchema.parse(await response.json());
   const byId = new Map(data.results.map((r) => [r.operationId, r]));
 
   for (const op of ops) {
@@ -317,23 +308,47 @@ async function pushPendingImages(userId: string): Promise<void> {
 }
 
 async function pull(userId: string): Promise<void> {
-  const state = await readSyncState(userId);
-  const since = state.lastPulledAt ?? null;
-  const query = since ? `?since=${encodeURIComponent(since)}` : '';
-  const response = await fetch(`/api/sync/pull${query}`, {
-    headers: { 'x-requested-with': 'my-closet' },
-  });
-  if (response.status === 401) throw new SessionExpiredError();
-  if (!response.ok) throw new Error(`pull HTTP ${response.status}`);
+  let state = await readSyncState(userId);
+  let cursor = state.pullCursor;
+  let resetInvalidCursor = true;
 
-  const data = syncPullResponseSchema.parse(await response.json());
-  for (const image of data.images) await applyRemoteImageMetadata(image);
-  for (const garment of data.garments) await applyRemoteGarment(garment);
-  for (const outfit of data.outfits) await applyRemoteOutfit(outfit);
-  for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
-  for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
+  for (;;) {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    else if (state.lastPulledAt) params.set('since', state.lastPulledAt);
 
-  await writeSyncState(userId, { lastPulledAt: data.serverTime });
+    const response = await fetch(`/api/sync/pull?${params.toString()}`, {
+      headers: { 'x-requested-with': 'my-closet' },
+    });
+    if (response.status === 401) throw new SessionExpiredError();
+    if (response.status === 400 && cursor && resetInvalidCursor) {
+      await writeSyncState(userId, { pullCursor: undefined });
+      state = await readSyncState(userId);
+      cursor = undefined;
+      resetInvalidCursor = false;
+      continue;
+    }
+    if (!response.ok) throw new Error(`pull HTTP ${response.status}`);
+
+    const data = syncPullResponseSchema.parse(await response.json());
+    for (const image of data.images) await applyRemoteImageMetadata(image);
+    for (const garment of data.garments) await applyRemoteGarment(garment);
+    for (const outfit of data.outfits) await applyRemoteOutfit(outfit);
+    for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
+    for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
+
+    if (data.hasMore) {
+      if (!data.nextCursor) throw new Error('pull paginado sin cursor de continuación');
+      cursor = data.nextCursor;
+      await writeSyncState(userId, { pullCursor: cursor });
+      continue;
+    }
+    await writeSyncState(userId, {
+      lastPulledAt: data.serverTime,
+      pullCursor: undefined,
+    });
+    return;
+  }
 }
 
 /** Ejecuta un ciclo completo push+pull. Lanza si la sesión expiró. */
