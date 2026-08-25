@@ -12,6 +12,7 @@ import clsx from 'clsx';
 import { useSession } from '@/components/providers';
 import { CalendarIcon, HangerIcon, PlusIcon, UserIcon, HomeIcon } from '@/components/icons';
 import { SyncBadge } from '@/components/ui';
+import { OfflineRouteCache } from '@/components/offline-route-cache';
 
 const DOCK_ITEMS = [
   { href: '/', label: 'Inicio', icon: HomeIcon, testId: 'nav-home' },
@@ -44,6 +45,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh pb-28">
+      <OfflineRouteCache userId={profile.userId} />
       {/* Top Header with Brand */}
       <header className="safe-top sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border/30">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">

@@ -49,6 +49,7 @@ export function ImageEditor({
   onClose,
 }: ImageEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const brushCursorRef = useRef<HTMLDivElement>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const historyRef = useRef<ImageData[]>([]);
   const futureRef = useRef<ImageData[]>([]);
@@ -169,6 +170,7 @@ export function ImageEditor({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>): void {
     if (!ready || saving) return;
+    updateBrushCursor(event);
     event.currentTarget.setPointerCapture(event.pointerId);
     saveSnapshot();
     paintingRef.current = true;
@@ -178,6 +180,7 @@ export function ImageEditor({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>): void {
+    updateBrushCursor(event);
     if (!paintingRef.current) return;
     const point = canvasPoint(event.currentTarget, event);
     const previous = lastPointRef.current ?? point;
@@ -192,6 +195,22 @@ export function ImageEditor({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (event.pointerType === 'touch') hideBrushCursor();
+  }
+
+  function updateBrushCursor(event: ReactPointerEvent<HTMLCanvasElement>): void {
+    const cursor = brushCursorRef.current;
+    if (!cursor) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const renderedDiameter = brushSize * (bounds.width / event.currentTarget.width);
+    cursor.style.width = `${renderedDiameter}px`;
+    cursor.style.height = `${renderedDiameter}px`;
+    cursor.style.transform = `translate(${event.clientX - bounds.left - renderedDiameter / 2}px, ${event.clientY - bounds.top - renderedDiameter / 2}px)`;
+    cursor.style.opacity = '1';
+  }
+
+  function hideBrushCursor(): void {
+    if (brushCursorRef.current) brushCursorRef.current.style.opacity = '0';
   }
 
   function restoreSnapshot(snapshot: ImageData | undefined): void {
@@ -248,7 +267,7 @@ export function ImageEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-text-primary/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="image-editor-title">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-text-primary/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="image-editor-title">
       <section className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] border border-border bg-surface px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl sm:max-w-xl sm:rounded-[2rem] sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -274,7 +293,14 @@ export function ImageEditor({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onPointerEnter={updateBrushCursor}
+          onPointerLeave={hideBrushCursor}
           aria-label="Lienzo para editar la transparencia de la imagen"
+        />
+        <div
+          ref={brushCursorRef}
+          className="pointer-events-none absolute left-0 top-0 rounded-full border-2 border-white opacity-0 shadow-[0_0_0_1px_rgba(32,27,25,0.9)] transition-opacity duration-75"
+          aria-hidden="true"
         />
         {!ready ? (
           <div className="absolute inset-0 flex items-center justify-center bg-surface/80 text-xs text-text-muted">

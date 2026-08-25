@@ -5,9 +5,9 @@
  * (editar, clonar, archivar, eliminar, compartir).
  */
 import { useRouter, useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useSession } from '@/components/providers';
+import { useSession, useSync } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
 import { archiveGarment, cloneGarment, deleteGarment } from '@/lib/local/repositories';
 import { CATEGORY_LABELS, COLOR_HEX, COLOR_LABELS } from '@/lib/domain/constants';
@@ -15,6 +15,7 @@ import { GarmentPhoto } from '@/components/garment-photo';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui';
 import { FavoriteButton } from '@/components/favorite-button';
+import { StatusToast } from '@/components/status-toast';
 import {
   ArchiveIcon,
   ArrowLeftIcon,
@@ -28,8 +29,10 @@ export default function GarmentDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const { profile } = useSession();
+  const { online } = useSync();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const dismissShareStatus = useCallback(() => setShareStatus(null), []);
 
   const garment = useLiveQuery(
     async () => (params?.id ? getDB().garments.get(params.id) : undefined),
@@ -71,14 +74,24 @@ export default function GarmentDetailPage() {
     router.push('/wardrobe');
   }
 
-  function handleShare() {
+  async function handleShare() {
+    if (!online) {
+      setShareStatus('Necesitas conexión para compartir esta prenda.');
+      return;
+    }
     const url = `${window.location.origin}/share/garment/${garment!.shareableId}`;
-    setShareUrl(url);
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+      setShareStatus('Enlace de la prenda copiado.');
+    } catch {
+      setShareStatus(`No se pudo copiar. Enlace: ${url}`);
+    }
   }
 
   return (
     <div className="mx-auto max-w-xl">
+      <StatusToast message={shareStatus} onDismiss={dismissShareStatus} />
       <div className="mb-4 flex items-center justify-between">
         <button
           type="button"
@@ -106,7 +119,7 @@ export default function GarmentDetailPage() {
           </button>
           <button
             type="button"
-            onClick={handleShare}
+            onClick={() => void handleShare()}
             aria-label="Compartir prenda"
             title="Compartir"
             data-testid="share-garment"
@@ -214,11 +227,6 @@ export default function GarmentDetailPage() {
             </Button>
           </div>
 
-          {shareUrl && (
-            <div className="rounded-xl bg-primary-soft p-3 text-xs text-primary" data-testid="share-url" role="status">
-              Enlace copiado: {shareUrl}
-            </div>
-          )}
         </div>
       </div>
 

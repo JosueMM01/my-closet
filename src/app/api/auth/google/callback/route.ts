@@ -1,17 +1,27 @@
+import { randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { getGoogleIdentityFromCode } from '@/server/auth/google';
 import {
   clearGoogleFlowCookies,
   GOOGLE_FLOW_COOKIES,
+  readGoogleInvitationToken,
   safeStateEqual,
+  setGooglePictureCookie,
+  type GoogleFlowIntent,
 } from '@/server/auth/google-flow';
+import { hashPassword } from '@/server/auth/password';
 import { createSession, getSessionUser } from '@/server/auth/session';
 import { getGoogleAuthConfig, type GoogleAuthConfig } from '@/server/env';
 import {
   findActiveUserByGoogleSubject,
+  findGoogleAccountByUserId,
   linkGoogleAccount,
 } from '@/server/repositories/auth-accounts-repository';
+import {
+  AccountError,
+  registerInvitedGoogleAccount,
+} from '@/server/repositories/users-repository';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,18 +49,27 @@ function redirectTo(request: Request, path: string, configAppUrl?: string): Resp
   });
 }
 
+function failurePath(intent: string | undefined, invitationToken: string | null, reason = 'denied'): string {
+  if (intent === 'link' || intent === 'photo') return `/profile?google=${reason}`;
+  if (intent === 'invite') {
+    const fragment = invitationToken ? `#invite=${encodeURIComponent(invitationToken)}` : '';
+    return `/register?google=${reason}${fragment}`;
+  }
+  return '/login?google=denied';
+}
+
 export async function GET(request: Request): Promise<Response> {
   const store = await cookies();
-  const storedIntent = store.get(GOOGLE_FLOW_COOKIES.intent)?.value;
-  const failurePath = storedIntent === 'link' ? '/profile?google=denied' : '/login?google=denied';
+  const storedIntent = store.get(GOOGLE_FLOW_COOKIES.intent)?.value as GoogleFlowIntent | undefined;
   let config: GoogleAuthConfig | null = null;
+  let invitationToken: string | null = null;
 
   try {
     config = getGoogleAuthConfig();
-    if (!config) return redirectTo(request, failurePath);
+    if (!config) return redirectTo(request, failurePath(storedIntent, null));
     const url = new URL(request.url);
     if ([...url.searchParams.keys()].some((key) => url.searchParams.getAll(key).length !== 1)) {
-      return redirectTo(request, failurePath, config.appUrl);
+      return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
     }
     const query = callbackQuerySchema.safeParse(Object.fromEntries(url.searchParams));
     const expectedState = store.get(GOOGLE_FLOW_COOKIES.state)?.value;
@@ -63,10 +82,18 @@ export async function GET(request: Request): Promise<Response> {
       !expectedState ||
       !verifier ||
       !nonce ||
-      (storedIntent !== 'login' && storedIntent !== 'link') ||
+      !storedIntent ||
+      !(['login', 'link', 'invite', 'photo'] as const).includes(storedIntent) ||
       !safeStateEqual(query.data.state, expectedState)
     ) {
-      return redirectTo(request, failurePath, config.appUrl);
+      return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+    }
+
+    if (storedIntent === 'invite') {
+      invitationToken = readGoogleInvitationToken(store, expectedState);
+      if (!invitationToken) {
+        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+      }
     }
 
     const identity = await getGoogleIdentityFromCode({
@@ -80,22 +107,69 @@ export async function GET(request: Request): Promise<Response> {
       const storedLinkUser = store.get(GOOGLE_FLOW_COOKIES.linkUser)?.value;
       const principal = await getSessionUser();
       if (!principal || !storedLinkUser || principal.userId !== storedLinkUser) {
-        return redirectTo(request, failurePath, config.appUrl);
+        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
       }
       await linkGoogleAccount({
         userId: principal.userId,
         providerSubject: identity.subject,
         providerEmail: identity.email,
       });
-      return redirectTo(request, '/profile?google=linked', config.appUrl);
+      setGooglePictureCookie(store, { userId: principal.userId, pictureUrl: identity.pictureUrl });
+      return redirectTo(
+        request,
+        identity.pictureUrl ? '/profile?google=linked&googlePicture=available' : '/profile?google=linked',
+        config.appUrl,
+      );
+    }
+
+    if (storedIntent === 'photo') {
+      const storedLinkUser = store.get(GOOGLE_FLOW_COOKIES.linkUser)?.value;
+      const principal = await getSessionUser();
+      const account = principal ? await findGoogleAccountByUserId(principal.userId) : null;
+      if (
+        !principal ||
+        !storedLinkUser ||
+        principal.userId !== storedLinkUser ||
+        account?.providerSubject !== identity.subject ||
+        account.providerEmail !== identity.email
+      ) {
+        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+      }
+      setGooglePictureCookie(store, { userId: principal.userId, pictureUrl: identity.pictureUrl });
+      return redirectTo(
+        request,
+        identity.pictureUrl ? '/profile?google=picture&googlePicture=available' : '/profile?google=picture-missing',
+        config.appUrl,
+      );
+    }
+
+    if (storedIntent === 'invite' && invitationToken) {
+      const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
+      const user = await registerInvitedGoogleAccount({
+        invitationToken,
+        providerSubject: identity.subject,
+        providerEmail: identity.email,
+        displayName: identity.displayName ?? identity.email.split('@')[0] ?? 'Usuario',
+        passwordHash,
+      });
+      await createSession(user.id);
+      setGooglePictureCookie(store, { userId: user.id, pictureUrl: identity.pictureUrl });
+      return redirectTo(
+        request,
+        identity.pictureUrl ? '/profile?google=invited&googlePicture=auto' : '/profile?google=invited',
+        config.appUrl,
+      );
     }
 
     const user = await findActiveUserByGoogleSubject(identity.subject);
-    if (!user) return redirectTo(request, failurePath, config.appUrl);
+    if (!user) return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
     await createSession(user.id);
     return redirectTo(request, '/', config.appUrl);
-  } catch {
-    return redirectTo(request, failurePath, config?.appUrl);
+  } catch (error) {
+    const reason = error instanceof AccountError && error.code === 'INVITATION_EMAIL_MISMATCH'
+      ? 'email-mismatch'
+      : 'denied';
+    return redirectTo(request, failurePath(storedIntent, invitationToken, reason), config?.appUrl);
   } finally {
     clearGoogleFlowCookies(store);
   }

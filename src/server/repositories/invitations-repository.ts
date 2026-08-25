@@ -31,6 +31,32 @@ export class InvitationOperationError extends Error {
   }
 }
 
+export async function inspectInvitationToken(token: string): Promise<InvitationRecord> {
+  const db = await getServerDB();
+  const tokenHash = hashInvitationToken(token);
+  const row = db.dialect === 'postgres'
+    ? await db.postgres
+        .select()
+        .from(pgSchema.accountInvitations)
+        .where(eq(pgSchema.accountInvitations.tokenHash, tokenHash))
+        .limit(1)
+        .then((rows) => rows[0])
+    : await db.sqlite
+        .select()
+        .from(sqliteSchema.accountInvitations)
+        .where(eq(sqliteSchema.accountInvitations.tokenHash, tokenHash))
+        .limit(1)
+        .then((rows) => rows[0]);
+  if (!row || row.acceptedAt || row.revokedAt) {
+    throw new InvitationOperationError('La invitación no es válida o ya fue utilizada');
+  }
+  const expiresAt = row.expiresAt instanceof Date ? row.expiresAt : new Date(row.expiresAt);
+  if (expiresAt.getTime() <= Date.now()) {
+    throw new InvitationOperationError('La invitación ha expirado');
+  }
+  return publicInvitation(row);
+}
+
 function assertActiveAdmin(
   tx: Parameters<Parameters<Awaited<ReturnType<typeof getSqlite>>['transaction']>[0]>[0],
   actorId: string,
