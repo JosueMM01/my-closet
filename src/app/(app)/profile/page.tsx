@@ -358,7 +358,12 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <ProfileGoogle online={online} />
+      <ProfileGoogle
+        online={online}
+        userId={userId}
+        profileImageId={profile.profileImageId}
+        onProfileChanged={refreshProfile}
+      />
 
       {profile.role === 'ADMIN' ? <ProfileAdmin profile={profile} /> : null}
 

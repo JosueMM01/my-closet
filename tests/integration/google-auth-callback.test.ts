@@ -6,6 +6,7 @@ import {
   linkGoogleAccount,
 } from '@/server/repositories/auth-accounts-repository';
 import { createUser } from '@/server/repositories/users-repository';
+import { createInvitation } from '@/server/repositories/invitations-repository';
 import { getSqlite, sqliteSchema } from '@/server/db';
 import { eq } from 'drizzle-orm';
 
@@ -32,11 +33,12 @@ vi.mock('@/server/auth/google', async (importOriginal) => ({
 }));
 
 import { GET as callback } from '@/app/api/auth/google/callback/route';
-import { GET as start } from '@/app/api/auth/google/start/route';
+import { GET as start, POST as startInvitation } from '@/app/api/auth/google/start/route';
 import {
   DELETE as unlinkGoogle,
   GET as getGoogleStatus,
 } from '@/app/api/profile/google/route';
+import { GET as getGooglePicture } from '@/app/api/profile/google/picture/route';
 import { googleLinkStatusResponseSchema } from '@/lib/domain/validation';
 import { GOOGLE_FLOW_COOKIES } from '@/server/auth/google-flow';
 
@@ -65,7 +67,10 @@ beforeEach(async () => {
   await closeServerDB();
 });
 
-afterEach(closeServerDB);
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await closeServerDB();
+});
 
 describe('callback de Google', () => {
   it('inicia login con cookies transitorias y parámetros OAuth estrictos', async () => {
@@ -205,5 +210,60 @@ describe('callback de Google', () => {
 
     expect(response.headers.get('location')).toBe('http://localhost/profile?google=denied');
     await expect(findGoogleAccountByUserId(user.id)).resolves.toBeNull();
+  });
+
+  it('acepta una invitación con Google de forma atómica y crea la sesión', async () => {
+    const admin = await createUser({
+      email: 'admin@example.test',
+      displayName: 'Admin',
+      passwordHash: 'password-hash',
+    });
+    const sqlite = await getSqlite();
+    await sqlite.update(sqliteSchema.users).set({ role: 'ADMIN', adminSlot: 1 })
+      .where(eq(sqliteSchema.users.id, admin.id));
+    const created = await createInvitation({
+      actorId: admin.id,
+      email: 'invite-google@example.test',
+      role: 'USER',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const form = new FormData();
+    form.set('invitationToken', created.token);
+    const started = await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST',
+      body: form,
+    }));
+    expect(started.status).toBe(302);
+    expect(cookieState.get(GOOGLE_FLOW_COOKIES.intent)).toBe('invite');
+
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'invited-subject',
+      email: 'INVITE-GOOGLE@EXAMPLE.TEST',
+      displayName: 'Persona Google',
+      pictureUrl: 'https://lh3.googleusercontent.com/profile-photo',
+    });
+    const response = await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)));
+    expect(response.headers.get('location')).toBe('http://localhost/profile?google=invited&googlePicture=auto');
+    expect(cookieState.has('mc_session')).toBe(true);
+    const account = sqlite.select().from(sqliteSchema.authAccounts).get();
+    expect(account).toMatchObject({ providerSubject: 'invited-subject' });
+    expect(sqlite.select().from(sqliteSchema.accountInvitations).get()).toMatchObject({
+      acceptedBy: account?.userId,
+      acceptedAt: expect.any(String),
+    });
+
+    expect(await (await getGooglePicture(
+      new Request('http://localhost/api/profile/google/picture?mode=availability'),
+    )).json()).toEqual({ available: true });
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'content-type': 'image/jpeg' },
+      }),
+    ));
+    const picture = await getGooglePicture(
+      new Request('http://localhost/api/profile/google/picture?mode=content'),
+    );
+    expect(picture.status).toBe(200);
+    expect(picture.headers.get('content-type')).toBe('image/jpeg');
   });
 });

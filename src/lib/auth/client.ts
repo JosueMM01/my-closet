@@ -61,8 +61,8 @@ async function handleAuthResponse(response: Response): Promise<LocalProfile> {
 
 export async function register(input: {
   displayName: string;
-  email: string;
   password: string;
+  email?: string;
   invitationToken?: string;
 }): Promise<LocalProfile> {
   const parsed = registerSchema.safeParse(input);

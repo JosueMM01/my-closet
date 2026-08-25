@@ -110,16 +110,40 @@ const accountPasswordSchema = z
   .min(8, 'La contraseña debe tener al menos 8 caracteres')
   .max(128);
 
-export const registerSchema = z.object({
+export const invitationTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/, 'La invitación no es válida');
+
+const registerBaseSchema = z.object({
   displayName: z.string().trim().min(1, 'El nombre es obligatorio').max(60),
-  email: accountEmailSchema,
   password: accountPasswordSchema,
-  invitationToken: z
-    .string()
-    .min(40, 'La invitación no es válida')
-    .max(64, 'La invitación no es válida')
-    .optional(),
 });
+
+export const registerSchema = z.union([
+  registerBaseSchema.extend({
+    email: accountEmailSchema,
+    invitationToken: z.undefined().optional(),
+  }),
+  registerBaseSchema.extend({
+    invitationToken: invitationTokenSchema,
+    email: z.undefined().optional(),
+  }),
+]);
+
+export const invitationInspectionRequestSchema = z.object({
+  token: invitationTokenSchema,
+}).strict();
+
+export const invitationInspectionResponseSchema = z.object({
+  email: accountEmailSchema,
+  role: userRoleSchema,
+  expiresAt: isoDateTime,
+  googleAvailable: z.boolean(),
+});
+
+export const googleInvitationStartSchema = z.object({
+  invitationToken: invitationTokenSchema,
+}).strict();
 
 export const loginSchema = z.object({
   email: accountEmailSchema,
@@ -174,6 +198,10 @@ export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
   z.object({ linked: z.literal(false), providerEmail: z.null() }),
   z.object({ linked: z.literal(true), providerEmail: accountEmailSchema }),
 ]);
+
+export const googlePictureAvailabilitySchema = z.object({
+  available: z.boolean(),
+});
 
 export const apiErrorResponseSchema = z.object({ error: z.string().min(1) });
 export const operationSuccessResponseSchema = z.object({ ok: z.literal(true) });

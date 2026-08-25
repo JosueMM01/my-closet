@@ -52,6 +52,9 @@ test.describe('Conjuntos y calendario', () => {
     await page.getByLabel('Nombre', { exact: false }).fill('Casual');
     await page.getByRole('button', { name: 'Partes de abajo' }).first().click();
     await page.getByTestId('save-outfit').click();
+    await expect(page).toHaveURL(/\/outfits\/[^/]+$/);
+    await expect(page.getByTestId('outfit-name')).toContainText('Casual');
+
     await page.goto('/outfits');
     await waitForHydration(page);
     await expect(page.getByTestId('outfit-card').first()).toContainText('Casual');

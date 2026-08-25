@@ -50,3 +50,6 @@ next-env.d.ts
 /.playwright-browsers/
 /test-results/
 /playwright-report/
+
+# local development plan (not versioned)
+/docs/PHASES.md

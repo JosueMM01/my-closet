@@ -28,11 +28,15 @@ const googleIdentitySchema = z.object({
   email_verified: z.literal(true),
   nonce: z.string().min(32).max(128),
   exp: z.number().int().positive(),
+  name: z.string().trim().min(1).max(200).optional(),
+  picture: z.url().max(2_048).optional(),
 });
 
 export interface GoogleIdentity {
   subject: string;
   email: string;
+  displayName: string | null;
+  pictureUrl: string | null;
 }
 
 export interface GoogleOAuthDependencies {
@@ -128,7 +132,12 @@ export async function verifyGoogleIdToken(input: {
   if (!identity.success || identity.data.nonce !== input.expectedNonce) {
     throw new Error('Invalid Google identity');
   }
-  return { subject: identity.data.sub, email: identity.data.email.trim().toLowerCase() };
+  return {
+    subject: identity.data.sub,
+    email: identity.data.email.trim().toLowerCase(),
+    displayName: identity.data.name ?? null,
+    pictureUrl: identity.data.picture ?? null,
+  };
 }
 
 export async function getGoogleIdentityFromCode(input: {

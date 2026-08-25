@@ -180,7 +180,7 @@ describe('cuentas, roles y administradores', () => {
 });
 
 describe('invitaciones de cuenta', () => {
-  it('guarda solo el hash, vincula correo/rol y permite un único uso', async () => {
+  it('guarda solo el hash, deriva correo/rol y permite un único uso', async () => {
     const admin = await bootstrapAdmin();
     const created = await createInvitation({
       actorId: admin.id,
@@ -196,14 +196,15 @@ describe('invitaciones de cuenta', () => {
     expect(stored[0]?.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(await listInvitations(admin.id))).not.toContain(stored[0]?.tokenHash);
 
-    await expect(
-      register('otra@example.test', { invitationToken: created.token }),
-    ).rejects.toMatchObject({ code: 'INVITATION_EMAIL_MISMATCH' } satisfies Partial<AccountError>);
-    const accepted = await register('invitada@example.test', {
+    const accepted = await register('otra@example.test', {
       invitationToken: created.token,
       publicRegistrationEnabled: false,
     });
-    expect(accepted).toMatchObject({ role: 'ADMIN', adminSlot: 2 });
+    expect(accepted).toMatchObject({
+      email: 'invitada@example.test',
+      role: 'ADMIN',
+      adminSlot: 2,
+    });
     await expect(
       register('invitada@example.test', { invitationToken: created.token }),
     ).rejects.toBeInstanceOf(AccountError);

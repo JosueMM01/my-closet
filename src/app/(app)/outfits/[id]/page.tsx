@@ -4,10 +4,10 @@
  * Detalle de outfit: composición apilada, editar slots (ciclar ‹ ›),
  * eliminar y programar en calendario.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useSession } from '@/components/providers';
+import { useSession, useSync } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
 import { deleteOutfit, updateOutfit, createCalendarEntry } from '@/lib/local/repositories';
 import { CATEGORY_LABELS } from '@/lib/domain/constants';
@@ -15,6 +15,7 @@ import type { Garment, Outfit } from '@/lib/domain/types';
 import { GarmentPhoto } from '@/components/garment-photo';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button, Field, TextInput } from '@/components/ui';
+import { StatusToast } from '@/components/status-toast';
 import {
   ArrowLeftIcon,
   CalendarIcon,
@@ -30,11 +31,13 @@ export default function OutfitDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const { profile } = useSession();
+  const { online } = useSync();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(searchParams.get('date') ?? '');
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const dismissShareStatus = useCallback(() => setShareStatus(null), []);
 
   const data = useLiveQuery(
     async () => {
@@ -106,10 +109,19 @@ export default function OutfitDetailPage() {
     router.push('/calendar');
   }
 
-  function handleShare() {
+  async function handleShare() {
+    if (!online) {
+      setShareStatus('Necesitas conexión para compartir este conjunto.');
+      return;
+    }
     const url = `${window.location.origin}/share/outfit/${outfit!.shareableId}`;
-    setShareUrl(url);
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+      setShareStatus('Enlace del conjunto copiado.');
+    } catch {
+      setShareStatus(`No se pudo copiar. Enlace: ${url}`);
+    }
   }
 
   async function saveName() {
@@ -119,6 +131,7 @@ export default function OutfitDetailPage() {
 
   return (
     <div className="mx-auto max-w-xl">
+      <StatusToast message={shareStatus} onDismiss={dismissShareStatus} />
       <div className="mb-4 flex items-center justify-between">
         <button
           type="button"
@@ -131,7 +144,7 @@ export default function OutfitDetailPage() {
         <div className="flex gap-1">
           <button
             type="button"
-            onClick={handleShare}
+            onClick={() => void handleShare()}
             aria-label="Compartir conjunto"
             data-testid="share-outfit"
             className="flex h-11 w-11 items-center justify-center rounded-full text-text-secondary hover:bg-surface-alt"
@@ -270,11 +283,6 @@ export default function OutfitDetailPage() {
           </Button>
         </div>
 
-        {shareUrl && (
-          <div className="rounded-xl bg-primary-soft p-3 text-xs text-primary" data-testid="share-url" role="status">
-            Enlace copiado: {shareUrl}
-          </div>
-        )}
       </div>
 
       <ConfirmDialog

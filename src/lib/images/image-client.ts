@@ -4,8 +4,15 @@ import { uuid } from '@/lib/domain/ids';
 import type { ImageRecord } from '@/lib/domain/types';
 import { getDB } from '@/lib/local/db';
 import { maybeSync } from '@/lib/local/sync-engine';
-import { backgroundRemovalAttempts } from './background-removal';
-import { decodeImageFile, encodeBitmapToWebp, type ProcessedImage } from './processor';
+import { backgroundRemovalAttempts, shouldAttemptWebGpu } from './background-removal';
+import {
+  closeDecodedImage,
+  decodeImageFile,
+  detectImageFormat,
+  encodeBitmapToWebp,
+  type DetectedImageFormat,
+  type ProcessedImage,
+} from './processor';
 import {
   imageProgressSchema,
   imageWorkerMessageSchema,
@@ -111,13 +118,13 @@ async function processOnMainThread(
 ): Promise<ProcessedImage> {
   if (options.signal?.aborted) throw abortError();
   report(options, { stage: 'Preparando imagen', current: null, total: null });
-  const { bitmap, width, height } = await decodeImageFile(file);
+  const { source, width, height } = await decodeImageFile(file);
   try {
-    const processed = await encodeBitmapToWebp(bitmap, width, height);
+    const processed = await encodeBitmapToWebp(source, width, height);
     if (options.signal?.aborted) throw abortError();
     return processed;
   } finally {
-    bitmap.close();
+    closeDecodedImage(source);
   }
 }
 
@@ -126,10 +133,15 @@ async function processWithBackgroundRemoval(
   options: SaveGarmentPhotoOptions,
 ): Promise<ProcessedImage> {
   const webGpuAvailable = typeof navigator !== 'undefined' && 'gpu' in navigator;
-  const attempts = backgroundRemovalAttempts(webGpuAvailable);
+  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  const attempts = backgroundRemovalAttempts(shouldAttemptWebGpu(webGpuAvailable, userAgent));
   let lastError: Error = new Error('No se pudo eliminar el fondo');
+  let source: Blob = file;
+  let normalizedOnMainThread = false;
 
-  for (const [index, attempt] of attempts.entries()) {
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    if (!attempt) break;
     if (index > 0) {
       report(options, {
         stage: 'Reintentando en modo compatible',
@@ -138,9 +150,21 @@ async function processWithBackgroundRemoval(
       });
     }
     try {
-      return await runWorker(file, attempt, options);
+      return await runWorker(source, attempt, options);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      if (error instanceof WorkerProcessingError && error.code === 'decode' && !normalizedOnMainThread) {
+        try {
+          source = (await processOnMainThread(file, options)).blob;
+          normalizedOnMainThread = true;
+          index -= 1;
+          continue;
+        } catch {
+          throw new ImageProcessingError(
+            'No se pudo leer la imagen. Guárdala nuevamente como JPEG o PNG e inténtalo otra vez.',
+          );
+        }
+      }
       lastError = error instanceof Error ? error : lastError;
     }
   }
@@ -184,6 +208,29 @@ export function validateImageFile(file: File): void {
   }
 }
 
+const MIME_BY_FORMAT: Record<DetectedImageFormat, readonly string[]> = {
+  jpeg: ['image/jpeg'],
+  png: ['image/png'],
+  webp: ['image/webp'],
+  avif: ['image/avif'],
+  heif: ['image/heic', 'image/heif'],
+};
+
+export async function validateImageContent(file: File): Promise<DetectedImageFormat> {
+  const format = await detectImageFormat(file);
+  if (!format) {
+    throw new ImageValidationError(
+      'El contenido del archivo no corresponde a una imagen JPEG, PNG, WebP, HEIC o AVIF válida.',
+    );
+  }
+  if (!MIME_BY_FORMAT[format].includes(file.type)) {
+    throw new ImageValidationError(
+      `La extensión o el tipo declarado (${file.type || 'desconocido'}) no coincide con el formato real (${format.toUpperCase()}).`,
+    );
+  }
+  return format;
+}
+
 /** Procesa y persiste la foto en IndexedDB solo después de validar el resultado. */
 export async function saveGarmentPhoto(
   userId: string,
@@ -191,6 +238,7 @@ export async function saveGarmentPhoto(
   options: SaveGarmentPhotoOptions = {},
 ): Promise<ImageRecord> {
   validateImageFile(file);
+  await validateImageContent(file);
   let processed: ProcessedImage;
 
   if (options.removeBackground === true) {
@@ -225,4 +273,31 @@ export async function saveGarmentPhoto(
   await getDB().images.put(record);
   if (options.queueForSync !== false) void maybeSync();
   return record;
+}
+
+/** Reemplaza el blob local de una imagen sin iniciar una subida remota. */
+export async function replaceLocalImageBlob(
+  imageId: string,
+  blob: Blob,
+  width: number,
+  height: number,
+): Promise<ImageRecord> {
+  const processed = { blob, width, height, mimeType: 'image/webp' as const };
+  await validateProcessedImage(processed);
+  const current = await getDB().images.get(imageId);
+  if (!current) throw new ImageProcessingError('La imagen local ya no está disponible');
+  const updated: ImageRecord = {
+    ...current,
+    width,
+    height,
+    byteSize: blob.size,
+    updatedAt: new Date().toISOString(),
+    blob,
+    remoteUrl: null,
+    storageProvider: 'local',
+    storageKey: null,
+    syncStatus: 'syncing',
+  };
+  await getDB().images.put(updated);
+  return updated;
 }

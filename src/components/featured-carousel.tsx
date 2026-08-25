@@ -14,6 +14,7 @@ const FEATURED_IMAGES = [
 export function FeaturedCarousel() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const programmaticTargetRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(
@@ -27,6 +28,7 @@ export function FeaturedCarousel() {
     const normalizedIndex = (index + FEATURED_IMAGES.length) % FEATURED_IMAGES.length;
     const viewport = viewportRef.current;
     if (!viewport) return;
+    programmaticTargetRef.current = normalizedIndex;
     viewport.scrollTo({ left: viewport.clientWidth * normalizedIndex, behavior: 'smooth' });
     setActiveIndex(normalizedIndex);
   }
@@ -36,6 +38,15 @@ export function FeaturedCarousel() {
     animationFrameRef.current = requestAnimationFrame(() => {
       const viewport = viewportRef.current;
       if (!viewport || viewport.clientWidth === 0) return;
+      const programmaticTarget = programmaticTargetRef.current;
+      if (programmaticTarget !== null) {
+        const targetScrollLeft = viewport.clientWidth * programmaticTarget;
+        if (Math.abs(viewport.scrollLeft - targetScrollLeft) > 1) {
+          animationFrameRef.current = null;
+          return;
+        }
+        programmaticTargetRef.current = null;
+      }
       const nextIndex = Math.min(
         FEATURED_IMAGES.length - 1,
         Math.max(0, Math.round(viewport.scrollLeft / viewport.clientWidth)),
@@ -57,6 +68,12 @@ export function FeaturedCarousel() {
         <div
           ref={viewportRef}
           onScroll={handleScroll}
+          onPointerDown={() => {
+            programmaticTargetRef.current = null;
+          }}
+          onWheel={() => {
+            programmaticTargetRef.current = null;
+          }}
           className="no-scrollbar flex aspect-square w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-[1.35rem] bg-surface shadow-soft"
         >
           {FEATURED_IMAGES.map((image, index) => (

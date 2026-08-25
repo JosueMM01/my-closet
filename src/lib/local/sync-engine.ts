@@ -290,6 +290,17 @@ export function uploadProcessedImage(imageId: string, userId: string): Promise<b
   return task;
 }
 
+/** Libera una imagen retenida localmente para subirla después de guardar su entidad. */
+export async function queueProcessedImage(imageId: string, userId: string): Promise<void> {
+  const db = getDB();
+  const image = await db.images.get(imageId);
+  if (!image || image.userId !== userId || !image.blob) return;
+  if (image.syncStatus !== 'synced' || !image.remoteUrl) {
+    await db.images.put({ ...image, syncStatus: 'pending' });
+    void maybeSync();
+  }
+}
+
 async function pushPendingImages(userId: string): Promise<void> {
   const db = getDB();
   const pending = (await db.images.where('syncStatus').anyOf(['pending', 'failed']).toArray())
