@@ -10,7 +10,12 @@ import {
   upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
+import type { SessionUser } from '@/server/auth/session';
 import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
+import {
+  acceptWardrobeInvitation,
+  inspectWardrobeInvitation,
+} from '@/server/repositories/wardrobe-invitations-repository';
 
 const USER_A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const USER_B = 'aaaaaaaa-0000-4000-8000-000000000002';
@@ -307,6 +312,59 @@ describe('repositorio de sincronización (SQLite)', () => {
     await expect(storage.put({ ...input, userId: USER_B })).rejects.toBeInstanceOf(ImageOwnershipError);
     expect((await pullAll(USER_A, null)).images).toHaveLength(1);
     expect((await pullAll(USER_B, null)).images).toHaveLength(0);
+  });
+
+  it('acepta una invitación de armario por correo de forma atómica e idempotente', async () => {
+    await seedUsers();
+    const now = new Date().toISOString();
+    const share: WardrobeShare = {
+      id: 'bbbbbbbb-0000-4000-8000-0000000000f5',
+      grantorId: USER_A,
+      granteeId: null,
+      granteeEmail: 'beto@test.local',
+      permission: 'MANAGE',
+      inviteToken: 'abcdef0123456789abcdef0123456789',
+      acceptedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      deletedAt: null,
+      syncStatus: 'pending',
+    };
+    await upsertWardrobeShare(USER_A, share);
+    const beto: SessionUser = {
+      userId: USER_B,
+      email: 'BETO@test.local',
+      displayName: 'Beto',
+      createdAt: now,
+      role: 'USER',
+      status: 'ACTIVE',
+      profileImageId: null,
+    };
+
+    await expect(inspectWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: false,
+    });
+    await expect(acceptWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: true,
+    });
+    await expect(acceptWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: true,
+    });
+
+    const pulledByGrantee = await pullAll(USER_B, null);
+    expect(pulledByGrantee.wardrobeShares).toEqual([
+      expect.objectContaining({ id: share.id, granteeId: USER_B, version: 2 }),
+    ]);
+
+    await expect(inspectWardrobeInvitation(share.inviteToken, {
+      ...beto,
+      userId: 'aaaaaaaa-0000-4000-8000-000000000003',
+      email: 'otra@test.local',
+    })).rejects.toMatchObject({ code: 'EMAIL_MISMATCH' });
   });
 });
 

@@ -291,6 +291,7 @@ function ensureSqliteSchema(
     deleted_at TEXT
   )`);
   db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS shares_grantor_invite_idx ON wardrobe_shares(grantor_id, invite_token)`);
+  db.run(sql`CREATE UNIQUE INDEX IF NOT EXISTS shares_invite_token_idx ON wardrobe_shares(invite_token)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS shares_updated_idx ON wardrobe_shares(updated_at)`);
   const shareColumns = new Set(
     raw.prepare<[], { name: string }>('PRAGMA table_info(wardrobe_shares)').all().map((column) => column.name),
@@ -300,6 +301,7 @@ function ensureSqliteSchema(
     raw.exec("UPDATE wardrobe_shares SET server_updated_at = updated_at WHERE server_updated_at = ''");
   }
   db.run(sql`CREATE INDEX IF NOT EXISTS shares_grantor_server_updated_idx ON wardrobe_shares(grantor_id, server_updated_at, id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS shares_grantee_server_updated_idx ON wardrobe_shares(grantee_id, server_updated_at, id)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS images (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

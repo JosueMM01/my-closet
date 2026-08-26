@@ -605,7 +605,10 @@ export async function pullAll(
         .from(pgSchema.wardrobeShares)
         .where(
           and(
-            eq(pgSchema.wardrobeShares.grantorId, userId),
+            or(
+              eq(pgSchema.wardrobeShares.grantorId, userId),
+              eq(pgSchema.wardrobeShares.granteeId, userId),
+            ),
             lte(pgSchema.wardrobeShares.serverUpdatedAt, new Date(upperBound)),
             or(
               sharePosition
@@ -735,7 +738,10 @@ export async function pullAll(
       .from(sqliteSchema.wardrobeShares)
       .where(
         and(
-          eq(sqliteSchema.wardrobeShares.grantorId, userId),
+          or(
+            eq(sqliteSchema.wardrobeShares.grantorId, userId),
+            eq(sqliteSchema.wardrobeShares.granteeId, userId),
+          ),
           lte(sqliteSchema.wardrobeShares.serverUpdatedAt, upperBound),
           or(
             sharePosition

@@ -20,6 +20,10 @@ import {
   upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { getImageStorage } from '@/server/images/storage';
+import {
+  acceptWardrobeInvitation,
+  inspectWardrobeInvitation,
+} from '@/server/repositories/wardrobe-invitations-repository';
 
 const enabled = process.env.DATABASE_PROVIDER === 'postgres' && Boolean(process.env.DATABASE_URL);
 const describePostgres = enabled ? describe : describe.skip;
@@ -105,6 +109,12 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
       passwordHash: 'scrypt:test-contract',
     });
     cleanupUserIds.push(user.id);
+    const grantee = await createUser({
+      email: `grantee-${suffix}@example.test`,
+      displayName: 'Grantee Contract',
+      passwordHash: 'scrypt:test-contract',
+    });
+    cleanupUserIds.push(grantee.id);
     const now = new Date().toISOString();
     const garment = {
       id: uuid(),
@@ -157,7 +167,7 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
       id: uuid(),
       grantorId: user.id,
       granteeId: null,
-      granteeEmail: 'persona@example.test',
+      granteeEmail: grantee.email,
       permission: 'VIEW' as const,
       inviteToken: 'abcdef0123456789abcdef0123456789',
       acceptedAt: null,
@@ -220,6 +230,25 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
       wardrobeShares: 1,
       images: 2,
     });
+
+    const granteePrincipal = {
+      userId: grantee.id,
+      email: grantee.email,
+      displayName: grantee.displayName,
+      createdAt: grantee.createdAt,
+      role: grantee.role,
+      status: grantee.status,
+      profileImageId: grantee.profileImageId,
+    };
+    await expect(inspectWardrobeInvitation(share.inviteToken, granteePrincipal))
+      .resolves.toEqual({ permission: 'VIEW', accepted: false });
+    await expect(acceptWardrobeInvitation(share.inviteToken, granteePrincipal))
+      .resolves.toEqual({ permission: 'VIEW', accepted: true });
+    await expect(acceptWardrobeInvitation(share.inviteToken, granteePrincipal))
+      .resolves.toEqual({ permission: 'VIEW', accepted: true });
+    expect((await pullAll(grantee.id, null)).wardrobeShares).toEqual([
+      expect.objectContaining({ id: share.id, granteeId: grantee.id, version: 2 }),
+    ]);
 
     const deletedAt = new Date().toISOString();
     await upsertGarment(user.id, {

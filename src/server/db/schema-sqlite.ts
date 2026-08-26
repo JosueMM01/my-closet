@@ -213,8 +213,10 @@ export const wardrobeShares = sqliteTable(
   },
   (table) => [
     uniqueIndex('shares_grantor_invite_idx').on(table.grantorId, table.inviteToken),
+    uniqueIndex('shares_invite_token_idx').on(table.inviteToken),
     index('shares_updated_idx').on(table.updatedAt),
     index('shares_grantor_server_updated_idx').on(table.grantorId, table.serverUpdatedAt, table.id),
+    index('shares_grantee_server_updated_idx').on(table.granteeId, table.serverUpdatedAt, table.id),
   ],
 );
 

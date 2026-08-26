@@ -96,6 +96,15 @@ export const wardrobeShareInputSchema = z.object({
   permission: permissionSchema,
 });
 
+export const wardrobeInvitationTokenSchema = z
+  .string()
+  .regex(/^[a-f0-9]{32}$/i, 'La invitación de armario no es válida');
+
+export const wardrobeInvitationResponseSchema = z.object({
+  permission: permissionSchema,
+  accepted: z.boolean(),
+}).strict();
+
 /** Registro / login. */
 export const userRoleSchema = z.enum(['USER', 'ADMIN']);
 export const userStatusSchema = z.enum(['ACTIVE', 'DISABLED']);

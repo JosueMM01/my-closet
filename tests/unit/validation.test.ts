@@ -10,6 +10,7 @@ import {
   registerSchema,
   syncPullCursorPayloadSchema,
   syncPullQuerySchema,
+  wardrobeInvitationTokenSchema,
 } from '@/lib/domain/validation';
 import { normalizeSize } from '@/lib/domain/constants';
 import { startOfWeek, toDateOnly, weekDays } from '@/lib/domain/dates';
@@ -172,6 +173,14 @@ describe('sync pull schemas', () => {
       upperBound: 'no-es-fecha',
       entities: {},
     }).success).toBe(false);
+  });
+});
+
+describe('wardrobeInvitationTokenSchema', () => {
+  it('acepta solo tokens hexadecimales de armario y no tokens de cuenta', () => {
+    expect(wardrobeInvitationTokenSchema.parse('abcdef0123456789abcdef0123456789'))
+      .toBe('abcdef0123456789abcdef0123456789');
+    expect(wardrobeInvitationTokenSchema.safeParse('token-de-cuenta').success).toBe(false);
   });
 });
 
