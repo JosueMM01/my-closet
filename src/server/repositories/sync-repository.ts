@@ -1,7 +1,7 @@
 /**
  * Repositorio de sincronización compartido por SQLite y PostgreSQL.
  */
-import { and, asc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { resolveConflict } from '@/lib/domain/conflict';
 import {
   syncPullCursorPayloadSchema,
@@ -443,11 +443,11 @@ export class InvalidPullCursorError extends Error {
 type PullEntityName = keyof SyncPullCursorPayload['entities'];
 type PullPosition = SyncPullCursorPayload['entities'][PullEntityName]['position'];
 
-function initialPullCursor(since: string | null): SyncPullCursorPayload {
+function initialPullCursor(since: string | null, upperBound: string): SyncPullCursorPayload {
   const initialEntity = () => ({ done: false, position: null });
   return {
     since,
-    upperBound: new Date().toISOString(),
+    upperBound,
     entities: {
       images: initialEntity(),
       garments: initialEntity(),
@@ -492,7 +492,19 @@ export async function pullAll(
 ): Promise<PullResult> {
   const db = await getServerDB();
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
-  const state = options.cursor ? decodePullCursor(options.cursor) : initialPullCursor(since);
+  let serverTime = new Date().toISOString();
+  if (db.dialect === 'postgres') {
+    const clockRows = await db.postgres.execute<{ value: string }>(
+      sql`select current_timestamp as value`,
+    );
+    serverTime = clockRows[0]?.value
+      ? new Date(clockRows[0].value).toISOString()
+      : '';
+  }
+  if (!serverTime) throw new Error('PostgreSQL no devolvió la hora del servidor');
+  const state = options.cursor
+    ? decodePullCursor(options.cursor)
+    : initialPullCursor(since, serverTime);
   const cutoff = state.since ?? new Date(0).toISOString();
   const upperBound = state.upperBound;
 

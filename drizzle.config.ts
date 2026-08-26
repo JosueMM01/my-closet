@@ -1,7 +1,9 @@
 import { config } from 'dotenv';
 import { defineConfig } from 'drizzle-kit';
 
-config({ path: '.env.local', quiet: true });
+// Drizzle Kit loads `.env` before evaluating this file. Local database commands
+// must prefer `.env.local` so a production import file cannot silently win.
+config({ path: '.env.local', override: true, quiet: true });
 
 const url = process.env.DATABASE_URL ?? '';
 const isPostgres = url.startsWith('postgres://') || url.startsWith('postgresql://');
