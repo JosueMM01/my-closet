@@ -50,6 +50,7 @@ type SyncStateListener = () => void;
 
 const listeners = new Set<SyncStateListener>();
 let running = false;
+let activeSync: Promise<void> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
@@ -352,15 +353,16 @@ async function pull(userId: string): Promise<void> {
 }
 
 /** Ejecuta un ciclo completo push+pull. Lanza si la sesión expiró. */
-export async function runSync(): Promise<void> {
-  if (running) return;
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-  // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
-  const profile = await getLocalProfile();
-  if (!profile) return;
-  running = true;
-  notify();
-  try {
+export function runSync(): Promise<void> {
+  if (activeSync) return activeSync;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return Promise.resolve();
+
+  activeSync = (async () => {
+    // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
+    const profile = await getLocalProfile();
+    if (!profile) return;
+    running = true;
+    notify();
     await assertRemoteSession(profile.userId);
     await releaseStaleSyncing(profile.userId);
     await pushPendingImages(profile.userId);
@@ -373,10 +375,12 @@ export async function runSync(): Promise<void> {
     }
     await pull(profile.userId);
     await writeLastSyncedAt(profile.userId, new Date().toISOString());
-  } finally {
+  })().finally(() => {
     running = false;
+    activeSync = null;
     notify();
-  }
+  });
+  return activeSync;
 }
 
 /** Sincroniza si es posible; los errores de red se ignoran silenciosamente. */

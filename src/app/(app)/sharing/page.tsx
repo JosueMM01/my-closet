@@ -9,6 +9,7 @@ import { useCallback, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSession, useSync } from '@/components/providers';
 import { getDB } from '@/lib/local/db';
+import { runSync } from '@/lib/local/sync-engine';
 import {
   createWardrobeShare,
   deleteWardrobeShare,
@@ -61,7 +62,36 @@ export default function SharingPage() {
     wardrobeShareInputSchema.parse({ granteeEmail: parsed.data.email, permission });
 
     const share = await createWardrobeShare(profile.userId, parsed.data.email, permission);
-    const url = `${window.location.origin}/share/wardrobe/${share.inviteToken}`;
+    try {
+      await runSync();
+    } catch {
+      setShareStatus('Invitación creada, pero sigue pendiente de sincronizar. Intenta copiarla de nuevo cuando haya conexión.');
+      setEmail('');
+      return;
+    }
+    const syncedShare = await getDB().wardrobeShares.get(share.id);
+    if (syncedShare?.syncStatus !== 'synced') {
+      setShareStatus('Invitación creada, pero todavía no está disponible en el servidor.');
+      setEmail('');
+      return;
+    }
+    await copyInvitationLink(share.inviteToken);
+    setEmail('');
+  }
+
+  async function copyInvitationLink(token: string) {
+    try {
+      await runSync();
+    } catch {
+      setShareStatus('No se pudo sincronizar la invitación; todavía no compartas el enlace.');
+      return;
+    }
+    const syncedShare = await getDB().wardrobeShares.where('inviteToken').equals(token).first();
+    if (syncedShare?.syncStatus !== 'synced') {
+      setShareStatus('La invitación sigue pendiente de sincronizar; todavía no compartas el enlace.');
+      return;
+    }
+    const url = `${window.location.origin}/share/wardrobe/${token}`;
     try {
       if (!navigator.clipboard) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(url);
@@ -69,7 +99,6 @@ export default function SharingPage() {
     } catch {
       setShareStatus(`No se pudo copiar. Enlace: ${url}`);
     }
-    setEmail('');
   }
 
   return (
@@ -138,6 +167,14 @@ export default function SharingPage() {
                   {share.acceptedAt ? 'Aceptada' : 'Pendiente de aceptar'}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => void copyInvitationLink(share.inviteToken)}
+                aria-label="Copiar enlace de invitación"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-primary hover:bg-primary-soft"
+              >
+                <ShareIcon size={18} />
+              </button>
               <button
                 type="button"
                 onClick={() =>

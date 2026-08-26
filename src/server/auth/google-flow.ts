@@ -13,6 +13,7 @@ export const GOOGLE_FLOW_COOKIES = {
   intent: 'mc_google_intent',
   linkUser: 'mc_google_link_user',
   invitation: 'mc_google_invitation',
+  returnTo: 'mc_google_return_to',
 } as const;
 
 export const GOOGLE_PICTURE_COOKIE = 'mc_google_picture';
@@ -37,6 +38,7 @@ export function setGoogleFlowCookies(
     intent: GoogleFlowIntent;
     linkUserId?: string;
     invitationToken?: string;
+    returnTo?: string;
   },
 ): void {
   const cookieOptions = googleCookieOptions(10 * 60);
@@ -60,6 +62,11 @@ export function setGoogleFlowCookies(
     );
   } else {
     store.delete(GOOGLE_FLOW_COOKIES.invitation);
+  }
+  if (input.returnTo) {
+    store.set(GOOGLE_FLOW_COOKIES.returnTo, input.returnTo, cookieOptions);
+  } else {
+    store.delete(GOOGLE_FLOW_COOKIES.returnTo);
   }
 }
 

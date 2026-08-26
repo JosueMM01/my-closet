@@ -138,6 +138,38 @@ describe('callback de Google', () => {
     expect(cookieState.has('mc_session')).toBe(true);
   });
 
+  it('regresa a una ruta interna tras Google y rechaza retornos externos', async () => {
+    const invalidStart = await start(new Request(
+      'http://localhost/api/auth/google/start?intent=login&returnTo=https%3A%2F%2Fevil.example',
+    ));
+    expect(invalidStart.status).toBe(400);
+
+    const user = await createUser({
+      email: 'return@example.test',
+      displayName: 'Return',
+      passwordHash: 'password-hash',
+    });
+    await linkGoogleAccount({
+      userId: user.id,
+      providerSubject: 'return-subject',
+      providerEmail: user.email,
+    });
+    const started = await start(new Request(
+      'http://localhost/api/auth/google/start?intent=login&returnTo=%2Fshare%2Fwardrobe%2Fabcdef0123456789abcdef0123456789',
+    ));
+    expect(started.status).toBe(302);
+    expect(cookieState.get(GOOGLE_FLOW_COOKIES.returnTo))
+      .toBe('/share/wardrobe/abcdef0123456789abcdef0123456789');
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'return-subject',
+      email: user.email,
+    });
+
+    const response = await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)));
+    expect(response.headers.get('location'))
+      .toBe('http://localhost/share/wardrobe/abcdef0123456789abcdef0123456789');
+  });
+
   it('deniega una cuenta vinculada que fue deshabilitada', async () => {
     const user = await createUser({
       email: 'disabled@example.test',
