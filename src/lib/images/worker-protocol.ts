@@ -12,6 +12,8 @@ export const imageProgressStageSchema = z.enum([
   'Aplicando transparencia',
   'Codificando WebP',
   'Reintentando en modo compatible',
+  'Reintentando descarga del modelo',
+  'Usando foto sin eliminación automática',
 ]);
 
 export const imageProgressSchema = z
@@ -32,7 +34,7 @@ const operationSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('remove-background'),
       device: z.enum(['gpu', 'cpu']),
-      model: z.enum(['isnet', 'isnet_fp16']),
+      model: z.enum(['isnet', 'isnet_fp16', 'isnet_quint8']),
     })
     .strict(),
 ]);
@@ -69,7 +71,15 @@ const failureMessageSchema = z
   .object({
     type: z.literal('failure'),
     id: z.string().uuid(),
-    code: z.enum(['decode', 'processing', 'resource', 'inference']),
+    code: z.enum([
+      'decode',
+      'processing',
+      'resource-download',
+      'resource-integrity',
+      'memory',
+      'inference',
+    ]),
+    stage: imageProgressStageSchema,
     error: z.string().min(1).max(500),
   })
   .strict();

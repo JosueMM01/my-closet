@@ -14,12 +14,12 @@
  * desde la UI) y la página se recarga al detectar controllerchange.
  * Background Sync: tag "outbox-sync" avisa a los clientes para sincronizar.
  */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const STATIC_CACHE = `mc-static-${VERSION}`;
 const RUNTIME_CACHE = `mc-runtime-${VERSION}`;
 const IMAGE_CACHE = `mc-images-${VERSION}`;
-const MODEL_CACHE = 'mc-background-removal-1.7.0';
-const MODEL_PATH = '/vendor/background-removal/1.7.0/';
+const MODEL_CACHE = 'mc-background-removal-1.7.0-adaptive-v1';
+const MODEL_PATH = '/vendor/background-removal/1.7.0-adaptive-v1/';
 const OFFLINE_URL = '/offline';
 
 // Shell offline: páginas principales (el contenido real vive en IndexedDB).
@@ -113,12 +113,29 @@ function isStaticAsset(url) {
 }
 
 async function cacheFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  if (cached) return cached;
+  let cache = null;
+  try {
+    cache = await caches.open(cacheName);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+  } catch (error) {
+    console.warn('[My Closet] Cache Storage no está disponible.', {
+      cacheName,
+      error: error instanceof Error ? error.name : 'cache-unavailable',
+    });
+  }
   const response = await fetch(request);
-  if (response.ok) {
-    await cache.put(request, response.clone());
+  if (response.ok && cache) {
+    try {
+      await cache.put(request, response.clone());
+    } catch (error) {
+      // Cache Storage puede quedarse sin cuota en móviles. La descarga válida
+      // debe seguir llegando al modelo aunque no pueda conservarse offline.
+      console.warn('[My Closet] No se pudo almacenar un recurso en caché.', {
+        cacheName,
+        error: error instanceof Error ? error.name : 'cache-write-failed',
+      });
+    }
   }
   return response;
 }
