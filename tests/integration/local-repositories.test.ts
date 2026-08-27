@@ -10,14 +10,17 @@ import {
   applyRemoteGarment,
   archiveGarment,
   cloneGarment,
+  createCalendarEntry,
   createGarment,
   createOutfit,
+  deleteCalendarEntry,
   deleteGarment,
+  deleteOutfit,
   toggleGarmentFavorite,
   updateGarment,
 } from '@/lib/local/repositories';
 import type { Garment } from '@/lib/domain/types';
-import { filterGarments, EMPTY_FILTERS } from '@/lib/local/queries';
+import { deviceDataCounts, filterGarments, EMPTY_FILTERS } from '@/lib/local/queries';
 import { applyRemoteImageMetadata } from '@/lib/local/sync-engine';
 import { replaceAdminInvitations, replaceAdminUsers } from '@/lib/local/admin-cache';
 import {
@@ -369,6 +372,51 @@ describe('repositorio local de outfits', () => {
     });
     expect(outfit.slots).toHaveLength(2);
     expect(await countPending()).toBe(1);
+  });
+
+  it('excluye tombstones y entradas huérfanas de los contadores del dispositivo', async () => {
+    const activeGarment = await createGarment(USER, {
+      name: 'Prenda activa',
+      category: 'tops',
+      colors: [],
+    });
+    const deletedGarment = await createGarment(USER, {
+      name: 'Prenda eliminada',
+      category: 'tops',
+      colors: [],
+    });
+    const activeOutfit = await createOutfit(USER, {
+      name: 'Conjunto activo',
+      slots: [{ category: 'tops', garmentId: activeGarment.id }],
+    });
+    const deletedOutfit = await createOutfit(USER, {
+      name: 'Conjunto eliminado',
+      slots: [{ category: 'tops', garmentId: deletedGarment.id }],
+    });
+    await createCalendarEntry(USER, {
+      date: '2026-08-26',
+      outfitId: activeOutfit.id,
+    });
+    await createCalendarEntry(USER, {
+      date: '2026-08-27',
+      outfitId: deletedOutfit.id,
+    });
+    const deletedEntry = await createCalendarEntry(USER, {
+      date: '2026-08-28',
+      outfitId: activeOutfit.id,
+    });
+
+    await deleteGarment(deletedGarment.id);
+    await deleteOutfit(deletedOutfit.id);
+    await deleteCalendarEntry(deletedEntry.id);
+
+    expect(
+      deviceDataCounts(
+        await getDB().garments.where('userId').equals(USER).toArray(),
+        await getDB().outfits.where('userId').equals(USER).toArray(),
+        await getDB().calendarEntries.where('userId').equals(USER).toArray(),
+      ),
+    ).toEqual({ garments: 1, outfits: 1, entries: 1 });
   });
 });
 
