@@ -3,9 +3,43 @@ import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
 
 test.describe('Eliminacion de fondo local', () => {
-  test('genera un WebP transparente sin enviar la foto a terceros', async ({ page }, testInfo) => {
+  test('conserva la foto y ofrece diagnóstico cuando ningún modelo puede cargarse', async ({
+    page,
+  }, testInfo) => {
     test.skip(
-      process.env.RUN_BACKGROUND_MODEL_E2E !== '1' || testInfo.project.name !== 'chromium-desktop',
+      testInfo.project.name !== 'chromium-mobile-small',
+      'La regresión adaptativa se cubre una vez con el perfil móvil.',
+    );
+    test.setTimeout(90_000);
+    await page.context().route(
+      '**/vendor/background-removal/**',
+      (route) => route.abort('failed'),
+    );
+
+    await registerAndLogin(page);
+    await page.goto('/wardrobe/new');
+    await waitForHydration(page);
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles(path.resolve('public/item-jacket.jpg'));
+
+    await expect(page.getByTestId('photo-preview')).toBeVisible({ timeout: 60_000 });
+    const fallbackStatus = page.getByRole('status').filter({
+      hasText: 'La eliminación automática no pudo completarse',
+    });
+    await expect(fallbackStatus).toContainText(
+      'Se conservó la foto para que puedas guardarla o corregirla con el editor manual',
+    );
+    await expect(page.getByRole('button', { name: 'Copiar diagnóstico técnico' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Editar recorte de la prenda' })).toBeVisible();
+  });
+
+  test('genera un WebP transparente sin enviar la foto a terceros', async ({ page }, testInfo) => {
+    const requested = testInfo.project.name === 'chromium-desktop'
+      ? process.env.RUN_BACKGROUND_MODEL_E2E === '1'
+      : process.env.RUN_BACKGROUND_MODEL_MOBILE_E2E === '1';
+    test.skip(
+      !requested,
       'La prueba del modelo real es lenta y se ejecuta de forma explicita.',
     );
     test.setTimeout(10 * 60_000);
