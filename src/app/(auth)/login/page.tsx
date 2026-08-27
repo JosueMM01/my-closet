@@ -16,12 +16,16 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
 
-  useEffect(() => {
-    if (!loading && profile) router.replace('/');
-  }, [loading, profile, router]);
+  function safeReturnPath(): string {
+    const requested = new URL(window.location.href).searchParams.get('next');
+    return requested?.startsWith('/') && !requested.startsWith('//') && !requested.includes('\\')
+      ? requested
+      : '/';
+  }
 
   useEffect(() => {
     const url = new URL(window.location.href);
+    if (!loading && profile) router.replace(safeReturnPath());
     const googleDenied = url.searchParams.get('google') === 'denied';
     if (googleDenied) {
       url.searchParams.delete('google');
@@ -36,7 +40,7 @@ export default function LoginPage() {
         if (googleDenied) setError('No se pudo iniciar sesión con Google.');
         setGoogleEnabled(false);
       });
-  }, []);
+  }, [loading, profile, router]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -45,7 +49,7 @@ export default function LoginPage() {
     try {
       await login({ email, password });
       await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
-      router.replace('/');
+      router.replace(safeReturnPath());
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'No se pudo iniciar sesión');
     } finally {
@@ -152,6 +156,13 @@ export default function LoginPage() {
                 </div>
                 <a
                   href="/api/auth/google/start?intent=login"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    // OAuth requiere una navegación completa fuera de la aplicación.
+                    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                    window.location.href =
+                      `/api/auth/google/start?intent=login&returnTo=${encodeURIComponent(safeReturnPath())}`;
+                  }}
                   className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
                 >
                   Continuar con Google

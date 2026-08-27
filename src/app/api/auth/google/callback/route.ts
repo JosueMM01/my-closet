@@ -75,6 +75,7 @@ export async function GET(request: Request): Promise<Response> {
     const expectedState = store.get(GOOGLE_FLOW_COOKIES.state)?.value;
     const verifier = store.get(GOOGLE_FLOW_COOKIES.verifier)?.value;
     const nonce = store.get(GOOGLE_FLOW_COOKIES.nonce)?.value;
+    const returnTo = store.get(GOOGLE_FLOW_COOKIES.returnTo)?.value;
     if (
       !query.success ||
       query.data.error ||
@@ -164,7 +165,13 @@ export async function GET(request: Request): Promise<Response> {
     const user = await findActiveUserByGoogleSubject(identity.subject);
     if (!user) return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
     await createSession(user.id);
-    return redirectTo(request, '/', config.appUrl);
+    return redirectTo(
+      request,
+      returnTo?.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\')
+        ? returnTo
+        : '/',
+      config.appUrl,
+    );
   } catch (error) {
     const reason = error instanceof AccountError && error.code === 'INVITATION_EMAIL_MISMATCH'
       ? 'email-mismatch'

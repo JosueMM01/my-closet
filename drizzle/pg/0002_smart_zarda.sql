@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "shares_invite_token_idx" ON "wardrobe_shares" USING btree ("invite_token");--> statement-breakpoint
+CREATE INDEX "shares_grantee_server_updated_idx" ON "wardrobe_shares" USING btree ("grantee_id","server_updated_at","id");

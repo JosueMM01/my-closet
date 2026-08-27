@@ -11,7 +11,15 @@ import { inspectInvitationToken } from '@/server/repositories/invitations-reposi
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const startQuerySchema = z.object({ intent: z.enum(['login', 'link', 'photo']) }).strict();
+const safeReturnPathSchema = z
+  .string()
+  .max(512)
+  .refine((value) => value.startsWith('/') && !value.startsWith('//') && !value.includes('\\'));
+
+const startQuerySchema = z.object({
+  intent: z.enum(['login', 'link', 'photo']),
+  returnTo: safeReturnPathSchema.optional(),
+}).strict();
 
 function oauthRedirect(config: NonNullable<ReturnType<typeof getGoogleAuthConfig>>, values: ReturnType<typeof createGoogleOAuthValues>): Response {
   const authorizationUrl = buildGoogleAuthorizationUrl({ config, ...values });
@@ -41,6 +49,7 @@ export async function GET(request: Request): Promise<Response> {
     ...values,
     intent: query.data.intent,
     linkUserId: principal?.userId,
+    returnTo: query.data.intent === 'login' ? query.data.returnTo : undefined,
   });
   return oauthRedirect(config, values);
 }

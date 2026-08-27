@@ -73,6 +73,9 @@ describe('migraciones SQLite en runtime', () => {
     const first = await createServerDB(env);
     if (first.dialect !== 'sqlite') throw new Error('Se esperaba SQLite');
     expect(first.raw.prepare('SELECT favorite FROM garments').get()).toEqual({ favorite: 0 });
+    expect(first.raw.prepare('SELECT server_updated_at FROM garments').get()).toEqual({
+      server_updated_at: '2026-01-01T00:00:00.000Z',
+    });
     expect(
       first.raw
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_tokens'")
