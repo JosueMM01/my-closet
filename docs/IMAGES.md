@@ -16,10 +16,12 @@ La ruta normal de resize/WebP no importa ni carga IMG.LY u ONNX. Si el worker
 normal falla, usa el mismo procesador en el hilo principal con
 `OffscreenCanvas` o canvas DOM. Los bitmaps se cierran en `finally`.
 
-Cuando se solicita quitar el fondo no se devuelve silenciosamente el original:
-un error o una cancelación deja la foto anterior intacta. Cada intento usa un
-worker nuevo, que se termina al completar, fallar o cancelar para liberar la
-sesión y cientos de MB de memoria.
+Cuando la eliminación automática agota sus rutas compatibles, se conserva la
+foto normalizada sin transparencia y se habilita el editor manual. La interfaz
+lo informa y permite copiar un diagnóstico técnico sin incluir la imagen,
+nombre de archivo, EXIF ni datos de cuenta. Una cancelación sí deja la foto
+anterior intacta. Cada intento usa un worker nuevo, que se termina al completar,
+fallar o cancelar antes de crear el siguiente runtime ONNX.
 
 ## Eliminación de fondo local
 
@@ -29,19 +31,25 @@ sesión y cientos de MB de memoria.
   está activo.
 - Los bytes de la foto nunca se envían a IMG.LY ni a otro host. Modelo, runtime
   y manifest se obtienen exclusivamente del mismo origen en
-  `/vendor/background-removal/1.7.0/`.
-- Orden de intentos: WebGPU + `isnet` completo si el navegador expone WebGPU;
-  CPU + `isnet`; CPU + `isnet_fp16` como fallback de compatibilidad. Cada
-  fallback queda aislado en un worker nuevo para no reutilizar un runtime ONNX
-  inicializado a medias.
-- El primer intento con `isnet` descarga aproximadamente 200 MB decimales
-  (la interfaz advierte cerca de 210 MB). `isnet_fp16` requiere unos 88 MB si
-  se usa el fallback. El service worker los guarda con CacheFirst en una caché
-  versionada separada que no se elimina con versiones ordinarias del app shell.
+  `/vendor/background-removal/1.7.0-adaptive-v1/`.
+- La selección considera adaptador WebGPU real, plataforma, memoria reportada,
+  concurrencia, espacio disponible y la ruta que funcionó anteriormente.
+- Escritorio con WebGPU estable intenta `gpu/isnet`, luego `cpu/isnet_fp16` y
+  `cpu/isnet_quint8`. Android conserva CPU por defecto porque disponer de
+  adaptador no demuestra estabilidad del driver; solo reutiliza WebGPU si esa
+  ruta ya quedó registrada como exitosa.
+- Un móvil medio comienza con `cpu/isnet_fp16` (~84 MB) y baja a
+  `cpu/isnet_quint8` (~42 MB). Un dispositivo limitado invierte ese orden.
+- Una ruta con dos fallos deja de probarse en cada foto. Solo los fallos de
+  descarga o integridad de assets reciben un reintento; memoria, inferencia y
+  terminación del worker cambian de ruta después de liberar el worker anterior.
+- Cache Storage es best-effort: quedarse sin cuota no invalida una respuesta de
+  red correcta. El modelo puede funcionar en esa sesión aunque no quede
+  disponible offline.
 - El modelo grande nunca forma parte del precache del service worker.
 
 `scripts/prepare-background-removal-assets.mjs` resuelve el tarball oficial,
-selecciona únicamente ambos modelos y los runtimes WASM+MJS regular/JSEP,
+selecciona los tres modelos y los runtimes WASM+MJS regular/JSEP,
 comprueba tamaño y SHA-256 content-addressed de cada chunk, escribe un
 `resources.json` podado y copia licencias/avisos. `predev`, `prebuild` y
 `pretest` lo ejecutan de forma idempotente. Los binarios generados están
@@ -49,11 +57,12 @@ ignorados por Git.
 
 ## Compatibilidad y recursos
 
-La inferencia requiere mucha RAM y puede tardar varios minutos en CPU. Algunos
-teléfonos cerrarán el worker por presión de memoria; en ese caso se informa el
-fallo y se puede desactivar la opción. WebGPU depende del navegador, GPU y
-controlador. Mobile Safari no está certificado para este flujo y no se afirma
-compatibilidad garantizada.
+La inferencia requiere bastante RAM y puede tardar varios minutos en CPU. El
+pipeline distingue descarga, integridad de assets, decodificación, memoria
+confirmada por ONNX, inferencia y terminación probable por presión de recursos.
+No atribuye automáticamente un worker muerto a falta de RAM. WebGPU depende del
+navegador, GPU y controlador; Mobile Safari no está certificado para este flujo
+y no se afirma compatibilidad garantizada.
 
 No se habilitan COOP/COEP globales: se conserva compatibilidad futura con el
 popup de Google y recursos de Cloudinary. Sin `SharedArrayBuffer`, ONNX puede

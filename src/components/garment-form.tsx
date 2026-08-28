@@ -14,6 +14,7 @@ import {
   replaceLocalImageBlob,
   saveGarmentPhoto,
 } from '@/lib/images/image-client';
+import type { BackgroundRemovalDiagnostic } from '@/lib/images/background-removal-state';
 import type { ImageProgress } from '@/lib/images/worker-protocol';
 import { createGarment, updateGarment } from '@/lib/local/repositories';
 import { queueProcessedImage } from '@/lib/local/sync-engine';
@@ -58,6 +59,8 @@ export function GarmentForm({
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoProgress, setPhotoProgress] = useState<ImageProgress | null>(null);
+  const [photoWarning, setPhotoWarning] = useState<string | null>(null);
+  const [photoDiagnostic, setPhotoDiagnostic] = useState<BackgroundRemovalDiagnostic | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
@@ -87,6 +90,8 @@ export function GarmentForm({
     const controller = new AbortController();
     processingControllerRef.current = controller;
     setError(null);
+    setPhotoWarning(null);
+    setPhotoDiagnostic(null);
     setPhotoBusy(true);
     setPhotoProgress({ stage: 'Preparando imagen', current: null, total: null });
     try {
@@ -95,6 +100,10 @@ export function GarmentForm({
         queueForSync: false,
         signal: controller.signal,
         onProgress: setPhotoProgress,
+        onBackgroundRemovalFallback: (message, diagnostic) => {
+          setPhotoWarning(message);
+          setPhotoDiagnostic(diagnostic);
+        },
       });
       setPhoto(record);
       setOriginalPhoto(file);
@@ -128,6 +137,8 @@ export function GarmentForm({
     setEditorOpen(false);
     setRemoveExistingPhoto(true);
     setError(null);
+    setPhotoWarning(null);
+    setPhotoDiagnostic(null);
   }
 
   function toggleColor(color: string) {
@@ -323,7 +334,7 @@ export function GarmentForm({
           <span>
             <span className="block text-sm font-semibold text-text-primary">Quitar el fondo automáticamente</span>
             <span className="mt-1 block text-xs leading-relaxed text-text-muted">
-              Se ejecuta solo en este dispositivo. La primera vez descarga cerca de 210 MB; tu foto nunca se envía a IMG.LY ni a otro servicio.
+              Se ejecuta solo en este dispositivo. La primera vez carga entre 42 y 168 MB según sus capacidades; tu foto nunca se envía a IMG.LY ni a otro servicio.
             </span>
           </span>
         </label>
@@ -459,6 +470,28 @@ export function GarmentForm({
         />
       </Field>
 
+      {photoWarning ? (
+        <div role="status" className="space-y-2 rounded-xl bg-warning/10 p-3 text-sm text-text-secondary">
+          <p>{photoWarning}</p>
+          {photoDiagnostic ? (
+            <button
+              type="button"
+              className="font-semibold text-primary underline underline-offset-2"
+              onClick={() => {
+                if (!navigator.clipboard) {
+                  setError('Este navegador no permite copiar el diagnóstico automáticamente.');
+                  return;
+                }
+                void navigator.clipboard
+                  .writeText(JSON.stringify(photoDiagnostic, null, 2))
+                  .catch(() => setError('No se pudo copiar el diagnóstico técnico.'));
+              }}
+            >
+              Copiar diagnóstico técnico
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
 
       <div className="pt-2">

@@ -22,6 +22,27 @@ function readableError(error: unknown): string {
   return message.slice(0, 500) || 'Error procesando imagen';
 }
 
+function classifyFailure(
+  error: unknown,
+  fallback: ImageWorkerFailureCode,
+): ImageWorkerFailureCode {
+  const message = readableError(error).toLowerCase();
+  if (
+    /out of memory|memory access out of bounds|cannot allocate|allocation failed|array buffer allocation failed/.test(
+      message,
+    )
+  ) {
+    return 'memory';
+  }
+  if (/failed to fetch|networkerror|load failed|resource metadata not found/.test(message)) {
+    return 'resource-download';
+  }
+  if (/with size .* but got|unexpected end|invalid.*chunk|integrity/.test(message)) {
+    return 'resource-integrity';
+  }
+  return fallback;
+}
+
 self.addEventListener('message', (event: MessageEvent<unknown>) => {
   const parsed = imageWorkerRequestSchema.safeParse(event.data);
   if (!parsed.success) return;
@@ -29,19 +50,24 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
   void (async () => {
     let decoded: DecodedImage | null = null;
     let failureCode: ImageWorkerFailureCode = 'decode';
+    let currentStage: ImageProgress['stage'] = 'Preparando imagen';
+    const reportProgress = (progress: ImageProgress) => {
+      currentStage = progress.stage;
+      report(id, progress);
+    };
     try {
-      report(id, { stage: 'Preparando imagen', current: null, total: null });
+      reportProgress({ stage: 'Preparando imagen', current: null, total: null });
       decoded = await decodeImageFile(file);
       failureCode = 'processing';
       const resized = await encodeBitmapToWebp(decoded.source, decoded.width, decoded.height);
 
       if (operation.type === 'resize') {
-        report(id, { stage: 'Codificando WebP', current: null, total: null });
+        reportProgress({ stage: 'Codificando WebP', current: null, total: null });
         post({ type: 'success', id, ...resized });
         return;
       }
 
-      failureCode = 'resource';
+      failureCode = 'resource-download';
       const { removeBackground } = await import('@imgly/background-removal');
       const publicPath = new URL(BACKGROUND_REMOVAL_PUBLIC_PATH, self.location.origin).toString();
       const result = await removeBackground(resized.blob, {
@@ -53,7 +79,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
         output: { format: 'image/webp', quality: 0.82 },
         progress: (key: string, current: number, total: number) => {
           if (key.startsWith('fetch:')) {
-            report(id, { stage: 'Cargando modelo local', current, total });
+            reportProgress({ stage: 'Cargando modelo local', current, total });
             return;
           }
           failureCode = 'inference';
@@ -62,7 +88,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
             : key === 'compute:encode'
               ? 'Codificando WebP'
               : 'Eliminando fondo';
-          report(id, { stage, current: null, total: null });
+          reportProgress({ stage, current: null, total: null });
         },
       });
       post({
@@ -77,7 +103,8 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
       post({
         type: 'failure',
         id,
-        code: failureCode,
+        code: classifyFailure(error, failureCode),
+        stage: currentStage,
         error: readableError(error),
       });
     } finally {

@@ -58,7 +58,7 @@ const nextConfig: NextConfig = {
         headers: Object.entries(securityHeaders()).map(([key, value]) => ({ key, value })),
       },
       {
-        source: '/vendor/background-removal/1.7.0/:asset*',
+        source: '/vendor/background-removal/1.7.0-adaptive-v1/:asset*',
         headers: [{ key: 'cache-control', value: 'public, max-age=31536000, immutable' }],
       },
       {

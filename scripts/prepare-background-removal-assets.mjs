@@ -8,6 +8,7 @@ export const BACKGROUND_REMOVAL_VERSION = '1.7.0';
 export const RESOURCE_KEYS = [
   '/models/isnet',
   '/models/isnet_fp16',
+  '/models/isnet_quint8',
   '/onnxruntime-web/ort-wasm-simd-threaded.wasm',
   '/onnxruntime-web/ort-wasm-simd-threaded.mjs',
   '/onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm',
@@ -21,7 +22,7 @@ const outputDirectory = join(
   'public',
   'vendor',
   'background-removal',
-  BACKGROUND_REMOVAL_VERSION,
+  `${BACKGROUND_REMOVAL_VERSION}-adaptive-v1`,
 );
 
 function assertObject(value, description) {
