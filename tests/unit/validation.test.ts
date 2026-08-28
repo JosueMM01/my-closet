@@ -8,6 +8,9 @@ import {
   remoteImageMetadataSchema,
   outfitInputSchema,
   registerSchema,
+  syncPullCursorPayloadSchema,
+  syncPullQuerySchema,
+  wardrobeInvitationTokenSchema,
 } from '@/lib/domain/validation';
 import { normalizeSize } from '@/lib/domain/constants';
 import { startOfWeek, toDateOnly, weekDays } from '@/lib/domain/dates';
@@ -139,6 +142,45 @@ describe('profileUpdateSchema', () => {
     expect(profileUpdateSchema.parse({ displayName: '  María  ' })).toEqual({ displayName: 'María' });
     expect(profileUpdateSchema.parse({ profileImageId: null })).toEqual({ profileImageId: null });
     expect(() => profileUpdateSchema.parse({})).toThrow();
+  });
+});
+
+describe('sync pull schemas', () => {
+  it('limita páginas y no permite mezclar cursor con since', () => {
+    expect(syncPullQuerySchema.parse({ limit: '25' })).toEqual({ limit: 25 });
+    expect(syncPullQuerySchema.safeParse({ limit: 101 }).success).toBe(false);
+    expect(syncPullQuerySchema.safeParse({
+      since: '2026-08-25T00:00:00.000Z',
+      cursor: 'cursor',
+    }).success).toBe(false);
+  });
+
+  it('valida estrictamente el cursor interno por entidad', () => {
+    const entity = { done: false, position: null };
+    expect(syncPullCursorPayloadSchema.safeParse({
+      since: null,
+      upperBound: '2026-08-25T00:00:00.000Z',
+      entities: {
+        images: entity,
+        garments: entity,
+        outfits: entity,
+        calendarEntries: entity,
+        wardrobeShares: entity,
+      },
+    }).success).toBe(true);
+    expect(syncPullCursorPayloadSchema.safeParse({
+      since: null,
+      upperBound: 'no-es-fecha',
+      entities: {},
+    }).success).toBe(false);
+  });
+});
+
+describe('wardrobeInvitationTokenSchema', () => {
+  it('acepta solo tokens hexadecimales de armario y no tokens de cuenta', () => {
+    expect(wardrobeInvitationTokenSchema.parse('abcdef0123456789abcdef0123456789'))
+      .toBe('abcdef0123456789abcdef0123456789');
+    expect(wardrobeInvitationTokenSchema.safeParse('token-de-cuenta').success).toBe(false);
   });
 });
 

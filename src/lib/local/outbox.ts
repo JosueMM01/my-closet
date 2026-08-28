@@ -42,7 +42,7 @@ export async function claimPendingOperations(
   return db.transaction('rw', db.outbox, async () => {
     const candidates = (await db.outbox
       .where('status')
-      .anyOf(['pending', 'failed'])
+      .equals('pending')
       .toArray())
       .filter((operation) => !userId || operation.userId === userId)
       .slice(0, limit);

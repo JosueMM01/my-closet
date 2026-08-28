@@ -120,7 +120,32 @@ export async function closeDB(): Promise<void> {
   }
 }
 
-const SYNC_STATE_KEY = 'sync-state';
+export interface LocalSyncState {
+  lastPulledAt?: string;
+  pullCursor?: string;
+  lastSyncedAt?: string;
+}
+
+function syncStateKey(userId: string): string {
+  return `sync-state:${userId}`;
+}
+
+export async function readSyncState(userId: string): Promise<LocalSyncState> {
+  const stored = await getDB().kv.get(syncStateKey(userId));
+  return (stored?.value as LocalSyncState | undefined) ?? {};
+}
+
+export async function writeSyncState(
+  userId: string,
+  patch: Partial<LocalSyncState>,
+): Promise<void> {
+  const db = getDB();
+  const current = await readSyncState(userId);
+  await db.kv.put({
+    key: syncStateKey(userId),
+    value: { ...current, ...patch },
+  });
+}
 
 export async function readSyncStats(userId: string): Promise<SyncStats> {
   const db = getDB();
@@ -128,22 +153,16 @@ export async function readSyncStats(userId: string): Promise<SyncStats> {
     db.outbox.where('[userId+status]').equals([userId, 'pending']).count(),
     db.outbox.where('[userId+status]').equals([userId, 'syncing']).count(),
     db.outbox.where('[userId+status]').equals([userId, 'failed']).count(),
-    db.kv.get(SYNC_STATE_KEY),
+    readSyncState(userId),
   ]);
-  const state = stored?.value as { lastSyncedAt?: string } | undefined;
   return {
     pending,
     syncing,
     failed,
-    lastSyncedAt: state?.lastSyncedAt ?? null,
+    lastSyncedAt: stored.lastSyncedAt ?? null,
   };
 }
 
-export async function writeLastSyncedAt(iso: string): Promise<void> {
-  const db = getDB();
-  const stored = await db.kv.get(SYNC_STATE_KEY);
-  await db.kv.put({
-    key: SYNC_STATE_KEY,
-    value: { ...(stored?.value as object | undefined), lastSyncedAt: iso },
-  });
+export async function writeLastSyncedAt(userId: string, iso: string): Promise<void> {
+  await writeSyncState(userId, { lastSyncedAt: iso });
 }

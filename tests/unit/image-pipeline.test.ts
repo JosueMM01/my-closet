@@ -4,7 +4,11 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   backgroundRemovalAttempts,
+  isLimitedImageDevice,
+  shouldRetrySameAttempt,
+  shouldTryNextAttempt,
   shouldAttemptWebGpu,
+  type BackgroundRemovalCapabilities,
 } from '@/lib/images/background-removal';
 import {
   PROCESSED_IMAGE_MAX_BYTES,
@@ -107,22 +111,75 @@ describe('protocolo del worker', () => {
 });
 
 describe('orquestación de eliminación de fondo', () => {
-  it('prioriza WebGPU/full y termina con CPU/fp16', () => {
-    expect(backgroundRemovalAttempts(true)).toEqual([
+  const desktop: BackgroundRemovalCapabilities = {
+    webGpuAdapter: true,
+    isAndroid: false,
+    isMobile: false,
+    deviceMemoryGb: 8,
+    hardwareConcurrency: 8,
+    storageHeadroomBytes: 1024 * 1024 * 1024,
+  };
+
+  it('prioriza WebGPU estable y reduce después el consumo de CPU', () => {
+    expect(backgroundRemovalAttempts(desktop)).toEqual([
       { type: 'remove-background', device: 'gpu', model: 'isnet' },
-      { type: 'remove-background', device: 'cpu', model: 'isnet' },
       { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
+      { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
     ]);
-    expect(backgroundRemovalAttempts(false)).toEqual([
-      { type: 'remove-background', device: 'cpu', model: 'isnet' },
+  });
+
+  it('empieza con FP16 en Android medio y con quint8 cuando faltan recursos', () => {
+    const android = { ...desktop, isAndroid: true, isMobile: true };
+    expect(backgroundRemovalAttempts(android)).toEqual([
+      { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
+      { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
+    ]);
+
+    const limited = { ...android, deviceMemoryGb: 4, hardwareConcurrency: 4 };
+    expect(isLimitedImageDevice(limited)).toBe(true);
+    expect(backgroundRemovalAttempts(limited)).toEqual([
+      { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
       { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
     ]);
   });
 
-  it('evita WebGPU en Android por compatibilidad de drivers', () => {
-    expect(shouldAttemptWebGpu(true, 'Mozilla/5.0 (Linux; Android 14)')).toBe(false);
-    expect(shouldAttemptWebGpu(true, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(true);
-    expect(shouldAttemptWebGpu(false, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
+  it('usa en Android solo un WebGPU que ya demostró funcionar y recuerda la ruta sana', () => {
+    const android = { ...desktop, isAndroid: true, isMobile: true };
+    const noHistory = { preferred: null, failures: {} };
+    expect(shouldAttemptWebGpu(android, noHistory)).toBe(false);
+
+    const knownGpu = {
+      preferred: { type: 'remove-background', device: 'gpu', model: 'isnet' } as const,
+      failures: {},
+    };
+    expect(shouldAttemptWebGpu(android, knownGpu)).toBe(true);
+    expect(backgroundRemovalAttempts(android, knownGpu)[0]).toEqual(knownGpu.preferred);
+    expect(shouldAttemptWebGpu(desktop, noHistory)).toBe(true);
+    expect(shouldAttemptWebGpu({ ...desktop, webGpuAdapter: false }, noHistory)).toBe(false);
+  });
+
+  it('evita rutas que fallaron repetidamente y solo reintenta descargas', () => {
+    expect(backgroundRemovalAttempts(desktop, {
+      preferred: null,
+      failures: { 'gpu:isnet': 2, 'cpu:isnet_fp16': 2 },
+    })).toEqual([
+      { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
+    ]);
+    expect(backgroundRemovalAttempts(desktop, {
+      preferred: null,
+      failures: { 'gpu:isnet': 2, 'cpu:isnet_fp16': 2, 'cpu:isnet_quint8': 2 },
+    })).toEqual([]);
+    expect(shouldRetrySameAttempt('resource-download', true, 0)).toBe(true);
+    expect(shouldRetrySameAttempt('resource-integrity', true, 0)).toBe(true);
+    expect(shouldRetrySameAttempt('inference', true, 0)).toBe(false);
+    expect(shouldRetrySameAttempt('resource-download', false, 0)).toBe(false);
+    expect(shouldRetrySameAttempt('resource-download', true, 1)).toBe(false);
+    expect(shouldTryNextAttempt('memory', {
+      type: 'remove-background', device: 'cpu', model: 'isnet_quint8',
+    })).toBe(false);
+    expect(shouldTryNextAttempt('memory', {
+      type: 'remove-background', device: 'cpu', model: 'isnet_fp16',
+    })).toBe(true);
   });
 });
 
@@ -135,13 +192,16 @@ describe('manifest generado de IMG.LY', () => {
       timeout: 120_000,
     });
     expect(check.status, check.stderr).toBe(0);
-    expect(check.stdout).toContain('75 chunks');
+    expect(check.stdout).toContain('86 chunks');
 
-    const manifestPath = resolve('public/vendor/background-removal/1.7.0/resources.json');
+    const manifestPath = resolve(
+      'public/vendor/background-removal/1.7.0-adaptive-v1/resources.json',
+    );
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
     expect(Object.keys(manifest).sort()).toEqual([
       '/models/isnet',
       '/models/isnet_fp16',
+      '/models/isnet_quint8',
       '/onnxruntime-web/ort-wasm-simd-threaded.jsep.mjs',
       '/onnxruntime-web/ort-wasm-simd-threaded.jsep.wasm',
       '/onnxruntime-web/ort-wasm-simd-threaded.mjs',

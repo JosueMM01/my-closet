@@ -1,8 +1,12 @@
 /**
  * Repositorio de sincronización compartido por SQLite y PostgreSQL.
  */
-import { and, eq, gt, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { resolveConflict } from '@/lib/domain/conflict';
+import {
+  syncPullCursorPayloadSchema,
+  type SyncPullCursorPayload,
+} from '@/lib/domain/validation';
 import type {
   CalendarEntry,
   Garment,
@@ -167,6 +171,7 @@ export async function upsertGarment(
       photoId: garment.photoId,
       createdAt: garment.createdAt,
       updatedAt: garment.updatedAt,
+      serverUpdatedAt: new Date(),
       version: garment.version,
       deletedAt: garment.deletedAt,
     };
@@ -205,6 +210,7 @@ export async function upsertGarment(
     photoId: garment.photoId,
     createdAt: garment.createdAt,
     updatedAt: garment.updatedAt,
+    serverUpdatedAt: new Date().toISOString(),
     version: garment.version,
     deletedAt: garment.deletedAt,
   };
@@ -238,6 +244,7 @@ export async function upsertOutfit(
       slots: JSON.stringify(outfit.slots),
       createdAt: outfit.createdAt,
       updatedAt: outfit.updatedAt,
+      serverUpdatedAt: new Date(),
       version: outfit.version,
       deletedAt: outfit.deletedAt,
     };
@@ -265,6 +272,7 @@ export async function upsertOutfit(
     slots: JSON.stringify(outfit.slots),
     createdAt: outfit.createdAt,
     updatedAt: outfit.updatedAt,
+    serverUpdatedAt: new Date().toISOString(),
     version: outfit.version,
     deletedAt: outfit.deletedAt,
   };
@@ -298,6 +306,7 @@ export async function upsertCalendarEntry(
       notes: entry.notes,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
+      serverUpdatedAt: new Date(),
       version: entry.version,
       deletedAt: entry.deletedAt,
     };
@@ -325,6 +334,7 @@ export async function upsertCalendarEntry(
     notes: entry.notes,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
+    serverUpdatedAt: new Date().toISOString(),
     version: entry.version,
     deletedAt: entry.deletedAt,
   };
@@ -360,6 +370,7 @@ export async function upsertWardrobeShare(
       acceptedAt: share.acceptedAt,
       createdAt: share.createdAt,
       updatedAt: share.updatedAt,
+      serverUpdatedAt: new Date(),
       version: share.version,
       deletedAt: share.deletedAt,
     };
@@ -390,6 +401,7 @@ export async function upsertWardrobeShare(
     acceptedAt: share.acceptedAt,
     createdAt: share.createdAt,
     updatedAt: share.updatedAt,
+    serverUpdatedAt: new Date().toISOString(),
     version: share.version,
     deletedAt: share.deletedAt,
   };
@@ -412,6 +424,8 @@ export class OwnershipError extends Error {
 
 export interface PullResult {
   serverTime: string;
+  hasMore: boolean;
+  nextCursor: string | null;
   images: Omit<ImageRecord, 'blob' | 'syncStatus'>[];
   garments: Garment[];
   outfits: Outfit[];
@@ -419,97 +433,356 @@ export interface PullResult {
   wardrobeShares: WardrobeShare[];
 }
 
+export class InvalidPullCursorError extends Error {
+  constructor() {
+    super('El cursor de sincronización no es válido');
+    this.name = 'InvalidPullCursorError';
+  }
+}
+
+type PullEntityName = keyof SyncPullCursorPayload['entities'];
+type PullPosition = SyncPullCursorPayload['entities'][PullEntityName]['position'];
+
+function initialPullCursor(since: string | null, upperBound: string): SyncPullCursorPayload {
+  const initialEntity = () => ({ done: false, position: null });
+  return {
+    since,
+    upperBound,
+    entities: {
+      images: initialEntity(),
+      garments: initialEntity(),
+      outfits: initialEntity(),
+      calendarEntries: initialEntity(),
+      wardrobeShares: initialEntity(),
+    },
+  };
+}
+
+function decodePullCursor(cursor: string): SyncPullCursorPayload {
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    return syncPullCursorPayloadSchema.parse(decoded);
+  } catch {
+    throw new InvalidPullCursorError();
+  }
+}
+
+function encodePullCursor(cursor: SyncPullCursorPayload): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function pageRows<T extends { id: string }>(
+  rows: T[],
+  limit: number,
+  timestamp: (row: T) => string,
+): { rows: T[]; done: boolean; position: PullPosition } {
+  const selected = rows.slice(0, limit);
+  const last = selected.at(-1);
+  return {
+    rows: selected,
+    done: rows.length <= limit,
+    position: last ? { at: timestamp(last), id: last.id } : null,
+  };
+}
+
 export async function pullAll(
   userId: string,
   since: string | null,
+  options: { cursor?: string; limit?: number } = {},
 ): Promise<PullResult> {
   const db = await getServerDB();
-  const cutoff = since ?? '0000-01-01T00:00:00.000Z';
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
+  let serverTime = new Date().toISOString();
+  if (db.dialect === 'postgres') {
+    const clockRows = await db.postgres.execute<{ value: string }>(
+      sql`select current_timestamp as value`,
+    );
+    serverTime = clockRows[0]?.value
+      ? new Date(clockRows[0].value).toISOString()
+      : '';
+  }
+  if (!serverTime) throw new Error('PostgreSQL no devolvió la hora del servidor');
+  const state = options.cursor
+    ? decodePullCursor(options.cursor)
+    : initialPullCursor(since, serverTime);
+  const cutoff = state.since ?? new Date(0).toISOString();
+  const upperBound = state.upperBound;
 
   if (db.dialect === 'postgres') {
-    const imageCutoff = since ? new Date(since) : new Date(0);
+    const after = (position: PullPosition) => position?.at ?? cutoff;
+    const imagePosition = state.entities.images.position;
+    const garmentPosition = state.entities.garments.position;
+    const outfitPosition = state.entities.outfits.position;
+    const calendarPosition = state.entities.calendarEntries.position;
+    const sharePosition = state.entities.wardrobeShares.position;
     const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
-      db.postgres
+      state.entities.images.done ? Promise.resolve([]) : db.postgres
         .select()
         .from(pgSchema.images)
         .where(
           and(
             eq(pgSchema.images.userId, userId),
-            gt(pgSchema.images.updatedAt, imageCutoff),
+            lte(pgSchema.images.updatedAt, new Date(upperBound)),
+            or(
+              imagePosition
+                ? gt(pgSchema.images.updatedAt, new Date(after(imagePosition)))
+                : gte(pgSchema.images.updatedAt, new Date(cutoff)),
+              imagePosition
+                ? and(
+                    eq(pgSchema.images.updatedAt, new Date(imagePosition.at)),
+                    gt(pgSchema.images.id, imagePosition.id),
+                  )
+                : undefined,
+            ),
           ),
-        ),
-      db.postgres
+        )
+        .orderBy(asc(pgSchema.images.updatedAt), asc(pgSchema.images.id))
+        .limit(limit + 1),
+      state.entities.garments.done ? Promise.resolve([]) : db.postgres
         .select()
         .from(pgSchema.garments)
-        .where(and(eq(pgSchema.garments.userId, userId), gt(pgSchema.garments.updatedAt, cutoff))),
-      db.postgres
+        .where(and(
+          eq(pgSchema.garments.userId, userId),
+          lte(pgSchema.garments.serverUpdatedAt, new Date(upperBound)),
+          or(
+            garmentPosition
+              ? gt(pgSchema.garments.serverUpdatedAt, new Date(after(garmentPosition)))
+              : gte(pgSchema.garments.serverUpdatedAt, new Date(cutoff)),
+            garmentPosition
+              ? and(
+                  eq(pgSchema.garments.serverUpdatedAt, new Date(garmentPosition.at)),
+                  gt(pgSchema.garments.id, garmentPosition.id),
+                )
+              : undefined,
+          ),
+        ))
+        .orderBy(asc(pgSchema.garments.serverUpdatedAt), asc(pgSchema.garments.id))
+        .limit(limit + 1),
+      state.entities.outfits.done ? Promise.resolve([]) : db.postgres
         .select()
         .from(pgSchema.outfits)
-        .where(and(eq(pgSchema.outfits.userId, userId), gt(pgSchema.outfits.updatedAt, cutoff))),
-      db.postgres
+        .where(and(
+          eq(pgSchema.outfits.userId, userId),
+          lte(pgSchema.outfits.serverUpdatedAt, new Date(upperBound)),
+          or(
+            outfitPosition
+              ? gt(pgSchema.outfits.serverUpdatedAt, new Date(after(outfitPosition)))
+              : gte(pgSchema.outfits.serverUpdatedAt, new Date(cutoff)),
+            outfitPosition
+              ? and(
+                  eq(pgSchema.outfits.serverUpdatedAt, new Date(outfitPosition.at)),
+                  gt(pgSchema.outfits.id, outfitPosition.id),
+                )
+              : undefined,
+          ),
+        ))
+        .orderBy(asc(pgSchema.outfits.serverUpdatedAt), asc(pgSchema.outfits.id))
+        .limit(limit + 1),
+      state.entities.calendarEntries.done ? Promise.resolve([]) : db.postgres
         .select()
         .from(pgSchema.calendarEntries)
         .where(
           and(
             eq(pgSchema.calendarEntries.userId, userId),
-            gt(pgSchema.calendarEntries.updatedAt, cutoff),
+            lte(pgSchema.calendarEntries.serverUpdatedAt, new Date(upperBound)),
+            or(
+              calendarPosition
+                ? gt(pgSchema.calendarEntries.serverUpdatedAt, new Date(after(calendarPosition)))
+                : gte(pgSchema.calendarEntries.serverUpdatedAt, new Date(cutoff)),
+              calendarPosition
+                ? and(
+                    eq(pgSchema.calendarEntries.serverUpdatedAt, new Date(calendarPosition.at)),
+                    gt(pgSchema.calendarEntries.id, calendarPosition.id),
+                  )
+                : undefined,
+            ),
           ),
-        ),
-      db.postgres
+        )
+        .orderBy(asc(pgSchema.calendarEntries.serverUpdatedAt), asc(pgSchema.calendarEntries.id))
+        .limit(limit + 1),
+      state.entities.wardrobeShares.done ? Promise.resolve([]) : db.postgres
         .select()
         .from(pgSchema.wardrobeShares)
         .where(
           and(
-            eq(pgSchema.wardrobeShares.grantorId, userId),
-            gt(pgSchema.wardrobeShares.updatedAt, cutoff),
+            or(
+              eq(pgSchema.wardrobeShares.grantorId, userId),
+              eq(pgSchema.wardrobeShares.granteeId, userId),
+            ),
+            lte(pgSchema.wardrobeShares.serverUpdatedAt, new Date(upperBound)),
+            or(
+              sharePosition
+                ? gt(pgSchema.wardrobeShares.serverUpdatedAt, new Date(after(sharePosition)))
+                : gte(pgSchema.wardrobeShares.serverUpdatedAt, new Date(cutoff)),
+              sharePosition
+                ? and(
+                    eq(pgSchema.wardrobeShares.serverUpdatedAt, new Date(sharePosition.at)),
+                    gt(pgSchema.wardrobeShares.id, sharePosition.id),
+                  )
+                : undefined,
+            ),
           ),
-        ),
+        )
+        .orderBy(asc(pgSchema.wardrobeShares.serverUpdatedAt), asc(pgSchema.wardrobeShares.id))
+        .limit(limit + 1),
     ]);
+    const pages = {
+      images: pageRows(imageRows, limit, (row) => row.updatedAt.toISOString()),
+      garments: pageRows(garmentRows, limit, (row) => row.serverUpdatedAt.toISOString()),
+      outfits: pageRows(outfitRows, limit, (row) => row.serverUpdatedAt.toISOString()),
+      calendarEntries: pageRows(calendarRows, limit, (row) => row.serverUpdatedAt.toISOString()),
+      wardrobeShares: pageRows(shareRows, limit, (row) => row.serverUpdatedAt.toISOString()),
+    };
+    const nextState: SyncPullCursorPayload = {
+      ...state,
+      entities: {
+        images: state.entities.images.done ? state.entities.images : { done: pages.images.done, position: pages.images.position },
+        garments: state.entities.garments.done ? state.entities.garments : { done: pages.garments.done, position: pages.garments.position },
+        outfits: state.entities.outfits.done ? state.entities.outfits : { done: pages.outfits.done, position: pages.outfits.position },
+        calendarEntries: state.entities.calendarEntries.done ? state.entities.calendarEntries : { done: pages.calendarEntries.done, position: pages.calendarEntries.position },
+        wardrobeShares: state.entities.wardrobeShares.done ? state.entities.wardrobeShares : { done: pages.wardrobeShares.done, position: pages.wardrobeShares.position },
+      },
+    };
+    const hasMore = Object.values(nextState.entities).some((entity) => !entity.done);
     return {
-      serverTime: new Date().toISOString(),
-      images: imageRows.map(fromImageRow),
-      garments: garmentRows.map(fromGarmentRow),
-      outfits: outfitRows.map(fromOutfitRow),
-      calendarEntries: calendarRows.map(fromCalendarRow),
-      wardrobeShares: shareRows.map(fromShareRow),
+      serverTime: upperBound,
+      hasMore,
+      nextCursor: hasMore ? encodePullCursor(nextState) : null,
+      images: pages.images.rows.map(fromImageRow),
+      garments: pages.garments.rows.map(fromGarmentRow),
+      outfits: pages.outfits.rows.map(fromOutfitRow),
+      calendarEntries: pages.calendarEntries.rows.map(fromCalendarRow),
+      wardrobeShares: pages.wardrobeShares.rows.map(fromShareRow),
     };
   }
   const sqlite = db.sqlite;
-
+  const after = (position: PullPosition) => position?.at ?? cutoff;
+  const imagePosition = state.entities.images.position;
+  const garmentPosition = state.entities.garments.position;
+  const outfitPosition = state.entities.outfits.position;
+  const calendarPosition = state.entities.calendarEntries.position;
+  const sharePosition = state.entities.wardrobeShares.position;
   const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
-    sqlite
+    state.entities.images.done ? Promise.resolve([]) : sqlite
       .select()
       .from(sqliteSchema.images)
-      .where(and(eq(sqliteSchema.images.userId, userId), gt(sqliteSchema.images.updatedAt, cutoff))),
-    sqlite
+      .where(and(
+        eq(sqliteSchema.images.userId, userId),
+        lte(sqliteSchema.images.updatedAt, upperBound),
+        or(
+          imagePosition
+            ? gt(sqliteSchema.images.updatedAt, after(imagePosition))
+            : gte(sqliteSchema.images.updatedAt, cutoff),
+          imagePosition
+            ? and(eq(sqliteSchema.images.updatedAt, imagePosition.at), gt(sqliteSchema.images.id, imagePosition.id))
+            : undefined,
+        ),
+      ))
+      .orderBy(asc(sqliteSchema.images.updatedAt), asc(sqliteSchema.images.id))
+      .limit(limit + 1),
+    state.entities.garments.done ? Promise.resolve([]) : sqlite
       .select()
       .from(sqliteSchema.garments)
-      .where(and(eq(sqliteSchema.garments.userId, userId), gt(sqliteSchema.garments.updatedAt, cutoff))),
-    sqlite
+      .where(and(
+        eq(sqliteSchema.garments.userId, userId),
+        lte(sqliteSchema.garments.serverUpdatedAt, upperBound),
+        or(
+          garmentPosition
+            ? gt(sqliteSchema.garments.serverUpdatedAt, after(garmentPosition))
+            : gte(sqliteSchema.garments.serverUpdatedAt, cutoff),
+          garmentPosition
+            ? and(eq(sqliteSchema.garments.serverUpdatedAt, garmentPosition.at), gt(sqliteSchema.garments.id, garmentPosition.id))
+            : undefined,
+        ),
+      ))
+      .orderBy(asc(sqliteSchema.garments.serverUpdatedAt), asc(sqliteSchema.garments.id))
+      .limit(limit + 1),
+    state.entities.outfits.done ? Promise.resolve([]) : sqlite
       .select()
       .from(sqliteSchema.outfits)
-      .where(and(eq(sqliteSchema.outfits.userId, userId), gt(sqliteSchema.outfits.updatedAt, cutoff))),
-    sqlite
+      .where(and(
+        eq(sqliteSchema.outfits.userId, userId),
+        lte(sqliteSchema.outfits.serverUpdatedAt, upperBound),
+        or(
+          outfitPosition
+            ? gt(sqliteSchema.outfits.serverUpdatedAt, after(outfitPosition))
+            : gte(sqliteSchema.outfits.serverUpdatedAt, cutoff),
+          outfitPosition
+            ? and(eq(sqliteSchema.outfits.serverUpdatedAt, outfitPosition.at), gt(sqliteSchema.outfits.id, outfitPosition.id))
+            : undefined,
+        ),
+      ))
+      .orderBy(asc(sqliteSchema.outfits.serverUpdatedAt), asc(sqliteSchema.outfits.id))
+      .limit(limit + 1),
+    state.entities.calendarEntries.done ? Promise.resolve([]) : sqlite
       .select()
       .from(sqliteSchema.calendarEntries)
       .where(
-        and(eq(sqliteSchema.calendarEntries.userId, userId), gt(sqliteSchema.calendarEntries.updatedAt, cutoff)),
-      ),
-    sqlite
+        and(
+          eq(sqliteSchema.calendarEntries.userId, userId),
+          lte(sqliteSchema.calendarEntries.serverUpdatedAt, upperBound),
+          or(
+            calendarPosition
+              ? gt(sqliteSchema.calendarEntries.serverUpdatedAt, after(calendarPosition))
+              : gte(sqliteSchema.calendarEntries.serverUpdatedAt, cutoff),
+            calendarPosition
+              ? and(eq(sqliteSchema.calendarEntries.serverUpdatedAt, calendarPosition.at), gt(sqliteSchema.calendarEntries.id, calendarPosition.id))
+              : undefined,
+          ),
+        ),
+      )
+      .orderBy(asc(sqliteSchema.calendarEntries.serverUpdatedAt), asc(sqliteSchema.calendarEntries.id))
+      .limit(limit + 1),
+    state.entities.wardrobeShares.done ? Promise.resolve([]) : sqlite
       .select()
       .from(sqliteSchema.wardrobeShares)
       .where(
-        and(eq(sqliteSchema.wardrobeShares.grantorId, userId), gt(sqliteSchema.wardrobeShares.updatedAt, cutoff)),
-      ),
+        and(
+          or(
+            eq(sqliteSchema.wardrobeShares.grantorId, userId),
+            eq(sqliteSchema.wardrobeShares.granteeId, userId),
+          ),
+          lte(sqliteSchema.wardrobeShares.serverUpdatedAt, upperBound),
+          or(
+            sharePosition
+              ? gt(sqliteSchema.wardrobeShares.serverUpdatedAt, after(sharePosition))
+              : gte(sqliteSchema.wardrobeShares.serverUpdatedAt, cutoff),
+            sharePosition
+              ? and(eq(sqliteSchema.wardrobeShares.serverUpdatedAt, sharePosition.at), gt(sqliteSchema.wardrobeShares.id, sharePosition.id))
+              : undefined,
+          ),
+        ),
+      )
+      .orderBy(asc(sqliteSchema.wardrobeShares.serverUpdatedAt), asc(sqliteSchema.wardrobeShares.id))
+      .limit(limit + 1),
   ]);
-
+  const pages = {
+    images: pageRows(imageRows, limit, (row) => row.updatedAt),
+    garments: pageRows(garmentRows, limit, (row) => row.serverUpdatedAt),
+    outfits: pageRows(outfitRows, limit, (row) => row.serverUpdatedAt),
+    calendarEntries: pageRows(calendarRows, limit, (row) => row.serverUpdatedAt),
+    wardrobeShares: pageRows(shareRows, limit, (row) => row.serverUpdatedAt),
+  };
+  const nextState: SyncPullCursorPayload = {
+    ...state,
+    entities: {
+      images: state.entities.images.done ? state.entities.images : { done: pages.images.done, position: pages.images.position },
+      garments: state.entities.garments.done ? state.entities.garments : { done: pages.garments.done, position: pages.garments.position },
+      outfits: state.entities.outfits.done ? state.entities.outfits : { done: pages.outfits.done, position: pages.outfits.position },
+      calendarEntries: state.entities.calendarEntries.done ? state.entities.calendarEntries : { done: pages.calendarEntries.done, position: pages.calendarEntries.position },
+      wardrobeShares: state.entities.wardrobeShares.done ? state.entities.wardrobeShares : { done: pages.wardrobeShares.done, position: pages.wardrobeShares.position },
+    },
+  };
+  const hasMore = Object.values(nextState.entities).some((entity) => !entity.done);
   return {
-    serverTime: new Date().toISOString(),
-    images: imageRows.map(fromImageRow),
-    garments: garmentRows.map(fromGarmentRow),
-    outfits: outfitRows.map(fromOutfitRow),
-    calendarEntries: calendarRows.map(fromCalendarRow),
-    wardrobeShares: shareRows.map(fromShareRow),
+    serverTime: upperBound,
+    hasMore,
+    nextCursor: hasMore ? encodePullCursor(nextState) : null,
+    images: pages.images.rows.map(fromImageRow),
+    garments: pages.garments.rows.map(fromGarmentRow),
+    outfits: pages.outfits.rows.map(fromOutfitRow),
+    calendarEntries: pages.calendarEntries.rows.map(fromCalendarRow),
+    wardrobeShares: pages.wardrobeShares.rows.map(fromShareRow),
   };
 }
 

@@ -4,7 +4,22 @@ import { uuid } from '@/lib/domain/ids';
 import type { ImageRecord } from '@/lib/domain/types';
 import { getDB } from '@/lib/local/db';
 import { maybeSync } from '@/lib/local/sync-engine';
-import { backgroundRemovalAttempts, shouldAttemptWebGpu } from './background-removal';
+import {
+  backgroundRemovalAttempts,
+  shouldRetrySameAttempt,
+  shouldTryNextAttempt,
+  type BackgroundRemovalAttempt,
+  type BackgroundRemovalCapabilities,
+} from './background-removal';
+import {
+  capabilitySnapshot,
+  readBackgroundRemovalHistory,
+  recordBackgroundRemovalFailure,
+  recordBackgroundRemovalSuccess,
+  writeBackgroundRemovalDiagnostic,
+  type BackgroundRemovalAttemptDiagnostic,
+  type BackgroundRemovalDiagnostic,
+} from './background-removal-state';
 import {
   closeDecodedImage,
   decodeImageFile,
@@ -30,12 +45,17 @@ export interface SaveGarmentPhotoOptions {
   queueForSync?: boolean;
   signal?: AbortSignal;
   onProgress?: (progress: ImageProgress) => void;
+  onBackgroundRemovalFallback?: (
+    message: string,
+    diagnostic: BackgroundRemovalDiagnostic,
+  ) => void;
 }
 
 class WorkerProcessingError extends Error {
   constructor(
     message: string,
     readonly code: ImageWorkerFailureCode | 'worker',
+    readonly stage: ImageProgress['stage'],
   ) {
     super(message);
     this.name = 'WorkerProcessingError';
@@ -56,7 +76,9 @@ function runWorker(
   options: SaveGarmentPhotoOptions,
 ): Promise<ProcessedImage> {
   if (typeof Worker === 'undefined') {
-    return Promise.reject(new WorkerProcessingError('Web Worker no disponible', 'worker'));
+    return Promise.reject(
+      new WorkerProcessingError('Web Worker no disponible', 'worker', 'Preparando imagen'),
+    );
   }
   if (options.signal?.aborted) return Promise.reject(abortError());
 
@@ -64,15 +86,28 @@ function runWorker(
     const id = uuid();
     let worker: Worker;
     let settled = false;
+    let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastStage: ImageProgress['stage'] = 'Preparando imagen';
 
     const finish = (callback: () => void) => {
       if (settled) return;
       settled = true;
+      if (inactivityTimer) clearTimeout(inactivityTimer);
       options.signal?.removeEventListener('abort', handleAbort);
       worker.terminate();
       callback();
     };
     const handleAbort = () => finish(() => reject(abortError()));
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        finish(() => reject(new WorkerProcessingError(
+          'El proceso aislado dejó de responder; el navegador pudo haberlo cerrado por falta de recursos.',
+          'worker',
+          lastStage,
+        )));
+      }, 180_000);
+    };
 
     try {
       worker = new Worker(new URL('./image-worker.ts', import.meta.url), { type: 'module' });
@@ -80,6 +115,7 @@ function runWorker(
       reject(new WorkerProcessingError(
         error instanceof Error ? error.message : 'No se pudo iniciar el worker de imágenes',
         'worker',
+        'Preparando imagen',
       ));
       return;
     }
@@ -87,29 +123,170 @@ function runWorker(
     worker.addEventListener('message', (event: MessageEvent<unknown>) => {
       const parsed = imageWorkerMessageSchema.safeParse(event.data);
       if (!parsed.success || parsed.data.id !== id) {
-        finish(() => reject(new WorkerProcessingError('Respuesta inválida del worker', 'worker')));
+        finish(() => reject(new WorkerProcessingError(
+          'Respuesta inválida del worker',
+          'worker',
+          lastStage,
+        )));
         return;
       }
       const message = parsed.data;
       if (message.type === 'progress') {
+        lastStage = message.progress.stage;
+        resetInactivityTimer();
         report(options, message.progress);
       } else if (message.type === 'success') {
         finish(() => resolve(message));
       } else {
-        finish(() => reject(new WorkerProcessingError(message.error, message.code)));
+        finish(() => reject(new WorkerProcessingError(message.error, message.code, message.stage)));
       }
     });
     worker.addEventListener('error', (event) => {
-      finish(() => reject(new WorkerProcessingError(event.message || 'El worker dejó de responder', 'worker')));
+      finish(() => reject(new WorkerProcessingError(
+        event.message ||
+          'El proceso aislado terminó inesperadamente; probablemente el navegador agotó recursos.',
+        'worker',
+        lastStage,
+      )));
     });
     worker.addEventListener('messageerror', () => {
-      finish(() => reject(new WorkerProcessingError('No se pudo leer la respuesta del worker', 'worker')));
+      finish(() => reject(new WorkerProcessingError(
+        'No se pudo leer la respuesta del proceso aislado',
+        'worker',
+        lastStage,
+      )));
     });
     options.signal?.addEventListener('abort', handleAbort, { once: true });
 
     const request = imageWorkerRequestSchema.parse({ type: 'process', id, file, operation });
+    resetInactivityTimer();
     worker.postMessage(request);
   });
+}
+
+type NavigatorWithImageCapabilities = Navigator & {
+  deviceMemory?: number;
+  gpu?: { requestAdapter: () => Promise<unknown | null> };
+};
+
+async function detectBackgroundRemovalCapabilities(): Promise<BackgroundRemovalCapabilities> {
+  if (typeof navigator === 'undefined') {
+    return capabilitySnapshot({
+      webGpuAdapter: false,
+      isAndroid: false,
+      isMobile: false,
+      deviceMemoryGb: null,
+      hardwareConcurrency: 1,
+      storageHeadroomBytes: null,
+    });
+  }
+  const candidate = navigator as NavigatorWithImageCapabilities;
+  const userAgent = navigator.userAgent;
+  let webGpuAdapter = false;
+  if (candidate.gpu) {
+    try {
+      webGpuAdapter = Boolean(await Promise.race([
+        candidate.gpu.requestAdapter(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_500)),
+      ]));
+    } catch {
+      webGpuAdapter = false;
+    }
+  }
+  let storageHeadroomBytes: number | null = null;
+  try {
+    const estimate = await candidate.storage?.estimate();
+    if (estimate?.quota !== undefined && estimate.usage !== undefined) {
+      storageHeadroomBytes = Math.max(0, estimate.quota - estimate.usage);
+    }
+  } catch {
+    storageHeadroomBytes = null;
+  }
+  return capabilitySnapshot({
+    webGpuAdapter,
+    isAndroid: /Android/i.test(userAgent),
+    isMobile: /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent),
+    deviceMemoryGb:
+      typeof candidate.deviceMemory === 'number' && candidate.deviceMemory > 0
+        ? candidate.deviceMemory
+        : null,
+    hardwareConcurrency: Math.max(1, navigator.hardwareConcurrency || 1),
+    storageHeadroomBytes,
+  });
+}
+
+async function releasePreviousWorker(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 250));
+}
+
+async function clearBackgroundRemovalModelCache(): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  try {
+    await caches.delete('mc-background-removal-1.7.0-adaptive-v1');
+  } catch {
+    // La caché es una optimización; el siguiente fetch aún puede usar la red.
+  }
+}
+
+function friendlyBackgroundRemovalFailure(error: WorkerProcessingError): string {
+  switch (error.code) {
+    case 'resource-download':
+      return 'no se pudieron descargar los archivos del modelo';
+    case 'resource-integrity':
+      return 'los archivos del modelo almacenados estaban incompletos';
+    case 'memory':
+      return 'ONNX no pudo reservar la memoria necesaria';
+    case 'worker':
+      return 'el navegador cerró el proceso aislado, probablemente por presión de recursos';
+    case 'inference':
+      return 'el modelo falló durante la inferencia';
+    case 'decode':
+      return 'el navegador no pudo decodificar la imagen';
+    default:
+      return 'el navegador no pudo preparar la imagen';
+  }
+}
+
+function diagnosticEntry(
+  attempt: BackgroundRemovalAttempt,
+  outcome: 'success' | 'failure',
+  error: WorkerProcessingError | null,
+  startedAt: number,
+  retries: number,
+): BackgroundRemovalAttemptDiagnostic {
+  return {
+    attempt,
+    outcome,
+    code: error?.code ?? null,
+    stage: error?.stage ?? 'Codificando WebP',
+    durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    retries,
+    detail: error?.message.slice(0, 300) ?? null,
+  };
+}
+
+async function persistDiagnostic(diagnostic: BackgroundRemovalDiagnostic): Promise<void> {
+  try {
+    await writeBackgroundRemovalDiagnostic(diagnostic);
+  } catch (error) {
+    console.warn('[My Closet][background-removal] No se pudo guardar el diagnóstico.', error);
+  }
+}
+
+async function rememberSuccessfulAttempt(attempt: BackgroundRemovalAttempt): Promise<void> {
+  try {
+    await recordBackgroundRemovalSuccess(attempt);
+  } catch (error) {
+    console.warn('[My Closet][background-removal] No se pudo recordar la ruta exitosa.', error);
+  }
+}
+
+async function rememberFailedAttempt(attempt: BackgroundRemovalAttempt): Promise<void> {
+  try {
+    await recordBackgroundRemovalFailure(attempt);
+  } catch (error) {
+    console.warn('[My Closet][background-removal] No se pudo recordar la ruta fallida.', error);
+  }
 }
 
 async function processOnMainThread(
@@ -130,12 +307,29 @@ async function processOnMainThread(
 
 async function processWithBackgroundRemoval(
   file: Blob,
+  format: DetectedImageFormat,
   options: SaveGarmentPhotoOptions,
-): Promise<ProcessedImage> {
-  const webGpuAvailable = typeof navigator !== 'undefined' && 'gpu' in navigator;
-  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-  const attempts = backgroundRemovalAttempts(shouldAttemptWebGpu(webGpuAvailable, userAgent));
-  let lastError: Error = new Error('No se pudo eliminar el fondo');
+): Promise<{
+  processed: ProcessedImage | null;
+  fallbackMessage: string | null;
+  diagnostic: BackgroundRemovalDiagnostic;
+}> {
+  const capabilities = await detectBackgroundRemovalCapabilities();
+  const history = await readBackgroundRemovalHistory();
+  const attempts = backgroundRemovalAttempts(capabilities, history);
+  const diagnostic: BackgroundRemovalDiagnostic = {
+    id: uuid(),
+    startedAt: new Date().toISOString(),
+    capabilities,
+    attempts: [],
+    result: 'failed',
+    finalMessage: null,
+  };
+  let lastError = new WorkerProcessingError(
+    'No se pudo eliminar el fondo',
+    'worker',
+    'Preparando imagen',
+  );
   let source: Blob = file;
   let normalizedOnMainThread = false;
 
@@ -149,26 +343,78 @@ async function processWithBackgroundRemoval(
         total: attempts.length - 1,
       });
     }
-    try {
-      return await runWorker(source, attempt, options);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw error;
-      if (error instanceof WorkerProcessingError && error.code === 'decode' && !normalizedOnMainThread) {
-        try {
-          source = (await processOnMainThread(file, options)).blob;
-          normalizedOnMainThread = true;
-          index -= 1;
-          continue;
-        } catch {
-          throw new ImageProcessingError(
-            'No se pudo leer la imagen. Guárdala nuevamente como JPEG o PNG e inténtalo otra vez.',
-          );
+    let retries = 0;
+    while (true) {
+      const attemptStartedAt = performance.now();
+      try {
+        const processed = await runWorker(source, attempt, options);
+        diagnostic.attempts.push(diagnosticEntry(attempt, 'success', null, attemptStartedAt, retries));
+        diagnostic.result = 'automatic';
+        await rememberSuccessfulAttempt(attempt);
+        await persistDiagnostic(diagnostic);
+        return { processed, fallbackMessage: null, diagnostic };
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        const workerError = error instanceof WorkerProcessingError
+          ? error
+          : new WorkerProcessingError(
+              error instanceof Error ? error.message : 'Fallo desconocido del proceso aislado',
+              'worker',
+              'Preparando imagen',
+            );
+        diagnostic.attempts.push(
+          diagnosticEntry(attempt, 'failure', workerError, attemptStartedAt, retries),
+        );
+
+        if (workerError.code === 'decode' && !normalizedOnMainThread) {
+          try {
+            source = (await processOnMainThread(file, options)).blob;
+            normalizedOnMainThread = true;
+            await releasePreviousWorker();
+            continue;
+          } catch {
+            const message = format === 'heif'
+              ? 'Este navegador no pudo leer la foto HEIC/HEIF. Conviértela a JPEG o PNG antes de cargarla.'
+              : 'El navegador no pudo decodificar esta imagen. Guárdala nuevamente como JPEG o PNG e inténtalo otra vez.';
+            diagnostic.finalMessage = message;
+            await persistDiagnostic(diagnostic);
+            throw new ImageProcessingError(message);
+          }
         }
+
+        lastError = workerError;
+        if (shouldRetrySameAttempt(workerError.code, navigator.onLine, retries)) {
+          retries += 1;
+          report(options, {
+            stage: 'Reintentando descarga del modelo',
+            current: retries,
+            total: 1,
+          });
+          await clearBackgroundRemovalModelCache();
+          await releasePreviousWorker();
+          continue;
+        }
+        if (
+          workerError.code === 'memory' ||
+          workerError.code === 'inference' ||
+          workerError.code === 'worker'
+        ) {
+          await rememberFailedAttempt(attempt);
+        }
+        await releasePreviousWorker();
+        if (!shouldTryNextAttempt(workerError.code, attempt)) index = attempts.length;
+        break;
       }
-      lastError = error instanceof Error ? error : lastError;
     }
   }
-  throw new ImageProcessingError(`No se pudo eliminar el fondo: ${lastError.message}`);
+  const reason = attempts.length === 0
+    ? 'las rutas compatibles fallaron repetidamente en este dispositivo'
+    : friendlyBackgroundRemovalFailure(lastError);
+  const fallbackMessage = `La eliminación automática no pudo completarse porque ${reason}. Se conservó la foto para que puedas guardarla o corregirla con el editor manual. Diagnóstico: ${diagnostic.id.slice(0, 8)}.`;
+  diagnostic.result = 'manual-original';
+  diagnostic.finalMessage = fallbackMessage;
+  await persistDiagnostic(diagnostic);
+  return { processed: null, fallbackMessage, diagnostic };
 }
 
 async function isWebp(blob: Blob): Promise<boolean> {
@@ -238,11 +484,24 @@ export async function saveGarmentPhoto(
   options: SaveGarmentPhotoOptions = {},
 ): Promise<ImageRecord> {
   validateImageFile(file);
-  await validateImageContent(file);
+  const format = await validateImageContent(file);
   let processed: ProcessedImage;
 
   if (options.removeBackground === true) {
-    processed = await processWithBackgroundRemoval(file, options);
+    const removal = await processWithBackgroundRemoval(file, format, options);
+    if (removal.processed) {
+      processed = removal.processed;
+    } else {
+      report(options, {
+        stage: 'Usando foto sin eliminación automática',
+        current: null,
+        total: null,
+      });
+      processed = await processOnMainThread(file, options);
+      if (removal.fallbackMessage) {
+        options.onBackgroundRemovalFallback?.(removal.fallbackMessage, removal.diagnostic);
+      }
+    }
   } else {
     try {
       processed = await runWorker(file, { type: 'resize' }, options);

@@ -20,10 +20,17 @@ import {
   imageUploadResponseSchema,
   remoteImageMetadataSchema,
   syncPullResponseSchema,
+  syncPushResponseSchema,
   type RemoteImageMetadata,
 } from '@/lib/domain/validation';
 import { z } from 'zod';
-import { getDB, readSyncStats, writeLastSyncedAt } from './db';
+import {
+  getDB,
+  readSyncState,
+  readSyncStats,
+  writeLastSyncedAt,
+  writeSyncState,
+} from './db';
 import { getLocalProfile } from './kv';
 import {
   claimPendingOperations,
@@ -43,6 +50,7 @@ type SyncStateListener = () => void;
 
 const listeners = new Set<SyncStateListener>();
 let running = false;
+let activeSync: Promise<void> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
@@ -91,16 +99,6 @@ async function assertRemoteSession(userId: string): Promise<void> {
   if (session.profile.userId !== userId) throw new SessionIdentityMismatchError();
 }
 
-interface PushOperationResult {
-  operationId: string;
-  status: 'applied' | 'conflict' | 'invalid';
-  remote?: Record<string, unknown>;
-}
-
-interface PushResponse {
-  results: PushOperationResult[];
-}
-
 async function pushBatch(ops: OutboxOperation[]): Promise<void> {
   const response = await fetch('/api/sync/push', {
     method: 'POST',
@@ -121,7 +119,7 @@ async function pushBatch(ops: OutboxOperation[]): Promise<void> {
   if (response.status === 401) throw new SessionExpiredError();
   if (!response.ok) throw new Error(`push HTTP ${response.status}`);
 
-  const data = (await response.json()) as PushResponse;
+  const data = syncPushResponseSchema.parse(await response.json());
   const byId = new Map(data.results.map((r) => [r.operationId, r]));
 
   for (const op of ops) {
@@ -310,41 +308,61 @@ async function pushPendingImages(userId: string): Promise<void> {
   }
 }
 
-async function pull(): Promise<void> {
-  const db = getDB();
-  const stored = await db.kv.get('sync-state');
-  const since = ((stored?.value as { lastPulledAt?: string } | undefined)?.lastPulledAt) ?? null;
-  const query = since ? `?since=${encodeURIComponent(since)}` : '';
-  const response = await fetch(`/api/sync/pull${query}`, {
-    headers: { 'x-requested-with': 'my-closet' },
-  });
-  if (response.status === 401) throw new SessionExpiredError();
-  if (!response.ok) throw new Error(`pull HTTP ${response.status}`);
+async function pull(userId: string): Promise<void> {
+  let state = await readSyncState(userId);
+  let cursor = state.pullCursor;
+  let resetInvalidCursor = true;
 
-  const data = syncPullResponseSchema.parse(await response.json());
-  for (const image of data.images) await applyRemoteImageMetadata(image);
-  for (const garment of data.garments) await applyRemoteGarment(garment);
-  for (const outfit of data.outfits) await applyRemoteOutfit(outfit);
-  for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
-  for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
+  for (;;) {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    else if (state.lastPulledAt) params.set('since', state.lastPulledAt);
 
-  const state = (await db.kv.get('sync-state'))?.value as object | undefined;
-  await db.kv.put({
-    key: 'sync-state',
-    value: { ...(state ?? {}), lastPulledAt: data.serverTime },
-  });
+    const response = await fetch(`/api/sync/pull?${params.toString()}`, {
+      headers: { 'x-requested-with': 'my-closet' },
+    });
+    if (response.status === 401) throw new SessionExpiredError();
+    if (response.status === 400 && cursor && resetInvalidCursor) {
+      await writeSyncState(userId, { pullCursor: undefined });
+      state = await readSyncState(userId);
+      cursor = undefined;
+      resetInvalidCursor = false;
+      continue;
+    }
+    if (!response.ok) throw new Error(`pull HTTP ${response.status}`);
+
+    const data = syncPullResponseSchema.parse(await response.json());
+    for (const image of data.images) await applyRemoteImageMetadata(image);
+    for (const garment of data.garments) await applyRemoteGarment(garment);
+    for (const outfit of data.outfits) await applyRemoteOutfit(outfit);
+    for (const entry of data.calendarEntries) await applyRemoteCalendarEntry(entry);
+    for (const share of data.wardrobeShares) await applyRemoteWardrobeShare(share);
+
+    if (data.hasMore) {
+      if (!data.nextCursor) throw new Error('pull paginado sin cursor de continuación');
+      cursor = data.nextCursor;
+      await writeSyncState(userId, { pullCursor: cursor });
+      continue;
+    }
+    await writeSyncState(userId, {
+      lastPulledAt: data.serverTime,
+      pullCursor: undefined,
+    });
+    return;
+  }
 }
 
 /** Ejecuta un ciclo completo push+pull. Lanza si la sesión expiró. */
-export async function runSync(): Promise<void> {
-  if (running) return;
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-  // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
-  const profile = await getLocalProfile();
-  if (!profile) return;
-  running = true;
-  notify();
-  try {
+export function runSync(): Promise<void> {
+  if (activeSync) return activeSync;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return Promise.resolve();
+
+  activeSync = (async () => {
+    // Sin perfil local no hay sesión que sincronizar (evita 401 espurios).
+    const profile = await getLocalProfile();
+    if (!profile) return;
+    running = true;
+    notify();
     await assertRemoteSession(profile.userId);
     await releaseStaleSyncing(profile.userId);
     await pushPendingImages(profile.userId);
@@ -355,12 +373,14 @@ export async function runSync(): Promise<void> {
       if (batch.length === 0) break;
       await pushBatch(batch);
     }
-    await pull();
-    await writeLastSyncedAt(new Date().toISOString());
-  } finally {
+    await pull(profile.userId);
+    await writeLastSyncedAt(profile.userId, new Date().toISOString());
+  })().finally(() => {
     running = false;
+    activeSync = null;
     notify();
-  }
+  });
+  return activeSync;
 }
 
 /** Sincroniza si es posible; los errores de red se ignoran silenciosamente. */

@@ -90,3 +90,21 @@ export function wardrobeStats(garments: Garment[], outfits: Outfit[], entries: C
     topCategory: topCategory ? { category: topCategory[0], count: topCategory[1] } : null,
   };
 }
+
+/** Contadores de datos visibles que permanecen almacenados en este dispositivo. */
+export function deviceDataCounts(
+  garments: Garment[],
+  outfits: Outfit[],
+  entries: CalendarEntry[],
+) {
+  const activeOutfits = outfits.filter((outfit) => !outfit.deletedAt);
+  const activeOutfitIds = new Set(activeOutfits.map((outfit) => outfit.id));
+
+  return {
+    garments: garments.filter((garment) => !garment.deletedAt).length,
+    outfits: activeOutfits.length,
+    entries: entries.filter(
+      (entry) => !entry.deletedAt && activeOutfitIds.has(entry.outfitId),
+    ).length,
+  };
+}

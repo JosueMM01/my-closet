@@ -1,14 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Garment, Outfit } from '@/lib/domain/types';
+import type { CalendarEntry, Garment, Outfit, WardrobeShare } from '@/lib/domain/types';
 import { closeServerDB } from '@/server/db';
 import {
   OwnershipError,
   pullAll,
+  upsertCalendarEntry,
   upsertGarment,
   upsertOutfit,
+  upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
+import type { SessionUser } from '@/server/auth/session';
 import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
+import {
+  acceptWardrobeInvitation,
+  inspectWardrobeInvitation,
+} from '@/server/repositories/wardrobe-invitations-repository';
 
 const USER_A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const USER_B = 'aaaaaaaa-0000-4000-8000-000000000002';
@@ -123,6 +130,128 @@ describe('repositorio de sincronización (SQLite)', () => {
     expect(empty.outfits).toHaveLength(0);
   });
 
+  it('pagina sin omitir ni duplicar entidades con la misma marca temporal', async () => {
+    await seedUsers();
+    const ids = [
+      'bbbbbbbb-0000-4000-8000-0000000000c1',
+      'bbbbbbbb-0000-4000-8000-0000000000c2',
+      'bbbbbbbb-0000-4000-8000-0000000000c3',
+    ];
+    for (const id of ids) {
+      await upsertGarment(USER_A, makeGarment({ id, shareableId: id.replace('bbbb', 'cccc') }));
+    }
+
+    const received: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await pullAll(USER_A, null, { cursor, limit: 1 });
+      received.push(...page.garments.map((garment) => garment.id));
+      cursor = page.nextCursor ?? undefined;
+      expect(page.hasMore).toBe(Boolean(cursor));
+    } while (cursor);
+
+    expect(received).toEqual(ids);
+    expect(new Set(received).size).toBe(ids.length);
+  });
+
+  it('usa reloj del servidor para incluir una escritura con reloj cliente adelantado', async () => {
+    await seedUsers();
+    const garment = makeGarment({
+      id: 'bbbbbbbb-0000-4000-8000-0000000000d1',
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    });
+    await upsertGarment(USER_A, garment);
+
+    const pulled = await pullAll(USER_A, new Date(Date.now() - 1_000).toISOString());
+    expect(pulled.garments.map((item) => item.id)).toContain(garment.id);
+  });
+
+  it('mantiene tombstones y rechaza la reaparición de una copia antigua', async () => {
+    await seedUsers();
+    const original = makeGarment({ id: 'bbbbbbbb-0000-4000-8000-0000000000e1' });
+    await upsertGarment(USER_A, original);
+    const deletedAt = new Date().toISOString();
+    const tombstone = makeGarment({
+      ...original,
+      version: 2,
+      updatedAt: deletedAt,
+      deletedAt,
+    });
+    await upsertGarment(USER_A, tombstone);
+
+    const stale = makeGarment({
+      ...original,
+      version: 1,
+      updatedAt: '2099-01-01T00:00:00.000Z',
+      deletedAt: null,
+    });
+    await expect(upsertGarment(USER_A, stale)).resolves.toMatchObject({
+      status: 'conflict',
+      remote: { version: 2, deletedAt },
+    });
+    expect((await pullAll(USER_A, null)).garments).toContainEqual(
+      expect.objectContaining({ id: original.id, version: 2, deletedAt }),
+    );
+  });
+
+  it('reintentar todas las entidades no duplica registros', async () => {
+    await seedUsers();
+    const garment = makeGarment({ id: 'bbbbbbbb-0000-4000-8000-0000000000f1' });
+    const outfit: Outfit = {
+      id: 'bbbbbbbb-0000-4000-8000-0000000000f2',
+      userId: USER_A,
+      shareableId: 'cccccccc-0000-4000-8000-0000000000f2',
+      name: 'Contrato',
+      notes: null,
+      slots: [{ category: 'tops', garmentId: garment.id }],
+      createdAt: garment.createdAt,
+      updatedAt: garment.updatedAt,
+      version: 1,
+      deletedAt: null,
+      syncStatus: 'pending',
+    };
+    const calendar: CalendarEntry = {
+      id: 'bbbbbbbb-0000-4000-8000-0000000000f3',
+      userId: USER_A,
+      date: '2026-08-25',
+      outfitId: outfit.id,
+      wornAt: null,
+      notes: null,
+      createdAt: garment.createdAt,
+      updatedAt: garment.updatedAt,
+      version: 1,
+      deletedAt: null,
+      syncStatus: 'pending',
+    };
+    const share: WardrobeShare = {
+      id: 'bbbbbbbb-0000-4000-8000-0000000000f4',
+      grantorId: USER_A,
+      granteeId: null,
+      granteeEmail: 'beto@test.local',
+      permission: 'VIEW',
+      inviteToken: '0123456789abcdef0123456789abcdef',
+      acceptedAt: null,
+      createdAt: garment.createdAt,
+      updatedAt: garment.updatedAt,
+      version: 1,
+      deletedAt: null,
+      syncStatus: 'pending',
+    };
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await upsertGarment(USER_A, garment);
+      await upsertOutfit(USER_A, outfit);
+      await upsertCalendarEntry(USER_A, calendar);
+      await upsertWardrobeShare(USER_A, share);
+    }
+
+    const pulled = await pullAll(USER_A, null);
+    expect(pulled.garments.filter((item) => item.id === garment.id)).toHaveLength(1);
+    expect(pulled.outfits.filter((item) => item.id === outfit.id)).toHaveLength(1);
+    expect(pulled.calendarEntries.filter((item) => item.id === calendar.id)).toHaveLength(1);
+    expect(pulled.wardrobeShares.filter((item) => item.id === share.id)).toHaveLength(1);
+  });
+
   it('rechaza escribir una entidad que pertenece a otro usuario (IDOR)', async () => {
     await seedUsers();
     const g1 = makeGarment(); // pertenece a USER_A
@@ -183,6 +312,59 @@ describe('repositorio de sincronización (SQLite)', () => {
     await expect(storage.put({ ...input, userId: USER_B })).rejects.toBeInstanceOf(ImageOwnershipError);
     expect((await pullAll(USER_A, null)).images).toHaveLength(1);
     expect((await pullAll(USER_B, null)).images).toHaveLength(0);
+  });
+
+  it('acepta una invitación de armario por correo de forma atómica e idempotente', async () => {
+    await seedUsers();
+    const now = new Date().toISOString();
+    const share: WardrobeShare = {
+      id: 'bbbbbbbb-0000-4000-8000-0000000000f5',
+      grantorId: USER_A,
+      granteeId: null,
+      granteeEmail: 'beto@test.local',
+      permission: 'MANAGE',
+      inviteToken: 'abcdef0123456789abcdef0123456789',
+      acceptedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      deletedAt: null,
+      syncStatus: 'pending',
+    };
+    await upsertWardrobeShare(USER_A, share);
+    const beto: SessionUser = {
+      userId: USER_B,
+      email: 'BETO@test.local',
+      displayName: 'Beto',
+      createdAt: now,
+      role: 'USER',
+      status: 'ACTIVE',
+      profileImageId: null,
+    };
+
+    await expect(inspectWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: false,
+    });
+    await expect(acceptWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: true,
+    });
+    await expect(acceptWardrobeInvitation(share.inviteToken, beto)).resolves.toEqual({
+      permission: 'MANAGE',
+      accepted: true,
+    });
+
+    const pulledByGrantee = await pullAll(USER_B, null);
+    expect(pulledByGrantee.wardrobeShares).toEqual([
+      expect.objectContaining({ id: share.id, granteeId: USER_B, version: 2 }),
+    ]);
+
+    await expect(inspectWardrobeInvitation(share.inviteToken, {
+      ...beto,
+      userId: 'aaaaaaaa-0000-4000-8000-000000000003',
+      email: 'otra@test.local',
+    })).rejects.toMatchObject({ code: 'EMAIL_MISMATCH' });
   });
 });
 

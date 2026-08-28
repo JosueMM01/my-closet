@@ -13,6 +13,7 @@ import {
   saveGarmentPhoto,
 } from '@/lib/images/image-client';
 import { getDB } from '@/lib/local/db';
+import { deviceDataCounts } from '@/lib/local/queries';
 import { uploadProcessedImage } from '@/lib/local/sync-engine';
 import { useSession, useSync } from '@/components/providers';
 import { ProfileAdmin } from '@/components/profile-admin';
@@ -52,11 +53,11 @@ export default function ProfilePage() {
     if (!profile) return null;
     const db = getDB();
     const [garments, outfits, entries] = await Promise.all([
-      db.garments.where('userId').equals(profile.userId).count(),
-      db.outfits.where('userId').equals(profile.userId).count(),
-      db.calendarEntries.where('userId').equals(profile.userId).count(),
+      db.garments.where('userId').equals(profile.userId).toArray(),
+      db.outfits.where('userId').equals(profile.userId).toArray(),
+      db.calendarEntries.where('userId').equals(profile.userId).toArray(),
     ]);
-    return { garments, outfits, entries };
+    return deviceDataCounts(garments, outfits, entries);
   }, [profile?.userId]);
 
   if (!profile) return null;
