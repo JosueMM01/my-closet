@@ -12,6 +12,7 @@ import {
   expiredBackupRunIds,
   filesForRun,
   isBackupDue,
+  validateDirectPostgresSource,
   type BackupManifest,
   type DriveBackupFile,
 } from './policy.mts';
@@ -29,6 +30,12 @@ const oauthEnvironmentSchema = z.object({
 
 const backupEnvironmentSchema = oauthEnvironmentSchema.extend({
   GOOGLE_DRIVE_BACKUP_FOLDER_ID: z.string().regex(/^[A-Za-z0-9_-]+$/),
+});
+
+const sourceEnvironmentSchema = z.object({
+  DATABASE_URL_UNPOOLED: z.string().min(1),
+  EXPECTED_NEON_PRODUCTION_HOST: z.string().min(1),
+  BACKUP_DATABASE_NAME: z.string().min(1),
 });
 
 const tokenResponseSchema = z.object({
@@ -261,6 +268,17 @@ async function initFolder(): Promise<void> {
     .parse(await response.json());
   console.log(`Carpeta privada creada: ${folder.name}`);
   console.log(`GOOGLE_DRIVE_BACKUP_FOLDER_ID=${folder.id}`);
+}
+
+async function validateSource(): Promise<void> {
+  const env = environment(sourceEnvironmentSchema);
+  const source = validateDirectPostgresSource({
+    connectionUrl: env.DATABASE_URL_UNPOOLED,
+    expectedHost: env.EXPECTED_NEON_PRODUCTION_HOST,
+    expectedDatabase: env.BACKUP_DATABASE_NAME,
+  });
+  await githubSummary(`- Fuente Neon validada: endpoint directo y base ${source.database}.`);
+  console.log('La fuente del respaldo coincide con el endpoint directo de producción.');
 }
 
 async function status(): Promise<void> {
@@ -500,6 +518,7 @@ async function markRestored(): Promise<void> {
 const command = process.argv[2];
 const commands: Record<string, () => Promise<void>> = {
   'init-folder': initFolder,
+  'validate-source': validateSource,
   status,
   upload: uploadBackup,
   maintain,
@@ -510,6 +529,6 @@ const commands: Record<string, () => Promise<void>> = {
 
 const handler = command ? commands[command] : undefined;
 if (!handler) {
-  throw new Error('Comando inválido. Usa init-folder, status, upload, maintain, download-latest, verify-plain o mark-restored.');
+  throw new Error('Comando inválido. Usa init-folder, validate-source, status, upload, maintain, download-latest, verify-plain o mark-restored.');
 }
 await handler();

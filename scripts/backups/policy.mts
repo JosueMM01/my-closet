@@ -107,3 +107,37 @@ export function filesForRun(
   return files.filter((file) => file.appProperties?.app === BACKUP_APP_ID
     && file.appProperties.runId === runId);
 }
+
+export function validateDirectPostgresSource(input: {
+  connectionUrl: string;
+  expectedHost: string;
+  expectedDatabase: string;
+}): { host: string; database: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(input.connectionUrl);
+  } catch {
+    throw new Error('NEON_DATABASE_URL_UNPOOLED no es una URL válida');
+  }
+
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
+    throw new Error('La conexión de respaldo debe usar PostgreSQL');
+  }
+  if (parsed.hostname.includes('-pooler')) {
+    throw new Error('pg_dump requiere el endpoint directo de Neon, no el pooler');
+  }
+  if (parsed.hostname !== input.expectedHost) {
+    throw new Error('La URL de respaldo no corresponde al endpoint de producción esperado');
+  }
+
+  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+  if (!database || database !== input.expectedDatabase) {
+    throw new Error('La URL de respaldo no corresponde a la base de producción esperada');
+  }
+  const sslMode = parsed.searchParams.get('sslmode');
+  if (!sslMode || !['require', 'verify-ca', 'verify-full'].includes(sslMode)) {
+    throw new Error('La conexión directa de Neon debe exigir TLS mediante sslmode');
+  }
+
+  return { host: parsed.hostname, database };
+}

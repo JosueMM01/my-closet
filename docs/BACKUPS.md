@@ -34,6 +34,7 @@ copiarse a Vercel, al frontend ni a las variables de Google Sign-In.
 |---|---|
 | `NEON_PROJECT_ID` | ID del proyecto que contiene Neon producción |
 | `NEON_PRODUCTION_BRANCH` | Nombre o ID de la rama de producción, normalmente `main` |
+| `NEON_PRODUCTION_ENDPOINT_HOST` | Host exacto de la URL directa de producción, sin usuario, contraseña ni `-pooler` |
 | `NEON_DATABASE_NAME` | Nombre de la base, normalmente `neondb` |
 | `NEON_DATABASE_ROLE` | Rol propietario usado para la rama temporal, normalmente `neondb_owner` |
 | `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | ID de la carpeta creada por el cliente de respaldo |
@@ -41,7 +42,10 @@ copiarse a Vercel, al frontend ni a las variables de Google Sign-In.
 
 Los nombres de proyecto, rama, base y rol deben comprobarse en Neon. Una rama
 Git `main` y una rama Neon `main` son recursos diferentes; coincidir en el
-nombre no demuestra que sea el destino correcto.
+nombre no demuestra que sea el destino correcto. El workflow compara el host
+real de `NEON_DATABASE_URL_UNPOOLED` con `NEON_PRODUCTION_ENDPOINT_HOST` y
+también comprueba base, protocolo, TLS y ausencia de `-pooler` antes de abrir la
+conexión.
 
 ## Preparar Google Drive
 

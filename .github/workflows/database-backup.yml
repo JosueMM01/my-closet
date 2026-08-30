@@ -42,6 +42,7 @@ jobs:
       GOOGLE_DRIVE_BACKUP_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID }}
       BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
       BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
+      EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
       FORCE_BACKUP: ${{ inputs.force_backup || false }}
       BACKUP_DUMP_PATH: ${{ runner.temp }}/my-closet-backup/database.dump
       BACKUP_ARCHIVE_PATH: ${{ runner.temp }}/my-closet-backup/database.dump.age
@@ -57,6 +58,9 @@ jobs:
           node-version: 24.13.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      - name: Validate the production Neon target
+        run: node scripts/backups/google-drive-backup.mts validate-source
 
       - name: Check whether a backup is due
         id: policy

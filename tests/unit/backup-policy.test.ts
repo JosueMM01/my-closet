@@ -4,6 +4,7 @@ import {
   expiredBackupRunIds,
   filesForRun,
   isBackupDue,
+  validateDirectPostgresSource,
   type DriveBackupFile,
 } from '../../scripts/backups/policy.mts';
 
@@ -73,5 +74,28 @@ describe('política de respaldos externos', () => {
 
   it('nunca admite una retención menor a dos copias', () => {
     expect(() => expiredBackupRunIds([], 1)).toThrow(/dos respaldos/);
+  });
+
+  it('valida el endpoint directo y la base exacta de producción', () => {
+    expect(validateDirectPostgresSource({
+      connectionUrl: 'postgresql://owner:secret@ep-production.us-east-2.aws.neon.tech/neondb?sslmode=require',
+      expectedHost: 'ep-production.us-east-2.aws.neon.tech',
+      expectedDatabase: 'neondb',
+    })).toEqual({
+      host: 'ep-production.us-east-2.aws.neon.tech',
+      database: 'neondb',
+    });
+
+    expect(() => validateDirectPostgresSource({
+      connectionUrl: 'postgresql://owner:secret@ep-staging.us-east-2.aws.neon.tech/neondb?sslmode=require',
+      expectedHost: 'ep-production.us-east-2.aws.neon.tech',
+      expectedDatabase: 'neondb',
+    })).toThrow(/producción esperado/);
+
+    expect(() => validateDirectPostgresSource({
+      connectionUrl: 'postgresql://owner:secret@ep-production-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
+      expectedHost: 'ep-production-pooler.us-east-2.aws.neon.tech',
+      expectedDatabase: 'neondb',
+    })).toThrow(/no el pooler/);
   });
 });
