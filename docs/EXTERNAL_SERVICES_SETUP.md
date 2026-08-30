@@ -13,6 +13,7 @@ predeterminados. Ninguna credencial aislada activa una conexión externa.
 | Google | start/callback, state, PKCE, nonce, JOSE y vinculación explícita | registrar credenciales/callback y activar solo si se desea |
 | Correo SMTP | `disabled`/`capture`/`smtp`, invitaciones y recuperación | configurar y operar entrega de bajo volumen; verificar cambios de correo aparte |
 | Vercel | build Next.js reproducible | adaptar límites de assets/modelo, Neon, Cloudinary y rate limit distribuido |
+| Respaldos | workflow externo cifrado, política de 8 días, retención 2 y restauración temporal | cargar Secrets/Variables de Actions y ejecutar el primer ensayo completo |
 
 Los proveedores siguen siendo opt-in. Sin selectores explícitos la aplicación
 usa SQLite, almacenamiento local y no realiza llamadas a Google.
@@ -147,3 +148,7 @@ Neon/Cloudinary en staging y dos dispositivos. Además se
 requieren `AUTH_SECRET` fuerte, SMTP operativo de bajo volumen para invitaciones
 y recuperación, CSP revisada y suite completa en staging. La eliminación de
 fondo sirve unos 200 MB de assets y debe evaluarse para el hosting elegido.
+
+Los respaldos no usan variables de Vercel ni las credenciales de Google
+Sign-In. Su configuración, primera ejecución y prueba de restauración están en
+`docs/BACKUPS.md`.
