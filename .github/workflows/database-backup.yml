@@ -188,7 +188,13 @@ jobs:
       - name: Restore and check database invariants
         env:
           RESTORE_DATABASE_URL: ${{ steps.restore-branch.outputs.db_url }}
+          EXPECTED_NEON_TEMPORARY_HOST: ${{ steps.restore-branch.outputs.db_host }}
+          RESTORE_BRANCH_ID: ${{ steps.restore-branch.outputs.branch_id }}
+          RESTORE_BRANCH_CREATED: ${{ steps.restore-branch.outputs.created }}
+          EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
+          BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
         run: |
+          node scripts/backups/google-drive-backup.mts validate-restore
           docker run --rm \
             --env RESTORE_DATABASE_URL \
             "$POSTGRES_IMAGE" \
@@ -216,7 +222,7 @@ jobs:
         run: node scripts/backups/google-drive-backup.mts mark-restored
 
       - name: Delete temporary Neon branch
-        if: always() && steps.restore-branch.outputs.branch_id != ''
+        if: always() && steps.restore-branch.outputs.created == 'true' && steps.restore-branch.outputs.branch_id != ''
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}

@@ -55,9 +55,23 @@ function isCompleteManifest(file: DriveBackupFile): boolean {
 }
 
 export function completedManifests(files: readonly DriveBackupFile[]): DriveBackupFile[] {
+  const archiveRunIds = new Set(files.filter((file) =>
+    file.appProperties?.app === BACKUP_APP_ID
+    && file.appProperties.kind === 'archive'
+    && file.appProperties.status === 'complete'
+    && Number(file.size) > 0,
+  ).map((file) => file.appProperties?.runId));
+  const seen = new Set<string>();
   return files
-    .filter(isCompleteManifest)
-    .toSorted((left, right) => Date.parse(right.createdTime) - Date.parse(left.createdTime));
+    .filter((file) => isCompleteManifest(file)
+      && archiveRunIds.has(file.appProperties?.runId))
+    .toSorted((left, right) => Date.parse(right.createdTime) - Date.parse(left.createdTime))
+    .filter((file) => {
+      const runId = file.appProperties?.runId;
+      if (!runId || seen.has(runId)) return false;
+      seen.add(runId);
+      return true;
+    });
 }
 
 export function isBackupDue(input: {
@@ -105,7 +119,51 @@ export function filesForRun(
   runId: string,
 ): DriveBackupFile[] {
   return files.filter((file) => file.appProperties?.app === BACKUP_APP_ID
-    && file.appProperties.runId === runId);
+    && file.appProperties.runId === runId
+    && ['archive', 'manifest'].includes(file.appProperties.kind ?? ''));
+}
+
+/** Nunca retirar incompletos si todavía no existe la ventana recuperable. */
+export function staleIncompleteFiles(
+  files: readonly DriveBackupFile[],
+  now: Date,
+  retentionCount = DEFAULT_RETENTION_COUNT,
+): DriveBackupFile[] {
+  // Valida también el mínimo de retención aunque no haya copias.
+  expiredBackupRunIds(files, retentionCount);
+  const complete = completedManifests(files);
+  if (complete.length < retentionCount) return [];
+  const completeRunIds = new Set(complete.map((file) => file.appProperties?.runId));
+  const staleBefore = now.getTime() - 48 * 60 * 60 * 1000;
+  return files.filter((file) => file.appProperties?.app === BACKUP_APP_ID
+    && ['archive', 'manifest'].includes(file.appProperties.kind ?? '')
+    && Boolean(file.appProperties.runId)
+    && !completeRunIds.has(file.appProperties.runId)
+    && Date.parse(file.createdTime) < staleBefore);
+}
+
+/** Segunda barrera antes de cualquier DROP/pg_restore: nunca aceptar producción. */
+export function validateTemporaryRestoreTarget(input: {
+  connectionUrl: string;
+  productionHost: string;
+  expectedTemporaryHost: string;
+  branchId: string;
+  branchCreated: boolean;
+  expectedDatabase: string;
+}): void {
+  if (!input.branchCreated || !/^br-[a-z0-9-]+$/i.test(input.branchId)) {
+    throw new Error('La restauración requiere una rama Neon temporal recién creada');
+  }
+  if (!input.productionHost || !input.expectedTemporaryHost
+      || input.expectedTemporaryHost === input.productionHost
+      || !/^ep-[a-z0-9-]+\.[a-z0-9.-]+\.neon\.tech$/i.test(input.expectedTemporaryHost)) {
+    throw new Error('El destino temporal debe ser un endpoint Neon distinto de producción');
+  }
+  validateDirectPostgresSource({
+    connectionUrl: input.connectionUrl,
+    expectedHost: input.expectedTemporaryHost,
+    expectedDatabase: input.expectedDatabase,
+  });
 }
 
 export function validateDirectPostgresSource(input: {
