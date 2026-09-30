@@ -44,11 +44,13 @@ jobs:
       BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
       EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
       FORCE_BACKUP: ${{ inputs.force_backup || false }}
-      BACKUP_DUMP_PATH: ${{ runner.temp }}/my-closet-backup/database.dump
-      BACKUP_ARCHIVE_PATH: ${{ runner.temp }}/my-closet-backup/database.dump.age
-      BACKUP_SERVER_VERSION_PATH: ${{ runner.temp }}/my-closet-backup/server-version.txt
-      BACKUP_PG_DUMP_VERSION_PATH: ${{ runner.temp }}/my-closet-backup/pg-dump-version.txt
     steps:
+      - name: Set runner backup paths
+        run: |
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-backup/database.dump" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-backup/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/server-version.txt" >> "$GITHUB_ENV"
+          echo "BACKUP_PG_DUMP_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/pg-dump-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -126,11 +128,13 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_BACKUP_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID }}
       BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
-      BACKUP_MANIFEST_PATH: ${{ runner.temp }}/my-closet-restore/manifest.json
-      BACKUP_ARCHIVE_PATH: ${{ runner.temp }}/my-closet-restore/database.dump.age
-      BACKUP_DUMP_PATH: ${{ runner.temp }}/my-closet-restore/database.dump
-      RESTORED_SERVER_VERSION_PATH: ${{ runner.temp }}/my-closet-restore/server-version.txt
     steps:
+      - name: Set runner restore paths
+        run: |
+          echo "BACKUP_MANIFEST_PATH=$RUNNER_TEMP/my-closet-restore/manifest.json" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-restore/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-restore/database.dump" >> "$GITHUB_ENV"
+          echo "RESTORED_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-restore/server-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
