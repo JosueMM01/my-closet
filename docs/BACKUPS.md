@@ -1,5 +1,51 @@
 # Respaldos y recuperación de PostgreSQL
 
+Estado al 2026-09-30: implementación existente; cierre operativo de 4A pendiente
+de evidencia de copia, restauración, rotación y scheduler. 4B trata publicación
+OAuth y continuidad. Véase [ROADMAP.md](ROADMAP.md).
+
+## Checkpoint de fase 4A — 2026-09-30
+
+| Comprobación | Evidencia actual |
+|---|---|
+| Configuración local | `.env.local.backup` ignorado por Git; variables requeridas presentes, sin imprimir secretos |
+| Google Drive | Renovación OAuth y listado de carpeta reales correctos, sin crear ni borrar archivos; corresponde crear copia |
+| Neon | API confirma proyecto, rama main y endpoint esperado; URL directa y TLS validados localmente |
+| GitHub Actions | Seis Secrets y siete Variables registrados; GitHub no permite releer valores de Secrets para certificar equivalencia |
+| Workflow local | `actionlint` 1.7.12 correcto; guardas de restauración antes de DROP y limpieza solo de rama recién creada |
+| Tests locales | 13 pruebas dirigidas de política/Drive correctas; TypeScript, lint dirigido y diff-check correctos |
+| Integración | PR #7 abierto hacia main; correcciones locales todavía no publicadas; workflow ausente en main |
+| Cierre operativo | Copia real, restauración, rotación y scheduler pendientes; no declarar fase cerrada |
+
+Los tests Drive usan fixtures y red simulada: prueban publicación tras verificar
+tamaño/MD5, rechazo de manifiesto corrupto y parada ante revocación OAuth. No
+sustituyen pg_dump, cifrado age ni restauración reales. La renovación comprobada
+hoy tampoco garantiza vigencia futura del token (fase 4B).
+
+### Guardas adicionales
+
+- Una generación cuenta para elegibilidad/retención solo con manifiesto y archivo
+  completos, mismo runId y archivo no vacío; manifiestos duplicados no ocupan
+  varias posiciones. Un manifiesto huérfano no desplaza una copia recuperable.
+- El manifiesto se publica como completo después de verificar su tamaño y MD5;
+  una carga corrupta detiene el flujo antes de rotar copias.
+- No limpiar incompletos de más de 48 horas mientras falten las dos generaciones
+  completas requeridas. No retirar archivos ajenos a archive/manifest del respaldo.
+- Antes de DROP/pg_restore exigir rama nueva, ID Neon, endpoint directo distinto
+  de producción, URL coincidente con el host devuelto por la acción, base esperada
+  y TLS. Si la acción reutiliza una rama, ni restaurarla ni borrarla automáticamente.
+
+### Próximo ensayo autorizado
+
+1. Publicar las correcciones, dirigir el PR a develop y completar la integración
+   develop → main con revisión; evitar un build Vercel innecesario para respaldos.
+2. Ejecutar manualmente copia forzada y restauración temporal; guardar URL de run,
+   commit, resultado y limpieza. No restaurar ni migrar la rama de producción.
+3. Crear segunda y tercera generación; verificar retención de las dos últimas.
+4. Ejecutar sin forzar y comprobar omisión dentro del intervalo.
+5. Comprobar scheduler real y configurar/verificar alertas de fallo y copia
+   atrasada. Hasta tener esta evidencia, 4A sigue pendiente de operación.
+
 La base de producción se respalda fuera de Vercel y fuera de una petición de
 la aplicación. El workflow `.github/workflows/database-backup.yml` consulta
 Google Drive diariamente a las `00:00` de `America/Mexico_City`, pero solo crea
@@ -57,7 +103,7 @@ conexión.
    refresh token; se recomienda usar `prompt=consent` durante la autorización
    inicial.
 4. Guardar temporalmente las tres credenciales OAuth en un archivo local
-   `.env.backup.local`, que queda cubierto por `.env*` en `.gitignore`:
+   `.env.local.backup`, que queda cubierto por `.env*` en `.gitignore`:
 
 ```dotenv
 GOOGLE_DRIVE_OAUTH_CLIENT_ID=
@@ -68,7 +114,7 @@ GOOGLE_DRIVE_REFRESH_TOKEN=
 5. Crear la carpeta mediante el mismo cliente OAuth para que el alcance
    restringido `drive.file` pueda administrarla:
 
-`node --env-file=.env.backup.local scripts/backups/google-drive-backup.mts init-folder`
+`node --env-file=.env.local.backup scripts/backups/google-drive-backup.mts init-folder`
 
 6. Copiar solamente el ID mostrado a `GOOGLE_DRIVE_BACKUP_FOLDER_ID`, cargar
    las tres credenciales como Secrets de Actions y eliminar el archivo local
@@ -77,6 +123,12 @@ GOOGLE_DRIVE_REFRESH_TOKEN=
 El refresh token puede ser revocado por Google o por el propietario. Un fallo
 de renovación detiene el workflow antes de crear o eliminar archivos y debe
 resolverse generando una nueva autorización offline.
+
+En OAuth externo en Testing, el refresh token con permisos Drive normalmente
+vence en siete días. Una copia de prueba no demuestra continuidad cada ocho días.
+Publicar no garantiza token permanente: obtener autorización nueva, comprobar
+renovación y definir alertas de `invalid_grant` y copia atrasada. No reutilizar
+credenciales o sesiones Google Sign-In para Drive.
 
 ## Preparar el cifrado
 
@@ -96,6 +148,11 @@ existe pero no puede descifrarse es decoración cara, no un respaldo.
 
 El workflow programado solo se ejecuta desde la rama predeterminada de GitHub,
 por lo que debe llegar a `main` antes de operar automáticamente.
+
+Seguir rama de trabajo → develop → main, sin saltar integración por el scheduler.
+GitHub puede retrasar/perder trabajos programados y, en repositorios públicos,
+desactivarlos tras 60 días sin actividad. Las `00:00` son hora prevista, no una
+garantía exacta. Detectar ausencia de ejecuciones, además de jobs fallidos.
 
 1. Ejecutar manualmente `Database backup` con `force_backup=true` y
    `verify_restore=true`.
@@ -129,6 +186,10 @@ La aplicación permanece disponible durante `pg_dump`: PostgreSQL entrega una
 vista consistente sin bloquear las escrituras ordinarias. El modo mantenimiento
 se reserva para una restauración real sobre producción, que nunca debe
 automatizarse desde este workflow.
+
+El dump contiene PostgreSQL, no binarios Cloudinary ni borradores pendientes en
+IndexedDB. Documentar retención/recuperación de imágenes aparte; estas copias no
+son un respaldo completo de todos los recursos de la aplicación.
 
 ## Respuesta a incidentes
 

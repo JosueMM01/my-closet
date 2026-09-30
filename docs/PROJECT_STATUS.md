@@ -1,5 +1,38 @@
 # Estado del proyecto
 
+## Resumen vigente — 2026-09-30
+
+Plan compartido: [ROADMAP.md](ROADMAP.md). La sección posterior se conserva como
+snapshot histórico de agosto: sus ramas, cifras y marcas de completado no
+describen necesariamente el estado actual ni certifican seguridad.
+
+| Área | Estado actual y evidencia pendiente |
+|---|---|
+| Aplicación | Desplegada; el propietario reporta login, correo y armario funcionales |
+| Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
+| Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
+| Respaldos 4A | Guardas reforzadas; 13 tests y actionlint correctos; Drive/Neon comprobados en lectura y configuración Actions registrada; pendiente publicación y ensayo real |
+| OAuth 4B | Pendiente publicación pública y renovación duradera de Drive; independiente de Google Sign-In |
+| Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
+| Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
+| Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
+| Documentación 7 | Nueva ruta documentada; clasificación y retiro de docs históricos pendientes |
+| Avatar 8 | Investigación opcional; no bloquea uso personal |
+
+Integración: ramas desde develop → PR a develop → PR de lanzamiento a main.
+Verificar destinos Neon antes de migrar. No asumir que un build verde demuestra
+recuperación o aislamiento. El dump no respalda binarios Cloudinary ni borradores
+IndexedDB; documentar esa cobertura en [BACKUPS.md](BACKUPS.md).
+
+La revisión documental no ejecutó tests de aplicación, respaldos ni deployments.
+No publicar secretos o activar destinos de producción en pruebas ordinarias.
+
+Avance posterior de 4A: se ejecutaron tests dirigidos del respaldo, TypeScript,
+lint y consultas de configuración/Drive/Neon, sin copias, restauraciones ni
+deployments. Véase el checkpoint fechado en BACKUPS.md.
+
+## Snapshot histórico — 2026-08-21 (no vigente)
+
 Fecha: 2026-08-21 · Rama actual: `codex/feat-neon-cloudinary-staging`.
 
 ## ✅ Completado
