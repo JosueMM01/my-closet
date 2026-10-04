@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
+  "git": {
+    "deploymentEnabled": {
+      "fix/backup-recovery-phase-4a": false,
+      "chore/remove-legacy-docs": false
+    }
+  }
+}
