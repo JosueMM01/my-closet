@@ -8,8 +8,26 @@ import {
   staleIncompleteFiles,
   validateDirectPostgresSource,
   validateTemporaryRestoreTarget,
+  validatePostgresToolVersion,
   type DriveBackupFile,
 } from '../../scripts/backups/policy.mts';
+
+describe('compatibilidad de herramientas PostgreSQL', () => {
+  it('rechaza pg_dump 17 contra un servidor 18 antes de crear la copia', () => {
+    expect(() => validatePostgresToolVersion('18.3 (Neon)', 'pg_dump (PostgreSQL) 17.9'))
+      .toThrow(/pg_dump 17 no puede respaldar PostgreSQL 18/);
+  });
+
+  it('admite herramientas del mismo major o uno posterior', () => {
+    expect(() => validatePostgresToolVersion('18.3\n', 'pg_dump (PostgreSQL) 18.3\n')).not.toThrow();
+    expect(() => validatePostgresToolVersion('17.9', 'pg_dump (PostgreSQL) 18.3')).not.toThrow();
+  });
+
+  it('no acepta versiones ausentes o no identificables', () => {
+    expect(() => validatePostgresToolVersion('', 'pg_dump (PostgreSQL) 18.3')).toThrow(/identificar/);
+    expect(() => validatePostgresToolVersion('18.3', 'unknown')).toThrow(/identificar/);
+  });
+});
 
 function file(input: {
   id: string;

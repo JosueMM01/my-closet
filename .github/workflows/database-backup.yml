@@ -27,7 +27,8 @@ concurrency:
 env:
   BACKUP_MINIMUM_AGE_DAYS: '8'
   BACKUP_RETENTION_COUNT: '2'
-  POSTGRES_IMAGE: postgres:17-alpine
+  # Neon uses PostgreSQL 18; pg_dump cannot read a newer server major version.
+  POSTGRES_IMAGE: postgres:18-alpine
 
 jobs:
   backup:
@@ -81,18 +82,20 @@ jobs:
         run: |
           docker run --rm \
             --env DATABASE_URL_UNPOOLED \
-            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup" \
-            "$POSTGRES_IMAGE" \
-            sh -ceu 'pg_dump --dbname="$DATABASE_URL_UNPOOLED" --format=custom --compress=zstd:9 --no-owner --no-privileges --file=/backup/database.dump'
-
-          docker run --rm \
-            --env DATABASE_URL_UNPOOLED \
             "$POSTGRES_IMAGE" \
             sh -ceu 'psql "$DATABASE_URL_UNPOOLED" --tuples-only --no-align --command="SHOW server_version"' \
             > "$BACKUP_SERVER_VERSION_PATH"
 
           docker run --rm "$POSTGRES_IMAGE" pg_dump --version \
             > "$BACKUP_PG_DUMP_VERSION_PATH"
+
+          node scripts/backups/google-drive-backup.mts validate-tool-version
+
+          docker run --rm \
+            --env DATABASE_URL_UNPOOLED \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup" \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'pg_dump --dbname="$DATABASE_URL_UNPOOLED" --format=custom --compress=zstd:9 --no-owner --no-privileges --file=/backup/database.dump'
 
           docker run --rm \
             --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup:ro" \

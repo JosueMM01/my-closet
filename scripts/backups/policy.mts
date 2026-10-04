@@ -4,6 +4,17 @@ export const BACKUP_APP_ID = 'my-closet-database-backup';
 export const DEFAULT_MINIMUM_AGE_DAYS = 8;
 export const DEFAULT_RETENTION_COUNT = 2;
 
+export function validatePostgresToolVersion(serverVersion: string, pgDumpVersion: string): void {
+  const serverMajor = /^(\d+)\./.exec(serverVersion.trim())?.[1];
+  const toolMajor = /^pg_dump \(PostgreSQL\) (\d+)\./.exec(pgDumpVersion.trim())?.[1];
+  if (!serverMajor || !toolMajor) {
+    throw new Error('No se pudo identificar la versión de PostgreSQL o pg_dump');
+  }
+  if (Number(toolMajor) < Number(serverMajor)) {
+    throw new Error(`pg_dump ${toolMajor} no puede respaldar PostgreSQL ${serverMajor}; actualiza las herramientas`);
+  }
+}
+
 const isoDateSchema = z.iso.datetime({ offset: true });
 const checksumSchema = z.string().regex(/^[a-f0-9]{64}$/);
 

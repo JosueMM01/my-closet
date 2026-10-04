@@ -15,6 +15,7 @@ import {
   staleIncompleteFiles,
   validateDirectPostgresSource,
   validateTemporaryRestoreTarget,
+  validatePostgresToolVersion,
   type BackupManifest,
   type DriveBackupFile,
 } from './policy.mts';
@@ -280,6 +281,15 @@ async function validateSource(): Promise<void> {
   });
   await githubSummary(`- Fuente Neon validada: endpoint directo y base ${source.database}.`);
   console.log('La fuente del respaldo coincide con el endpoint directo de producción.');
+}
+
+async function validateToolVersion(): Promise<void> {
+  const [serverVersion, toolVersion] = await Promise.all([
+    readFile(requiredPath('BACKUP_SERVER_VERSION_PATH'), 'utf8'),
+    readFile(requiredPath('BACKUP_PG_DUMP_VERSION_PATH'), 'utf8'),
+  ]);
+  validatePostgresToolVersion(serverVersion, toolVersion);
+  console.log('pg_dump es compatible con la versión de PostgreSQL del origen.');
 }
 
 async function status(): Promise<void> {
@@ -548,6 +558,7 @@ const command = process.argv[2];
 const commands: Record<string, () => Promise<void>> = {
   'init-folder': initFolder,
   'validate-source': validateSource,
+  'validate-tool-version': validateToolVersion,
   'validate-restore': validateRestore,
   status,
   upload: uploadBackup,
@@ -559,6 +570,6 @@ const commands: Record<string, () => Promise<void>> = {
 
 const handler = command ? commands[command] : undefined;
 if (!handler) {
-  throw new Error('Comando inválido. Usa init-folder, validate-source, validate-restore, status, upload, maintain, download-latest, verify-plain o mark-restored.');
+  throw new Error('Comando inválido. Usa init-folder, validate-source, validate-tool-version, validate-restore, status, upload, maintain, download-latest, verify-plain o mark-restored.');
 }
 await handler();
