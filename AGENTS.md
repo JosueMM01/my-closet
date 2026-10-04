@@ -49,5 +49,4 @@ SQLite/PG, auth scrypt, ImageStorage) · `src/app/api` (rutas nodejs) ·
 
 ## Lectura recomendada
 `docs/ARCHITECTURE.md` · `docs/SYNC.md` · `docs/OFFLINE_FIRST.md` ·
-`docs/SECURITY.md` · ADRs en `docs/decisions/` · decisiones tipo PR en
-`docs/local-prs/`.
+`docs/SECURITY.md` · `docs/DEVELOPMENT.md`.
