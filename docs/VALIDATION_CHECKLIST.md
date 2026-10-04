@@ -17,7 +17,7 @@ Plan vigente: [ROADMAP.md](ROADMAP.md).
   requiere usuario staging ya vinculado y callback autorizado de localhost:3001.
   Usar inicialmente una ventana privada permite probar sin modificar los datos
   de otro perfil previamente guardado en este origen.
-- Contratos SQL: cuatro pruebas en tablas temporales, copiando estructura y
+- Contratos SQL: ocho pruebas en tablas temporales, copiando estructura y
   restricciones. No insertan, actualizan ni borran cuentas públicas existentes.
 - Build/E2E: checkout aislado, SQLite sintética y puerto 3100; no apuntan a Neon.
   Emulación móvil no sustituye pruebas en Samsung/Xiaomi físicos.
@@ -28,14 +28,18 @@ Cloudinary o SMTP real no quedaron certificados en esta sesión.
 
 ## 5A — Invitaciones y cupo ADMIN (relevante)
 
-Implementado: comprobación en servidor dentro de la creación transaccional,
-rechazo HTTP 409 antes de persistencia/envío, y bloqueo de la opción ADMIN en UI.
-Se mantiene la guarda de aceptación de invitación y límite de dos admins activos
-de la base de datos. No hay migraciones ni nuevos campos.
+Implementado: activos + ADMIN pendientes/vigentes <= 2, con reserva transaccional,
+rechazo HTTP 409 antes de persistencia/envío y bloqueo de ADMIN en UI. Promociones
+y reactivaciones respetan reservas. Al aceptar con contraseña o Google, la reserva
+se convierte en cuenta ADMIN, sin contar dos veces. Revocación/caducidad liberan plaza.
+PostgreSQL serializa escritores antes de bloquear filas; no hay migraciones.
 
-Pruebas automatizadas: 37 casos dirigidos de cuentas/invitaciones/OAuth/correo,
-cuatro contratos PostgreSQL staging, ocho E2E de administración/invitaciones
-en Chromium móvil/escritorio y controles TypeScript/lint/build local.
+Ampliación: 62 casos dirigidos de cuentas/invitaciones/OAuth, ocho contratos
+PostgreSQL staging (incluido bloqueo entre conexiones) y TypeScript/lint/build local.
+22 ejecuciones E2E dirigidas aprobadas en Chromium móvil/escritorio (~1,1 min),
+incluidas reserva/revocación, caducidad sin recargar e icono de Google en login.
+Los contratos usan 20 s por caso para consultas remotas; no se amplía el timeout
+de pruebas unitarias ni se certifican carreras de datos compartidos en producción.
 
 Supervisión del propietario:
 
@@ -45,9 +49,14 @@ Supervisión del propietario:
   resultado debe decir «capturada para pruebas», no «enviada por correo».
 - [ ] Con un solo admin y el segundo deshabilitado, ADMIN puede seleccionarse;
   no deshabilitar cuentas reales solo para probar este caso: ya tiene contrato.
-- [ ] Aprobar la regla conservada: invitaciones pendientes NO reservan plaza;
-  pueden emitirse varias mientras quede cupo, pero al aceptar se vuelve a validar.
-  Una invitación antigua nunca permite crear un tercer administrador activo.
+- [x] Propietario aprueba que ADMIN pendiente/vigente reserve plaza.
+- [ ] Con un activo, crear una invitación ADMIN: ver «1 plaza reservada», opción
+  ADMIN bloqueada y mensaje «Revoca una invitación ADMIN…». USER sigue disponible.
+- [ ] Revocar esa invitación: desaparece la reserva y ADMIN vuelve a estar disponible.
+- [ ] Aceptar otra en ventana privada de la misma laptop: pasa a dos activos,
+  cero reservas; no permite un tercero. Hay pruebas automáticas para ambos métodos.
+- [ ] Si existen invitaciones antiguas sobreasignadas, revocar las sobrantes;
+  no se borra/revoca ninguna automáticamente ni se modifica su rol.
 - [ ] Si otro dispositivo cambia el cupo, la caché visual puede tardar en mostrarlo;
   el servidor igualmente rechaza la solicitud que ya no tenga cupo.
 
@@ -95,7 +104,7 @@ restauración sobre producción.
 ## Seguimiento: acceso e invitaciones locales
 
 - [ ] Confirmar en localhost:3001 el texto «Iniciar sesión con Google», candado
-  visible y mensajes específicos ante cuenta activa no vinculada/cancelación.
+  visible, G oficial en login/registro y mensajes ante cuenta no vinculada/cancelación.
   No manipular credenciales reales para provocar fallos; hay pruebas sintéticas.
 - [ ] Para aceptar una invitación local: copiar el enlace y abrir una ventana
   privada EN LA MISMA LAPTOP, conservando `#invite=...`. La sesión del admin en
@@ -104,16 +113,13 @@ restauración sobre producción.
   staging y no funcionará en otra base. En otro equipo/teléfono, localhost señala
   ese dispositivo; LAN/preview requiere preparar entorno aparte, no basta con
   editar el enlace (especialmente Google OAuth).
-- [ ] Aclarar dónde se enviaron las dos invitaciones reportadas. La consulta
-  actual de staging encontró un admin activo y ninguna ADMIN pendiente. Emitir
-  varias pendientes con cupo libre es la regla actual; reservar plazas sería
-  otra regla que necesita aprobación antes de cambiar transacciones.
+- [x] Propietario confirma pruebas en localhost:3001, no cambios publicados en Vercel.
 - [ ] Avisos fijos dentro de la app: plan 7A, todavía no implementado.
   Push opcional: 7B; no sustituye errores de formulario ni pide permiso ahora.
 
 ## Autorización Git y presupuesto
 
-Rama actual: `fix/auth-feedback-public-contact-phase-4b`, creada desde `develop`
+Rama actual: `fix/admin-invitation-seat-reservations-phase-5a`, creada desde `develop`
 con dependencias locales de 4A/4B/5A por fast-forward. Código y documentación en
 commits separados. Los cambios previos del propietario en `.env.example` y
 `.gitignore` no pertenecen a esta entrega.

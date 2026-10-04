@@ -17,7 +17,7 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
 | Documentación 7 | PR #8 cerrado sin fusionar; limpieza de decisions/local-prs/reference integrada localmente en la rama 4A |
-| Invitaciones ADMIN 5A | Corrección local: emisión rechazada con dos activos antes de persistir/enviar; opción UI bloqueada. Aceptación mantiene guarda de BD. Pendientes no reservan plaza; revisión manual/integración pendientes |
+| Invitaciones ADMIN 5A | Reserva local aprobada: activos + ADMIN pendientes/vigentes <= 2; revocación/caducidad liberan plaza, aceptación convierte reserva. Promociones/reactivaciones protegidas; revisión manual/integración pendientes |
 | Baja de cuenta | No implementada. Plan 5C: reautenticación, ELIMINAR, sesiones, Neon, Cloudinary/referencias, offline y respaldos |
 | Avatar 8 | Investigación opcional; no bloquea uso personal |
 
@@ -73,10 +73,22 @@ callback no se ocultan por redirección de perfil local; reautenticación genera
 de 5B sigue pendiente. 48 tests unit/integración y 20 ejecuciones E2E dirigidas
 en dev móvil/escritorio aprobados; TypeScript/lint correctos. No se repitió build
 de producción en este seguimiento ni se desplegó.
-Consulta SQL solo lectura en staging: un admin activo y cero invitaciones ADMIN
-pendientes. No demuestra dónde se emitieron las dos invitaciones reportadas:
-pedir URL del entorno. Con una plaza libre, emitir varias pendientes es la
-política actual, no una violación del límite de cuentas activas.
+El propietario confirmó que las invitaciones reportadas se probaron en localhost:3001.
+La consulta anterior de staging fue una instantánea, no prueba de dónde ocurrieron.
+Política de reservas aprobada e implementada en
+`fix/admin-invitation-seat-reservations-phase-5a` (desde develop y dependencias FF).
+Activos más ADMIN pendientes/vigentes no pueden superar dos. Contraseña/Google
+transfieren la reserva; revocación/caducidad liberan cupo. Promociones y reactivaciones
+también respetan reservas. El panel explica cómo liberar plazas y actualiza caducidad.
+PostgreSQL usa un bloqueo transaccional compartido, antes de los bloqueos de filas;
+no hay migraciones. Invitaciones antiguas sobreasignadas requieren revocar sobrantes.
+Google muestra la G oficial local en login/registro sin añadir SDK ni peticiones externas.
+Validación de esta ampliación: 62 unit/integración y ocho contratos reales en
+tablas temporales de staging aprobados; TypeScript/lint y build aislado correctos.
+La primera ejecución del contrato más largo superó los 5 s por consultas remotas;
+con límite explícito de 20 s por caso, los ocho pasaron (suite ~25 s).
+22 ejecuciones E2E dirigidas aprobadas en móvil/escritorio (~1,1 min).
+Revisión manual y puertas de publicación: véase VALIDATION_CHECKLIST.md.
 Avisos/toasts visibles se planifican en 7A; Web Push opt-in se evalúa aparte en 7B.
 
 ## Snapshot histórico — 2026-08-21 (no vigente)

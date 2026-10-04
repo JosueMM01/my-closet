@@ -110,14 +110,16 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 
 ### 5 — Seguridad e identidad
 
-- 5A preparada localmente en `fix/admin-invitation-capacity-phase-5a`, creada
+- 5A ampliada localmente en `fix/admin-invitation-seat-reservations-phase-5a`, creada
   desde develop e integrada por fast-forward con las dependencias 4A/4B pendientes.
-  El servidor rechaza emisión ADMIN con dos activos antes de persistir o enviar
-  correo; UI deshabilita ADMIN con cupo completo o todavía desconocido.
-  No cambia esquema ni debilita la guarda de aceptación/adminSlot. Las invitaciones
-  pendientes no reservan una plaza: se conserva el comportamiento anterior y la
-  interfaz explica que el cupo se vuelve a comprobar al aceptar. La política debe
-  aprobarla el propietario; reservar plazas sería otra regla de negocio.
+  Política aprobada: activos + invitaciones ADMIN pendientes y vigentes <= 2.
+  Una invitación reserva plaza hasta aceptarse, revocarse o caducar; USER no reserva.
+  Emisión, promociones y reactivaciones respetan reservas. Contraseña/Google
+  consumen su propia reserva sin contarla dos veces. PostgreSQL serializa estos
+  escritores con bloqueo transaccional antes de bloquear filas; SQLite usa transacciones.
+  UI indica plazas reservadas, cómo liberarlas y actualiza caducidad sin recargar.
+  No cambia esquema ni debilita adminSlot. Si hay invitaciones antiguas
+  sobreasignadas, el propietario debe revocar las sobrantes; no se revocan automáticamente.
   SQLite y contratos PostgreSQL reales con tablas temporales probados; revisión
   manual e integración pendientes. Véase [VALIDATION_CHECKLIST.md](VALIDATION_CHECKLIST.md).
 - Auditar autorización server-side por operación, usuario y propietario en sync,
