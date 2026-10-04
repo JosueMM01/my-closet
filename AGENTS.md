@@ -10,20 +10,21 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Reglas del proyecto My Closet (obligatorias para agentes)
 
-## Producción (futuro)
+## Producción (actual)
 Next.js + Vercel · PostgreSQL + Neon · Cloudinary
 
-## Local (hoy)
-Next.js · SQLite para backend/dev (`./data/my-closet.db`) · IndexedDB para
-offline (Dexie) · LocalImageStorage · sin servicios externos conectados
+## Local y pruebas
+Next.js · SQLite/LocalImageStorage para pruebas aisladas · IndexedDB offline
+(Dexie). `.env.local` puede apuntar a Neon staging/servicios de pruebas autorizados;
+verificar el endpoint, no asumir que la rama Git selecciona la base de datos.
 
 ## Never
 - tokens de sesión en localStorage / sessionStorage / IndexedDB
 - secretos de producción en Git, logs, docs o fixtures
 - instalación global de herramientas (`npm i -g` / `pnpm add -g`)
 - procesamiento de imágenes en el servidor (se hace en el navegador)
-- conexiones reales a terceros durante el desarrollo local
-- `git push` / creación de remotos (repo 100% local por decisión del dueño)
+- conexiones reales a terceros durante el desarrollo local sin autorización explícita
+- `git push`, creación de PR o despliegues sin confirmación explícita del dueño
 - UI leyendo directamente de la red: siempre IndexedDB + sync engine
 
 ## Siempre

@@ -1,26 +1,48 @@
 # Respaldos y recuperación de PostgreSQL
 
-Estado al 2026-09-30: implementación existente; cierre operativo de 4A pendiente
-de evidencia de copia, restauración, rotación y scheduler. 4B trata publicación
+Estado al 2026-10-04: copia, restauración temporal, rotación y omisión dentro del
+intervalo demostradas. Falta publicar las correcciones y probar el scheduler en
+GitHub antes de cerrar 4A operativamente. 4B trata publicación
 OAuth y continuidad. Véase [ROADMAP.md](ROADMAP.md).
 
-## Checkpoint de fase 4A — 2026-09-30
+## Checkpoint de fase 4A — 2026-10-04
 
 | Comprobación | Evidencia actual |
 |---|---|
 | Configuración local | `.env.local.backup` ignorado por Git; variables requeridas presentes, sin imprimir secretos |
-| Google Drive | Renovación OAuth y listado de carpeta reales correctos, sin crear ni borrar archivos; corresponde crear copia |
-| Neon | API confirma proyecto, rama main y endpoint esperado; URL directa y TLS validados localmente |
+| Google Drive | Copias cifradas reales, tamaños/MD5 y SHA-256 verificados; última restauración marcada verified en el manifiesto |
+| Neon | Fuente main validada; servidor 18.6. Restauración solo en rama temporal, borrada al terminar; main/staging intactas |
 | GitHub Actions | Seis Secrets y siete Variables registrados; GitHub no permite releer valores de Secrets para certificar equivalencia |
 | Workflow local | `actionlint` 1.7.12 correcto; guardas de restauración antes de DROP y limpieza solo de rama recién creada |
-| Tests locales | 13 pruebas dirigidas de política/Drive correctas; TypeScript, lint dirigido y diff-check correctos |
-| Integración | PR #7 abierto hacia main; correcciones locales todavía no publicadas; workflow ausente en main |
-| Cierre operativo | Copia real, restauración, rotación y scheduler pendientes; no declarar fase cerrada |
+| Tests locales | 35 pruebas dirigidas de política/Drive/workflow/control de builds; TypeScript, lint dirigido y actionlint correctos |
+| Recuperación real | 11 tablas coinciden en conteos y huellas con el snapshot exportado; relaciones requeridas correctas |
+| Retención real | Tres generaciones del ensayo; quedan las dos últimas completas. Sin forzar, omite copia dentro de ocho días |
+| Integración | PR #7 ya fusionado a main con código anterior. Rama local fix/backup-recovery-phase-4a desde develop integra ese baseline y correcciones; sin push/PR |
+| Cierre operativo | Pendientes publicación revisada, ejecución Actions manual/programada, notificaciones y detección de atraso |
+
+Evidencia fechada y alcance: [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY_EVIDENCE.md).
+El último archivo cifrado del ensayo pesa 49 835 bytes; no contiene los binarios
+de las imágenes. Esta medida no predice el tamaño de futuros respaldos.
+
+Se corrigió un bloqueo real: el proyecto Neon usa PostgreSQL 18 y el workflow
+tenía pg_dump 17, que no puede leer un servidor de un major superior. Ahora usa
+`postgres:18-alpine` y comprueba la versión antes del dump. El ensayo local usó
+pg_dump 18.6. No se cambió la versión del servidor Neon.
+
+GitHub confirmó el fallo del workflow publicado: `Unrecognized named-value: runner`
+en las rutas definidas en job.env. [Run 37224352106](https://github.com/JosueMM01/my-closet/actions/runs/37224352106).
+La corrección inicializa las rutas dentro de un step usando RUNNER_TEMP/GITHUB_ENV.
+El CI general verde no subsana ese archivo inválido ni prueba que existan respaldos.
+
+La acción de creación usa `suspend_timeout=0`, que la API Neon interpreta como
+valor predeterminado del plan. No se fuerza un timeout de 60 s, que Free no
+permite personalizar. La expiración de dos horas se comprobó en las ramas del
+ensayo, pero no sustituye la limpieza inmediata y su verificación.
 
 Los tests Drive usan fixtures y red simulada: prueban publicación tras verificar
 tamaño/MD5, rechazo de manifiesto corrupto y parada ante revocación OAuth. No
-sustituyen pg_dump, cifrado age ni restauración reales. La renovación comprobada
-hoy tampoco garantiza vigencia futura del token (fase 4B).
+sustituyen el ensayo real, que también se ejecutó hoy por separado. La renovación
+comprobada hoy tampoco garantiza vigencia futura del token (fase 4B).
 
 ### Guardas adicionales
 
@@ -35,14 +57,17 @@ hoy tampoco garantiza vigencia futura del token (fase 4B).
   de producción, URL coincidente con el host devuelto por la acción, base esperada
   y TLS. Si la acción reutiliza una rama, ni restaurarla ni borrarla automáticamente.
 
-### Próximo ensayo autorizado
+### Puerta pendiente para cerrar la operación
 
 1. Publicar las correcciones, dirigir el PR a develop y completar la integración
    develop → main con revisión; evitar un build Vercel innecesario para respaldos.
-2. Ejecutar manualmente copia forzada y restauración temporal; guardar URL de run,
-   commit, resultado y limpieza. No restaurar ni migrar la rama de producción.
-3. Crear segunda y tercera generación; verificar retención de las dos últimas.
-4. Ejecutar sin forzar y comprobar omisión dentro del intervalo.
+2. Repetir desde Actions la restauración de la copia existente: `force_backup=false`
+   y `verify_restore=true`. Registrar URL del run, commit y limpieza. No hace falta
+   subir tres copias más si la evidencia de rotación sigue válida.
+3. Comprobar que Actions también omite una copia dentro del intervalo; el ensayo
+   local demostró esa política, no la ejecución hospedada.
+4. No ejecutar el workflow antiguo publicado: todavía tiene el error de contexto
+   runner.temp y herramientas 17. Publicar primero las correcciones revisadas.
 5. Comprobar scheduler real y configurar/verificar alertas de fallo y copia
    atrasada. Hasta tener esta evidencia, 4A sigue pendiente de operación.
 
@@ -139,7 +164,9 @@ público.
 
 - La identidad completa va a `BACKUP_AGE_IDENTITY`.
 - El recipient público `age1...` va a `BACKUP_AGE_RECIPIENT`.
-- Ninguno de los dos se escribe en `.env`, documentación, logs o commits.
+- La identidad privada solo se conserva en Secrets, un gestor externo y, mientras
+  se configura, el archivo privado ignorado `.env.local.backup`; nunca en `.env`
+  de la app, documentación, logs o commits. No mezclar secretos con el frontend.
 
 Sin la identidad privada, los dumps cifrados son irrecuperables. Una copia que
 existe pero no puede descifrarse es decoración cara, no un respaldo.

@@ -13,10 +13,11 @@ ignorada por Git. No contiene credenciales.
 - Pipeline adaptativo confirmado por el propietario en Xiaomi 12 y Galaxy A35;
   tiempo reportado de 35–45 s. Optimización pendiente, no funcionalidad básica.
 - PR #7 de respaldos fusionado directamente a main el 2026-10-04; develop aún
-  no lo contiene. Tres commits posteriores siguen solo en local: 847a5fd,
-  f08a2b5 y acd6f27. Cierre operativo pendiente; no confundir merge con recuperación.
+  no lo contiene en remoto. La rama local fix/backup-recovery-phase-4a, creada
+  desde develop, integra el baseline publicado y las correcciones posteriores.
+  Copia/restauración/rotación demostradas el 4 de octubre; scheduler pendiente.
 - PR #8 de limpieza cerrado sin fusionar por solicitud del propietario. La rama
-  chore/remove-legacy-docs conserva la eliminación de 16 documentos y referencias.
+  Su eliminación de 16 documentos y referencias ya está integrada en la rama 4A.
   No volver a abrirlo, publicar ramas o generar previews sin confirmación expresa.
 - Reautenticación de Perfil solo navega al login, que puede redirigir por el
   perfil local persistido. Rate limiting todavía en memoria.
@@ -45,7 +46,7 @@ ignorada por Git. No contiene credenciales.
 
 | Fase | Estado inicial | Criterio de cierre |
 |---|---|---|
-| 4A — Recuperación operativa | Actual; código existente, ensayo pendiente | Copia restaurada, rotación y ejecución programada comprobadas |
+| 4A — Recuperación operativa | Recuperación y rotación demostradas; integración remota/scheduler pendientes | Correcciones publicadas, run Actions y ejecución programada comprobados |
 | 4B — Publicación OAuth | Siguiente; pendiente | Páginas públicas y renovación de Drive comprobadas, con alertas |
 | 5 — Seguridad e identidad | Alta; auditoría y cambios pendientes | Permisos/aislamiento demostrados y hallazgos graves resueltos |
 | 6 — Rendimiento y recursos | Pendiente | Tiempo y peso medidos sin regresión móvil/offline |
@@ -65,6 +66,11 @@ la fase 7 de esta tabla corresponde al nuevo ciclo.
   cambiar la base del PR ya fusionado. No mezclar avatar o UI en esta entrega.
 - Validar y publicar la corrección local del workflow después de revisar CI y
   builds de Vercel. Confirmar Secrets/Variables sin imprimir valores.
+- Avance 2026-10-04: herramientas alineadas con PostgreSQL 18 de Neon; comprobación
+  de major antes del dump y timeout predeterminado de Neon Free. 35 tests dirigidos,
+  TypeScript, lint y actionlint correctos. Ensayo real recuperó 11 tablas, conservó
+  dos generaciones y omitió nueva copia dentro del intervalo. Evidencia en
+  [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY_EVIDENCE.md).
 - Verificar destino de producción, acceso a Drive y custodia externa de age.
 - Ensayar copia forzada y restauración solo en Neon temporal; comprobar tablas,
   relaciones, checksums y limpieza de la rama creada.
@@ -161,6 +167,21 @@ resueltos. No prometer inmunidad a todos los ataques.
   reintentos y bytes de imágenes. Ya hay WebP 1080 px/calidad 0.82 y deduplicación
   de upload en vuelo; no asumir que compresión o deduplicación resuelven todo el uso.
 
+Puerta de publicación adelantada en 4A: `vercel.json` preparado localmente omite
+autodeployment de las dos ramas de respaldo/limpieza concretas, no todas las
+ramas. Ignored Build Step compara contra VERCEL_GIT_PREVIOUS_SHA (último deployment
+exitoso de la rama), no contra HEAD^. Solo omite docs y respaldos independientes;
+cambios de app/configuración, historial ausente o base inválida construyen.
+No está activado en remoto todavía. En un primer deployment de rama o cambio
+de configuración puede ser necesario un build: no prometer omisión universal.
+
+Consumo observado 2026-10-04 en Vercel, equipo Hobby, vista últimos 30 días:
+Deployment Storage 1,79/10 GB; Fast Data Transfer 54,95 MB/100 GB;
+Fast Origin Transfer 47,33 MB/10 GB. Aproximadamente 8,21 GB libres en storage,
+según la lectura redondeada. Storage no es transferencia ni un contador de builds:
+cada deployment retenido, también previews, ocupa espacio. No se generaron
+builds/deployments en este ensayo ni se borraron deployments existentes.
+
 Cierre: comparación antes/después y límites acordados, sin regresiones móviles.
 
 ### 7 — Experiencia y documentación
@@ -190,12 +211,16 @@ Cierre: decisión de viabilidad y prototipo medido; no bloquea el uso personal.
 
 ## Siguiente unidad
 
-Continuar 4A: puerta de publicación/recursos, workflow, regularización de develop
-y ensayo autorizado de copia/restauración. Preparar 4B sin publicar anticipadamente.
+Publicación de 4A solo con confirmación. Recuperación local ya demostrada; registrar
+el run manual/programado hospedado y notificaciones pendientes. Preparar 4B sin
+publicar anticipadamente y evitar otra entrega de modelos para estos cambios.
 Orden funcional conservado: 4A → 4B → 5A/5B/5C → 6 → 7 → 8. La medición inicial
 de 6 y actualización documental de 7 son transversales, no bloquean el plan.
-Esta revisión no implementó invitaciones/baja de cuenta, no ejecutó copias ni builds,
-no renovó tokens y no publicó cambios; únicamente cerró PR #8 sin fusionar.
+5A y 5B pueden compartir entrega/PR si los commits y pruebas son independientes;
+5C permanece aparte por su carácter irreversible y coordinación Neon/Cloudinary.
+PR funcional no equivale a deployment por commit: preparar entrega completa,
+autorizar publicación una sola vez y revisar el presupuesto antes de cada release.
+No se implementaron todavía invitaciones/baja de cuenta ni páginas legales.
 
 Checkpoint posterior de 4A (2026-09-30): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.

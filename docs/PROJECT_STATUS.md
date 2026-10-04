@@ -11,12 +11,12 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Aplicación | Desplegada; el propietario reporta login, correo y armario funcionales |
 | Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
 | Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
-| Respaldos 4A | PR #7 fusionado a main; develop desalineado; tres correcciones solo locales. Los 13 tests/actionlint son evidencia del 30 de septiembre, no ensayo real. Workflow publicado pendiente de corrección |
+| Respaldos 4A | Recuperación real, 11 tablas, cifrado, dos generaciones y omisión dentro de ocho días demostrados el 4 de octubre; correcciones PG18/guardas locales. Publicación y scheduler pendientes |
 | OAuth 4B | Pendiente publicación pública y renovación duradera de Drive; independiente de Google Sign-In |
 | Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
-| Documentación 7 | PR #8 cerrado sin fusionar; eliminación de decisions/local-prs/reference preservada en su rama para próxima entrega autorizada |
+| Documentación 7 | PR #8 cerrado sin fusionar; limpieza de decisions/local-prs/reference integrada localmente en la rama 4A |
 | Invitaciones ADMIN | Creación/envío no comprueban cupo; aceptación sí protege dos administradores activos. Corrección planificada en 5A |
 | Baja de cuenta | No implementada. Plan 5C: reautenticación, ELIMINAR, sesiones, Neon, Cloudinary/referencias, offline y respaldos |
 | Avatar 8 | Investigación opcional; no bloquea uso personal |
@@ -26,14 +26,17 @@ Verificar destinos Neon antes de migrar. No asumir que un build verde demuestra
 recuperación o aislamiento. El dump no respalda binarios Cloudinary ni borradores
 IndexedDB; documentar esa cobertura en [BACKUPS.md](BACKUPS.md).
 
-La revisión del 4 de octubre no ejecutó tests de aplicación, respaldos ni builds.
-Se cerró PR #8 sin fusionar. No hacer push, nuevos PR o cambios de configuración
+La revisión inicial del 4 de octubre cerró PR #8 sin fusionar. Posteriormente se
+demostró la recuperación real y se validaron 35 tests dirigidos, TypeScript, lint
+y actionlint. No se ejecutaron builds ni E2E de la app. No hacer push, nuevos PR
+o cambios de configuración
 de deployments sin confirmación expresa; un push puede generar preview por sí solo.
 No publicar secretos o activar destinos de producción en pruebas ordinarias.
 
-Avance posterior de 4A: se ejecutaron tests dirigidos del respaldo, TypeScript,
-lint y consultas de configuración/Drive/Neon, sin copias, restauraciones ni
-deployments. Véase el checkpoint fechado en BACKUPS.md.
+Rama preparada desde develop: `fix/backup-recovery-phase-4a`; integra el baseline
+de respaldos ya publicado a main, las correcciones y limpieza. Nada se publicó.
+El control de builds preparado en vercel.json todavía no opera en remoto.
+Véanse [BACKUPS.md](BACKUPS.md) y [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY_EVIDENCE.md).
 
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
