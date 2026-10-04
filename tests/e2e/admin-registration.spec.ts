@@ -110,7 +110,9 @@ test.describe('Administración', () => {
     const second = page.locator('li').filter({ hasText: secondEmail });
     await second.getByRole('button', { name: 'Hacer admin' }).click();
     await expect(page.getByText('2/2 admins activos')).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Administrador (cupo completo)' })).toBeDisabled();
+    // Native options have their own disabled state; checking the owning select
+    // would incorrectly require USER invitations to be disabled as well.
+    await expect(page.getByRole('option', { name: 'Administrador (cupo completo)' })).toHaveJSProperty('disabled', true);
     await expect(page.getByText('Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.')).toBeVisible();
 
     // UI caching does not grant permission: a forged request is rejected by the server.
