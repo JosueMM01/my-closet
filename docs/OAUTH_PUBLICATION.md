@@ -23,21 +23,28 @@ URL en Cloudinary, marcadores de borrado, limpieza/baja completa pendientes,
 respaldo de base de datos sin imágenes y automatización todavía en validación.
 Si cambia alguna práctica, deben revisarse los textos.
 
-## Responsable y contacto: decisión pendiente
+## Responsable y contacto aprobados
 
-Configurar explícitamente estos dos campos, visibles en Internet:
+El propietario aprobó estos datos públicos el 4 de octubre de 2026. Se incluyen
+como defaults versionados, sin derivarlos de credenciales privadas. No hace falta
+añadir variables a Vercel para usarlos. Overrides opcionales, visibles en Internet:
 
 ```dotenv
-PUBLIC_LEGAL_OPERATOR_NAME="NOMBRE PUBLICO DEL RESPONSABLE"
-PUBLIC_LEGAL_CONTACT_EMAIL="contacto@example.com"
+PUBLIC_LEGAL_OPERATOR_NAME="Josue Martinez"
+PUBLIC_LEGAL_CONTACT_EMAIL="contacto@josuem01.dev"
 ```
 
 No son secretos, pero no deben derivarse del administrador, bootstrap, SMTP o
 los clientes OAuth. No utilizan prefijo NEXT_PUBLIC: se renderizan en servidor
-y se incorporan al HTML durante el build. Sin ambos campos las páginas muestran
-que están en revisión y llevan `noindex`; esto bloquea el cierre de 4B, no rompe
+y se incorporan al HTML durante el build. Si faltan variables se usan los datos
+aprobados, nunca SMTP/bootstrap. Overrides explícitamente vacíos mantienen
+revisión/noindex; esto bloquea el cierre de 4B, no rompe
 el acceso a la app. Una configuración inválida falla sin imprimir su valor.
 Cambiar estos campos requiere un nuevo build para actualizar el HTML.
+
+Siguen pendientes revisión completa de textos, despliegue, publicación de Google
+y renovación de Drive. Aprobar identidad/contacto no certifica cumplimiento legal
+ni que Google haya aprobado la aplicación.
 
 No se alteraron `.env.example`, `.env.local`, `.env.prod` o `.env.local.backup`
 en esta fase. Las URLs anteriores no estarán disponibles en producción hasta

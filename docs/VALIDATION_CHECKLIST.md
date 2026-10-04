@@ -55,9 +55,9 @@ Supervisión del propietario:
 
 - [ ] Revisar `/about`, `/privacy` y `/terms` sin sesión; contenido legible,
   enlaces correctos, sin exponer fotos/datos privados ni cargar el modelo.
-- [ ] Aprobar responsable y correo de contacto públicos para
-  `PUBLIC_LEGAL_OPERATOR_NAME` y `PUBLIC_LEGAL_CONTACT_EMAIL`. No usar datos
-  del administrador automáticamente. Mientras falten, se indica revisión/noindex.
+- [x] Responsable/contacto aprobados: Josue Martinez, contacto@josuem01.dev.
+  Defaults públicos versionados; `PUBLIC_LEGAL_OPERATOR_NAME` y
+  `PUBLIC_LEGAL_CONTACT_EMAIL` son overrides opcionales, no secretos.
 - [ ] Aprobar cobertura real: IndexedDB, Neon, Cloudinary, servicios de correo,
   OAuth y respaldos. Los textos no certifican cumplimiento legal.
 - [ ] Autorizar integración/despliegue y después revisar URLs públicas reales,
@@ -92,10 +92,29 @@ restauración sobre producción.
 - 6: medir optimización de modelos en dispositivos físicos; no eliminar modelos
   ni prometer 15 segundos sin comparar calidad, backend y caché fría/caliente.
 
+## Seguimiento: acceso e invitaciones locales
+
+- [ ] Confirmar en localhost:3001 el texto «Iniciar sesión con Google», candado
+  visible y mensajes específicos ante cuenta activa no vinculada/cancelación.
+  No manipular credenciales reales para provocar fallos; hay pruebas sintéticas.
+- [ ] Para aceptar una invitación local: copiar el enlace y abrir una ventana
+  privada EN LA MISMA LAPTOP, conservando `#invite=...`. La sesión del admin en
+  otra ventana no debe sustituir el formulario de registro del invitado.
+- [ ] No cambiar localhost por el dominio de producción: el token pertenece a
+  staging y no funcionará en otra base. En otro equipo/teléfono, localhost señala
+  ese dispositivo; LAN/preview requiere preparar entorno aparte, no basta con
+  editar el enlace (especialmente Google OAuth).
+- [ ] Aclarar dónde se enviaron las dos invitaciones reportadas. La consulta
+  actual de staging encontró un admin activo y ninguna ADMIN pendiente. Emitir
+  varias pendientes con cupo libre es la regla actual; reservar plazas sería
+  otra regla que necesita aprobación antes de cambiar transacciones.
+- [ ] Avisos fijos dentro de la app: plan 7A, todavía no implementado.
+  Push opcional: 7B; no sustituye errores de formulario ni pide permiso ahora.
+
 ## Autorización Git y presupuesto
 
-Rama actual: `fix/admin-invitation-capacity-phase-5a`, creada desde `develop`
-con dependencias locales de 4A/4B por fast-forward. Código y documentación en
+Rama actual: `fix/auth-feedback-public-contact-phase-4b`, creada desde `develop`
+con dependencias locales de 4A/4B/5A por fast-forward. Código y documentación en
 commits separados. Los cambios previos del propietario en `.env.example` y
 `.gitignore` no pertenecen a esta entrega.
 

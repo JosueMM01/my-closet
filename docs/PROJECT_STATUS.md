@@ -12,7 +12,7 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
 | Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
 | Respaldos 4A | Recuperación real, 11 tablas, cifrado, dos generaciones y omisión dentro de ocho días demostrados el 4 de octubre; correcciones PG18/guardas locales. Publicación y scheduler pendientes |
-| OAuth 4B | `/about`, `/privacy`, `/terms` y errores OAuth preparados localmente; responsable/contacto, publicación y renovación real de Drive pendientes; independiente de Google Sign-In |
+| OAuth 4B | `/about`, `/privacy`, `/terms` locales; responsable/contacto aprobados; publicación y renovación real de Drive pendientes; independiente de Google Sign-In |
 | Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
@@ -41,8 +41,9 @@ Véanse [BACKUPS.md](BACKUPS.md) y [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY
 Continuación local de 4B: `feat/public-policies-drive-phase-4b`, desde develop y
 con la dependencia 4A integrada por fast-forward. No push, PR, preview o cambio
 de Secrets. Las páginas no cargan el runtime de sesión/sync/IndexedDB ni modelos;
-conservan revisión/noindex hasta configurar responsable y contacto deliberadamente
-públicos. Detalles y puertas operativas: [OAUTH_PUBLICATION.md](OAUTH_PUBLICATION.md).
+usan contacto público aprobado por el propietario (Josue Martinez,
+contacto@josuem01.dev) como default; overrides públicos vacíos mantienen revisión/noindex.
+Detalles y puertas operativas: [OAUTH_PUBLICATION.md](OAUTH_PUBLICATION.md).
 Validación local 4B: 50 tests dirigidos, 18 ejecuciones E2E seleccionadas,
 TypeScript, lint y build correctos. Sin servicios reales ni migraciones en esta
 continuación. Build local no genera Deployment Storage en Vercel. La referencia
@@ -63,6 +64,20 @@ Supervisión del propietario y puertas de publicación: [VALIDATION_CHECKLIST.md
 válida, por lo que «Iniciar sesión de nuevo» puede regresar a Inicio. La lectura
 de código confirma ese camino; no demuestra por sí sola el origen de todas las
 peticiones repetidas observadas. No se borró IndexedDB ni outbox.
+
+Seguimiento: `fix/auth-feedback-public-contact-phase-4b`, desde develop con
+dependencias preparadas por fast-forward. Botón «Iniciar sesión con Google»,
+candado visible (el contenedor del input tapaba el icono) y errores clasificados
+por causa verificada, sin datos sensibles ni autovinculación. Los errores de
+callback no se ocultan por redirección de perfil local; reautenticación general
+de 5B sigue pendiente. 48 tests unit/integración y 20 ejecuciones E2E dirigidas
+en dev móvil/escritorio aprobados; TypeScript/lint correctos. No se repitió build
+de producción en este seguimiento ni se desplegó.
+Consulta SQL solo lectura en staging: un admin activo y cero invitaciones ADMIN
+pendientes. No demuestra dónde se emitieron las dos invitaciones reportadas:
+pedir URL del entorno. Con una plaza libre, emitir varias pendientes es la
+política actual, no una violación del límite de cuentas activas.
+Avisos/toasts visibles se planifican en 7A; Web Push opt-in se evalúa aparte en 7B.
 
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
