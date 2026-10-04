@@ -9,6 +9,7 @@ import {
   invitationInspectionResponseSchema,
 } from '@/lib/domain/validation';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
+import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
@@ -150,9 +151,10 @@ export default function RegisterPage() {
                   <input type="hidden" name="invitationToken" value={invitationToken} />
                   <button
                     type="submit"
-                    className="flex min-h-12 w-full items-center justify-center rounded-full border border-border bg-surface px-5 text-sm font-bold text-text-primary transition-colors hover:bg-surface-alt"
+                    className="flex min-h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 text-sm font-medium text-[#1F1F1F] transition-colors hover:bg-gray-50"
                   >
-                    Iniciar sesión con Google
+                    <GoogleIcon />
+                    <span>Iniciar sesión con Google</span>
                   </button>
                 </form>
                 <div className="flex items-center gap-3" aria-hidden="true">

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
+import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
@@ -167,9 +168,10 @@ export default function LoginPage() {
                     window.location.href =
                       `/api/auth/google/start?intent=login&returnTo=${encodeURIComponent(safeReturnPath())}`;
                   }}
-                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 text-[15px] font-medium text-[#1F1F1F] transition-colors hover:bg-gray-50"
                 >
-                  Iniciar sesión con Google
+                  <GoogleIcon />
+                  <span>Iniciar sesión con Google</span>
                 </a>
               </>
             )}

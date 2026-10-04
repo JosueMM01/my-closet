@@ -10,6 +10,8 @@ test.beforeEach(async ({ page }) => {
 test('login muestra nombre de Google y candado sin tapar contraseña', async ({ page }) => {
   await page.goto('/login');
   await expect(page.getByRole('link', { name: 'Iniciar sesión con Google', exact: true })).toBeVisible();
+  await expect(page.getByTestId('google-sign-in-icon')).toBeVisible();
+  await expect(page.getByTestId('google-sign-in-icon')).toHaveAttribute('aria-hidden', 'true');
   const password = page.getByLabel('Contraseña', { exact: true });
   const lock = page.getByTestId('login-password-lock');
   await expect(lock).toBeVisible();
