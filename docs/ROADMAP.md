@@ -109,13 +109,16 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 
 ### 5 — Seguridad e identidad
 
-- 5A: corregir invitaciones ADMIN. Actualmente el selector ofrece ADMIN incluso
-  con dos activos y createInvitation no comprueba capacidad; registerAccount y
-  registerInvitedGoogleAccount sí protegen la aceptación con adminSlot.
-  Impedir emisión/envío desde el servidor y deshabilitar la opción en UI;
-  conservar validación transaccional al aceptar y el límite de BD. Probar ambos
-  dialectos, invitaciones antiguas y solicitudes concurrentes. Definir si las
-  invitaciones ADMIN pendientes reservan una plaza para no prometer plazas inexistentes.
+- 5A preparada localmente en `fix/admin-invitation-capacity-phase-5a`, creada
+  desde develop e integrada por fast-forward con las dependencias 4A/4B pendientes.
+  El servidor rechaza emisión ADMIN con dos activos antes de persistir o enviar
+  correo; UI deshabilita ADMIN con cupo completo o todavía desconocido.
+  No cambia esquema ni debilita la guarda de aceptación/adminSlot. Las invitaciones
+  pendientes no reservan una plaza: se conserva el comportamiento anterior y la
+  interfaz explica que el cupo se vuelve a comprobar al aceptar. La política debe
+  aprobarla el propietario; reservar plazas sería otra regla de negocio.
+  SQLite y contratos PostgreSQL reales con tablas temporales probados; revisión
+  manual e integración pendientes. Véase [VALIDATION_CHECKLIST.md](VALIDATION_CHECKLIST.md).
 - Auditar autorización server-side por operación, usuario y propietario en sync,
   imágenes, shares y administración; probar rutas/IDs ajenos con dos usuarios.
 - Revisar SQL parametrizado, Zod, asignación masiva, XSS/CSP, CSRF/origen, CORS,
@@ -226,9 +229,10 @@ de 6 y actualización documental de 7 son transversales, no bloquean el plan.
 5C permanece aparte por su carácter irreversible y coordinación Neon/Cloudinary.
 PR funcional no equivale a deployment por commit: preparar entrega completa,
 autorizar publicación una sola vez y revisar el presupuesto antes de cada release.
-No se implementaron todavía invitaciones/baja de cuenta ni páginas legales.
+Las páginas legales y la corrección de emisión ADMIN están preparadas localmente;
+no están publicadas. La baja de cuenta y el conjunto de 5B siguen pendientes.
 
-Checkpoint posterior de 4A (2026-09-30): renovación OAuth y listado Drive reales
+Checkpoint histórico de 4A (2026-09-30, anterior al ensayo del 4 de octubre): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.
 Workflow validado con actionlint; 13 tests dirigidos, TypeScript y lint correctos.
 Guardas de retención/carga/restauración reforzadas. No se ejecutó copia ni

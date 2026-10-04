@@ -17,7 +17,7 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
 | Documentación 7 | PR #8 cerrado sin fusionar; limpieza de decisions/local-prs/reference integrada localmente en la rama 4A |
-| Invitaciones ADMIN | Creación/envío no comprueban cupo; aceptación sí protege dos administradores activos. Corrección planificada en 5A |
+| Invitaciones ADMIN 5A | Corrección local: emisión rechazada con dos activos antes de persistir/enviar; opción UI bloqueada. Aceptación mantiene guarda de BD. Pendientes no reservan plaza; revisión manual/integración pendientes |
 | Baja de cuenta | No implementada. Plan 5C: reautenticación, ELIMINAR, sesiones, Neon, Cloudinary/referencias, offline y respaldos |
 | Avatar 8 | Investigación opcional; no bloquea uso personal |
 
@@ -47,6 +47,22 @@ Validación local 4B: 50 tests dirigidos, 18 ejecuciones E2E seleccionadas,
 TypeScript, lint y build correctos. Sin servicios reales ni migraciones en esta
 continuación. Build local no genera Deployment Storage en Vercel. La referencia
 anterior sigue siendo 1,79/10 GB; no es una lectura nueva del contador.
+
+Continuación 5A: rama local `fix/admin-invitation-capacity-phase-5a`, desde develop
+con dependencias 4A/4B por fast-forward. Sin migraciones ni cambios de esquema.
+Se probaron 37 casos dirigidos de cuentas/invitaciones/Google/correo y cuatro
+contratos PostgreSQL reales en staging con tablas temporales, sin escribir en
+las cuentas reales. Ocho ejecuciones E2E de invitaciones/administración aprobadas
+en Chromium móvil/escritorio; TypeScript, lint y build local aislado correctos.
+Servidor local disponible en puerto 3001: destino Neon staging comprobado por
+API y SQL; producción no se usó. Solo este proceso fuerza imágenes locales,
+correo capture y bootstrap vacío; `.env.local` no se modifica y conserva su
+configuración original. No se certificó SMTP ni upload Cloudinary real.
+Supervisión del propietario y puertas de publicación: [VALIDATION_CHECKLIST.md](VALIDATION_CHECKLIST.md).
+5B sigue pendiente: el login redirige por perfil local sin exigir sesión remota
+válida, por lo que «Iniciar sesión de nuevo» puede regresar a Inicio. La lectura
+de código confirma ese camino; no demuestra por sí sola el origen de todas las
+peticiones repetidas observadas. No se borró IndexedDB ni outbox.
 
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
