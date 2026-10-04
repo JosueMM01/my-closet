@@ -2,6 +2,8 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { getServerDB, pgSchema, sqliteSchema, type PostgresDB } from '@/server/db';
 import { AdminAuthorizationError } from './invitations-repository';
+import { adminCapacityMessage, MAX_ACTIVE_ADMINS } from '@/lib/domain/admin-capacity';
+import { lockAdminCapacity, pendingAdminReservationsPostgres, pendingAdminReservationsSqlite } from './admin-capacity';
 
 export interface AdminUserRecord {
   id: string;
@@ -122,6 +124,9 @@ export async function updateUserForAdmin(input: {
             ),
           )
           .all();
+        if (activeAdmins.length + pendingAdminReservationsSqlite(tx) >= MAX_ACTIVE_ADMINS) {
+          throw new AdminUserOperationError(adminCapacityMessage(activeAdmins.length));
+        }
         const used = new Set(activeAdmins.map((row) => row.adminSlot));
         if (!used.has(1)) adminSlot = 1;
         else if (!used.has(2)) adminSlot = 2;
@@ -164,6 +169,7 @@ async function updateUserForAdminPostgres(
   },
 ): Promise<AdminUserRecord> {
   return postgres.transaction(async (tx) => {
+    await lockAdminCapacity(tx);
     const actorRows = await tx
       .select()
       .from(pgSchema.users)
@@ -199,6 +205,9 @@ async function updateUserForAdminPostgres(
           .from(pgSchema.users)
           .where(and(eq(pgSchema.users.role, 'ADMIN'), eq(pgSchema.users.status, 'ACTIVE')))
           .for('update');
+        if (activeAdmins.length + await pendingAdminReservationsPostgres(tx) >= MAX_ACTIVE_ADMINS) {
+          throw new AdminUserOperationError(adminCapacityMessage(activeAdmins.length));
+        }
         const used = new Set(activeAdmins.map((row) => row.adminSlot));
         if (!used.has(1)) adminSlot = 1;
         else if (!used.has(2)) adminSlot = 2;

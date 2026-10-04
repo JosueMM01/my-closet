@@ -11,6 +11,7 @@ import {
   findUserByEmail,
   findUserById,
   registerAccount,
+  registerInvitedGoogleAccount,
   updateEmail,
   updatePasswordHash,
   updateProfile,
@@ -20,6 +21,7 @@ import {
   createInvitation,
   InvitationOperationError,
   listInvitations,
+  revokeInvitation,
 } from '@/server/repositories/invitations-repository';
 import {
   AdminUserOperationError,
@@ -216,16 +218,62 @@ describe('invitaciones de cuenta', () => {
     expect(await listInvitations(admin.id)).toHaveLength(0);
   });
 
-  it('las pendientes no reservan plaza y una antigua no permite un tercer admin al aceptarse', async () => {
+  it('una pendiente reserva plaza; aceptarla consume su propia reserva una sola vez', async () => {
     const admin = await bootstrapAdmin();
     const input = { actorId: admin.id, role: 'ADMIN' as const, expiresAt: new Date(Date.now() + 60_000).toISOString() };
     const first = await createInvitation({ ...input, email: 'first-admin@example.test' });
-    const second = await createInvitation({ ...input, email: 'second-admin@example.test' });
+    await expect(createInvitation({ ...input, email: 'second-admin@example.test' })).rejects.toThrow('Revoca una invitación ADMIN');
     await register('ignored@example.test', { invitationToken: first.token, publicRegistrationEnabled: false });
-    await expect(register('ignored-again@example.test', { invitationToken: second.token, publicRegistrationEnabled: false }))
-      .rejects.toMatchObject({ code: 'ADMIN_LIMIT' });
-    expect((await listInvitations(admin.id)).find((invitation) => invitation.id === second.invitation.id)?.acceptedAt)
-      .toBeNull();
+    expect((await listInvitations(admin.id))[0]?.acceptedAt).not.toBeNull();
+    expect((await listUsersForAdmin(admin.id)).filter((user) => user.role === 'ADMIN' && user.status === 'ACTIVE')).toHaveLength(2);
+    await expect(createInvitation({ ...input, email: 'third-admin@example.test' })).rejects.toThrow('dos administradores activos');
+  });
+
+  it('cinco solicitudes con una plaza libre generan una única reserva', async () => {
+    const admin = await bootstrapAdmin();
+    const results = await Promise.allSettled(Array.from({ length: 5 }, (_, index) => createInvitation({
+      actorId: admin.id, email: `reserved-${index}@example.test`, role: 'ADMIN',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    })));
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(await listInvitations(admin.id)).toHaveLength(1);
+  });
+
+  it('revocación y caducidad liberan plaza, sin contar las invitaciones USER', async () => {
+    const admin = await bootstrapAdmin();
+    const input = { actorId: admin.id, role: 'ADMIN' as const, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    const first = await createInvitation({ ...input, email: 'revoked@example.test' });
+    await revokeInvitation(admin.id, first.invitation.id);
+    await expect(register('ignored@example.test', { invitationToken: first.token })).rejects.toMatchObject({ code: 'INVITATION_INVALID' });
+    const second = await createInvitation({ ...input, email: 'expired@example.test' });
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    db.raw.prepare('UPDATE account_invitations SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 1_000).toISOString(), second.invitation.id);
+    await createInvitation({ ...input, role: 'USER', email: 'user@example.test' });
+    expect((await createInvitation({ ...input, email: 'available@example.test' })).invitation.role).toBe('ADMIN');
+    await expect(register('ignored@example.test', { invitationToken: second.token })).rejects.toMatchObject({ code: 'INVITATION_EXPIRED' });
+  });
+
+  it('la reserva impide promociones y reactivaciones hasta revocarse', async () => {
+    const admin = await bootstrapAdmin();
+    const second = await register('disabled@example.test');
+    const user = await register('user@example.test');
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, role: 'ADMIN' });
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, status: 'DISABLED' });
+    const invite = await createInvitation({ actorId: admin.id, role: 'ADMIN', email: 'reserved@example.test', expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await expect(updateUserForAdmin({ actorId: admin.id, userId: user.id, role: 'ADMIN' })).rejects.toThrow('reservado');
+    await expect(updateUserForAdmin({ actorId: admin.id, userId: second.id, status: 'ACTIVE' })).rejects.toThrow('reservado');
+    await expect(updateUserForAdmin({ actorId: admin.id, userId: admin.id, role: 'ADMIN' })).resolves.toMatchObject({ role: 'ADMIN' });
+    await revokeInvitation(admin.id, invite.invitation.id);
+    await expect(updateUserForAdmin({ actorId: admin.id, userId: second.id, status: 'ACTIVE' })).resolves.toMatchObject({ status: 'ACTIVE', adminSlot: 2 });
+  });
+
+  it('Google convierte una reserva en cuenta ADMIN y vínculo atómicamente', async () => {
+    const admin = await bootstrapAdmin();
+    const invite = await createInvitation({ actorId: admin.id, role: 'ADMIN', email: 'google@example.test', expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await expect(registerInvitedGoogleAccount({ invitationToken: invite.token, providerEmail: 'google@example.test', providerSubject: 'google-admin-fixture', displayName: 'Google', passwordHash: 'test-only-hash' }))
+      .resolves.toMatchObject({ role: 'ADMIN', adminSlot: 2 });
+    expect((await listInvitations(admin.id))[0]?.acceptedAt).not.toBeNull();
   });
 
   it('un admin deshabilitado libera cupo para emitir una nueva invitación', async () => {

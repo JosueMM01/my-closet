@@ -18,7 +18,7 @@ const messages: Record<GoogleFailureReason, string> = {
   'account-mismatch': 'Selecciona la cuenta de Google que ya está vinculada a tu perfil.',
   'invitation-invalid': 'La invitación no es válida, ya fue utilizada o fue revocada. Solicita una nueva invitación.',
   'invitation-expired': 'La invitación ha caducado. Solicita una nueva invitación.',
-  'admin-limit': 'Ya existen dos administradores activos. Pide al administrador una invitación como Usuario.',
+  'admin-limit': 'El cupo de administradores está completo o reservado. Pide al administrador que revise las invitaciones ADMIN pendientes o te invite como Usuario.',
   'already-registered': 'Ya existe una cuenta con el correo verificado de Google. Inicia sesión con tu cuenta existente y vincula Google desde Perfil.',
   'already-linked': 'Esta cuenta de Google ya está vinculada. Inicia sesión con la cuenta correspondiente o revisa la vinculación desde Perfil.',
 };

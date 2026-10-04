@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
+import type { AdminInvitationCache, LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
 import { ApiClientError } from '@/lib/api/client';
 import {
   createAdminInvitation,
@@ -12,8 +12,11 @@ import {
   updateAdminUser,
 } from '@/lib/admin/client';
 import { getDB } from '@/lib/local/db';
+import { adminCapacityMessage, isPendingInvitation, MAX_ACTIVE_ADMINS, reservedAdminSeats } from '@/lib/domain/admin-capacity';
 import { useSync } from '@/components/providers';
 import { Button, Field, Select, TextInput } from './ui';
+
+const EMPTY_INVITATIONS: AdminInvitationCache[] = [];
 
 function readableError(error: unknown): string {
   return error instanceof ApiClientError
@@ -27,7 +30,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
   const invitations = useLiveQuery(
     () => getDB().adminInvitations.orderBy('createdAt').reverse().toArray(),
     [],
-  ) ?? [];
+  ) ?? EMPTY_INVITATIONS;
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<UserRole>('USER');
   const [busy, setBusy] = useState<string | null>(online ? 'refresh' : null);
@@ -50,23 +53,39 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
     };
   }, [online]);
 
-  const [mountedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const expirations = invitations.filter((invitation) => isPendingInvitation(invitation, now))
+      .map((invitation) => Date.parse(invitation.expiresAt));
+    if (!expirations.length) return;
+    // Release the visible reservation without refreshing the page or fetching data.
+    const delay = Math.min(2_147_483_647, Math.max(0, Math.min(...expirations) - Date.now()) + 10);
+    const timer = window.setTimeout(() => setNow(Date.now()), delay);
+    const refreshClock = () => setNow(Date.now());
+    window.addEventListener('focus', refreshClock);
+    document.addEventListener('visibilitychange', refreshClock);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', refreshClock);
+      document.removeEventListener('visibilitychange', refreshClock);
+    };
+  }, [invitations, now]);
   const pendingInvitations = invitations.filter(
-    (invitation) =>
-      !invitation.acceptedAt && !invitation.revokedAt && Date.parse(invitation.expiresAt) > mountedAt,
+    (invitation) => isPendingInvitation(invitation, now),
   );
   const activeAdminCount = users.filter(
     (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
   ).length;
   const adminCapacityKnown = users.some((user) => user.userId === profile.userId);
-  const adminInvitationUnavailable = !adminCapacityKnown || activeAdminCount >= 2;
+  const reservedSeats = reservedAdminSeats(invitations, now);
+  const adminInvitationUnavailable = !adminCapacityKnown || activeAdminCount + reservedSeats >= MAX_ACTIVE_ADMINS;
 
   async function createInvitation(event: React.FormEvent) {
     event.preventDefault();
     if (!online || busy) return;
     if (role === 'ADMIN' && adminInvitationUnavailable) {
       setError(adminCapacityKnown
-        ? 'Ya existen dos administradores activos; selecciona Usuario.'
+        ? adminCapacityMessage(activeAdminCount)
         : 'Actualiza los datos de administración para comprobar el cupo.');
       return;
     }
@@ -125,7 +144,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
     setError(null);
     try {
       await revokeAdminInvitation(id);
-      setStatus('Invitación revocada.');
+      setStatus('Invitación revocada. Si era ADMIN, su plaza vuelve a estar disponible.');
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -190,7 +209,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                 disabled={!online || busy !== null}
               />
             </Field>
-            <Field label="Rol inicial" hint="Usuario es la opción recomendada. La invitación no reserva una plaza de administrador; se comprueba de nuevo al aceptarla.">
+            <Field label="Rol inicial" hint="Usuario es la opción recomendada. Una invitación ADMIN reserva una plaza hasta aceptarse, revocarse o caducar.">
               <Select
                 value={role}
                 onChange={(event) => setRole(event.target.value as UserRole)}
@@ -198,13 +217,17 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
               >
                 <option value="USER">Usuario</option>
                 <option value="ADMIN" disabled={adminInvitationUnavailable}>
-                  {activeAdminCount >= 2 ? 'Administrador (cupo completo)' : 'Administrador'}
+                  {activeAdminCount >= 2 ? 'Administrador (cupo completo)' : reservedSeats > 0 && adminInvitationUnavailable ? 'Administrador (plaza reservada)' : 'Administrador'}
                 </option>
               </Select>
             </Field>
             {activeAdminCount >= 2 ? (
               <p className="text-sm text-text-secondary" role="status">
                 Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.
+              </p>
+            ) : reservedSeats > 0 && adminInvitationUnavailable ? (
+              <p className="text-sm text-text-secondary" role="status">
+                {adminCapacityMessage(activeAdminCount)} Solo puedes invitar como Usuario.
               </p>
             ) : !adminCapacityKnown ? (
               <p className="text-sm text-text-secondary" role="status">
@@ -259,6 +282,9 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                       {invitation.role === 'ADMIN' ? 'Administrador' : 'Usuario'} · caduca el{' '}
                       {new Date(invitation.expiresAt).toLocaleDateString('es-ES')}
                     </p>
+                    {invitation.role === 'ADMIN' ? (
+                      <p className="mt-1 text-xs font-semibold text-primary">Reserva una plaza de administrador.</p>
+                    ) : null}
                     <Button
                       type="button"
                       variant="danger"
@@ -280,7 +306,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="font-heading text-base">Cuentas</h3>
             <span className="text-xs font-semibold text-text-secondary">
-              {activeAdminCount}/2 admins activos
+              {activeAdminCount}/2 admins activos · {reservedSeats} {reservedSeats === 1 ? 'plaza reservada' : 'plazas reservadas'}
             </span>
           </div>
           {busy === 'refresh' && users.length === 0 ? (
@@ -312,7 +338,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                         type="button"
                         variant="secondary"
                         onClick={() => changeUser(user.userId, { role: user.role === 'ADMIN' ? 'USER' : 'ADMIN' })}
-                        disabled={!online || busy !== null || userBusy || self}
+                        disabled={!online || busy !== null || userBusy || self || (user.role !== 'ADMIN' && user.status === 'ACTIVE' && adminInvitationUnavailable)}
                       >
                         {user.role === 'ADMIN' ? 'Quitar admin' : 'Hacer admin'}
                       </Button>
@@ -322,7 +348,7 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                         onClick={() => changeUser(user.userId, {
                           status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
                         })}
-                        disabled={!online || busy !== null || userBusy || self}
+                        disabled={!online || busy !== null || userBusy || self || (user.role === 'ADMIN' && user.status !== 'ACTIVE' && adminInvitationUnavailable)}
                       >
                         {user.status === 'ACTIVE' ? 'Desactivar' : 'Activar'}
                       </Button>
