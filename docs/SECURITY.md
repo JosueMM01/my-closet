@@ -1,6 +1,6 @@
 # Seguridad
 
-## Sesión y cookies (ADR-006)
+## Sesión y cookies
 
 - Cookie `mc_session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` en
   producción, 30 días. Valor: `sha256(token) + HMAC(AUTH_SECRET)`; en BD

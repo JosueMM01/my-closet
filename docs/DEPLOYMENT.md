@@ -6,7 +6,7 @@
   (build verde en cada integración; ver docs/PROJECT_STATUS.md).
 - Rutas dinámicas de API (`runtime='nodejs'`) por better-sqlite3/crypto.
   En Vercel, SQLite de fichero NO persiste entre instancias: para
-  producción real usar Neon (ADR-002) y el dialecto PostgreSQL.
+  producción real usar Neon y el dialecto PostgreSQL.
 
 ## Checklist previo a Vercel
 
