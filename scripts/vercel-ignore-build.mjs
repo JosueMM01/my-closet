@@ -4,7 +4,8 @@ import { pathToFileURL } from 'node:url';
 // Runs before dependency installation: keep this script dependency-free.
 export function isNonApplicationPath(file) {
   return ['README.md', 'AGENTS.md', '.github/workflows/database-backup.yml',
-    'tests/unit/backup-policy.test.ts', 'tests/unit/backup-drive.test.ts'].includes(file)
+    'tests/unit/backup-policy.test.ts', 'tests/unit/backup-drive.test.ts',
+    'tests/unit/backup-workflow.test.ts'].includes(file)
     || file.startsWith('docs/') || file.startsWith('scripts/backups/');
 }
 

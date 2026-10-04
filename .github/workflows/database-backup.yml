@@ -185,7 +185,8 @@ jobs:
           database: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
           role: ${{ vars.NEON_DATABASE_ROLE || 'neondb_owner' }}
           api_key: ${{ secrets.NEON_API_KEY }}
-          suspend_timeout: 60
+          # 0 delegates to the plan default; Neon Free disallows custom timeouts.
+          suspend_timeout: 0
           expires_at: ${{ steps.expiration.outputs.value }}
 
       - name: Restore and check database invariants
