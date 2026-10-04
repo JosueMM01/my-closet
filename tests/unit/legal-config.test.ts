@@ -52,4 +52,14 @@ describe('Contacto público de privacidad', () => {
     expect(html).not.toContain('private@example.com');
     expect(html).not.toContain('mailto:');
   });
+  it('publica los datos aprobados cuando no existen overrides públicos', () => {
+    vi.stubEnv('PUBLIC_LEGAL_OPERATOR_NAME', undefined);
+    vi.stubEnv('PUBLIC_LEGAL_CONTACT_EMAIL', undefined);
+    vi.stubEnv('SMTP_USER', 'private@example.com');
+    const html = renderToStaticMarkup(createElement(LegalContact));
+    expect(html).toContain('Josue Martinez');
+    expect(html).toContain('mailto:contacto@josuem01.dev');
+    expect(html).not.toContain('private@example.com');
+    expect(html).not.toContain('pendientes de confirmación');
+  });
 });

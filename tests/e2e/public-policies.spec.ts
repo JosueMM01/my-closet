@@ -20,6 +20,9 @@ test.describe('Información pública @public-policies', () => {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
       await page.waitForLoadState('load');
       await expect(page.getByRole('heading', { name: 'Responsable y contacto' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'contacto@josuem01.dev', exact: true }))
+        .toHaveAttribute('href', 'mailto:contacto@josuem01.dev');
+      await expect(page.getByText(/Responsable: Josue Martinez\./)).toBeVisible();
       expect(privateRequests).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((entries) => entries.length))).toBe(0);

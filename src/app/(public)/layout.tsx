@@ -3,12 +3,12 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { LegalLinks } from '@/components/legal-links';
 import { LegalContact } from '@/components/legal-contact';
-import { parseLegalContact } from '@/lib/legal-config';
+import { APPROVED_PUBLIC_LEGAL_CONTACT, parseLegalContact } from '@/lib/legal-config';
 
 export function generateMetadata(): Metadata {
   const { ready } = parseLegalContact({
-    operatorName: process.env.PUBLIC_LEGAL_OPERATOR_NAME,
-    contactEmail: process.env.PUBLIC_LEGAL_CONTACT_EMAIL,
+    operatorName: process.env.PUBLIC_LEGAL_OPERATOR_NAME ?? APPROVED_PUBLIC_LEGAL_CONTACT.operatorName,
+    contactEmail: process.env.PUBLIC_LEGAL_CONTACT_EMAIL ?? APPROVED_PUBLIC_LEGAL_CONTACT.contactEmail,
   });
   return { robots: { index: ready, follow: true } };
 }

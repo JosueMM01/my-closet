@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+// Explicitly approved for publication by the owner; these are not credentials.
+export const APPROVED_PUBLIC_LEGAL_CONTACT = {
+  operatorName: 'Josue Martinez',
+  contactEmail: 'contacto@josuem01.dev',
+} as const;
+
 const optionalPublicText = z.preprocess(
   (value) => typeof value === 'string' && !value.trim() ? undefined : value,
   z.string().trim().min(2).max(160).optional(),

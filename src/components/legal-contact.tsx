@@ -1,10 +1,10 @@
-import { parseLegalContact } from '@/lib/legal-config';
+import { APPROVED_PUBLIC_LEGAL_CONTACT, parseLegalContact } from '@/lib/legal-config';
 
 // Server component: these two explicitly public fields are evaluated at build time.
 export function LegalContact() {
   const contact = parseLegalContact({
-    operatorName: process.env.PUBLIC_LEGAL_OPERATOR_NAME,
-    contactEmail: process.env.PUBLIC_LEGAL_CONTACT_EMAIL,
+    operatorName: process.env.PUBLIC_LEGAL_OPERATOR_NAME ?? APPROVED_PUBLIC_LEGAL_CONTACT.operatorName,
+    contactEmail: process.env.PUBLIC_LEGAL_CONTACT_EMAIL ?? APPROVED_PUBLIC_LEGAL_CONTACT.contactEmail,
   });
   return (
     <section aria-labelledby="legal-contact" className="rounded-3xl border border-border bg-surface p-6 sm:p-8">
