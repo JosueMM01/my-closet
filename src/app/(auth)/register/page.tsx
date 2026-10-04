@@ -10,6 +10,7 @@ import {
 } from '@/lib/domain/validation';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
+import { LegalLinks } from '@/components/legal-links';
 
 interface InvitationView {
   email: string;
@@ -221,6 +222,7 @@ export default function RegisterPage() {
             Inicia sesión
           </Link>
         </p>
+        <div className="mt-4"><LegalLinks /></div>
       </div>
     </main>
   );

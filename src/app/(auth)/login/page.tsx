@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
+import { LegalLinks } from '@/components/legal-links';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -170,7 +171,7 @@ export default function LoginPage() {
               </>
             )}
           </form>
-
+          <div className="mt-6"><LegalLinks /></div>
         </div>
       </div>
     </main>
