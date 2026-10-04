@@ -119,6 +119,22 @@ a compilarse fuera de Turbopack, debe retirarse esta excepción.
   solo en `.env.local`. Se usan una vez si `users` está vacía y solo se persiste
   el hash scrypt. Tras crear el administrador deben retirarse ambas del entorno,
   en especial la contraseña; nunca se versionan valores reales.
+- Los respaldos usan Secrets de GitHub Actions separados de Vercel. La URL
+  directa de Neon, refresh token de Drive, API key de Neon e identidad privada
+  age nunca se entregan a la aplicación ni se publican como artefactos.
+
+## Respaldos
+
+- `pg_dump` se ejecuta externamente contra la conexión directa de Neon; no usa
+  PgBouncer ni una Function de Vercel.
+- El dump se cifra con age antes de subirlo a Drive y se verifica con tamaño,
+  MD5 de transporte y SHA-256 del contenido cifrado y original.
+- La rotación conserva dos generaciones completas y nunca elimina la más
+  antigua antes de completar la nueva pareja archivo/manifiesto.
+- La prueba de restauración usa una rama Neon temporal con expiración y limpieza
+  final. El workflow no contiene una ruta que restaure automáticamente sobre la
+  rama de producción.
+- La operación y recuperación se documentan en `docs/BACKUPS.md`.
 
 ## Correo y cambios de cuenta
 
