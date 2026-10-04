@@ -58,10 +58,18 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
   const activeAdminCount = users.filter(
     (user) => user.role === 'ADMIN' && user.status === 'ACTIVE',
   ).length;
+  const adminCapacityKnown = users.some((user) => user.userId === profile.userId);
+  const adminInvitationUnavailable = !adminCapacityKnown || activeAdminCount >= 2;
 
   async function createInvitation(event: React.FormEvent) {
     event.preventDefault();
     if (!online || busy) return;
+    if (role === 'ADMIN' && adminInvitationUnavailable) {
+      setError(adminCapacityKnown
+        ? 'Ya existen dos administradores activos; selecciona Usuario.'
+        : 'Actualiza los datos de administración para comprobar el cupo.');
+      return;
+    }
     setBusy('create-invitation');
     setError(null);
     setStatus(null);
@@ -182,21 +190,32 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                 disabled={!online || busy !== null}
               />
             </Field>
-            <Field label="Rol inicial" hint="USER es la opción recomendada.">
+            <Field label="Rol inicial" hint="Usuario es la opción recomendada. La invitación no reserva una plaza de administrador; se comprueba de nuevo al aceptarla.">
               <Select
                 value={role}
                 onChange={(event) => setRole(event.target.value as UserRole)}
                 disabled={!online || busy !== null}
               >
                 <option value="USER">Usuario</option>
-                <option value="ADMIN">Administrador</option>
+                <option value="ADMIN" disabled={adminInvitationUnavailable}>
+                  {activeAdminCount >= 2 ? 'Administrador (cupo completo)' : 'Administrador'}
+                </option>
               </Select>
             </Field>
+            {activeAdminCount >= 2 ? (
+              <p className="text-sm text-text-secondary" role="status">
+                Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.
+              </p>
+            ) : !adminCapacityKnown ? (
+              <p className="text-sm text-text-secondary" role="status">
+                Actualiza los datos para comprobar el cupo de administradores.
+              </p>
+            ) : null}
             <Button
               type="submit"
               className="w-full sm:w-auto"
               loading={busy === 'create-invitation'}
-              disabled={!online || busy !== null}
+              disabled={!online || busy !== null || (role === 'ADMIN' && adminInvitationUnavailable)}
             >
               Crear invitación de 7 días
             </Button>

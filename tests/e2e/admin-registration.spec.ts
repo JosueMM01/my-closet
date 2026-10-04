@@ -110,6 +110,19 @@ test.describe('Administración', () => {
     const second = page.locator('li').filter({ hasText: secondEmail });
     await second.getByRole('button', { name: 'Hacer admin' }).click();
     await expect(page.getByText('2/2 admins activos')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Administrador (cupo completo)' })).toBeDisabled();
+    await expect(page.getByText('Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.')).toBeVisible();
+
+    // UI caching does not grant permission: a forged request is rejected by the server.
+    const before = await page.request.get('/api/admin/invitations');
+    const rejected = await page.request.post('/api/admin/invitations', {
+      headers: { origin: new URL(page.url()).origin },
+      data: { email: uniqueEmail('admin-bloqueado'), role: 'ADMIN', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(rejected.status()).toBe(409);
+    expect((await rejected.json()).error).toContain('Ya existen dos administradores activos');
+    const after = await page.request.get('/api/admin/invitations');
+    expect((await after.json()).invitations.length).toBe((await before.json()).invitations.length);
 
     const third = page.locator('li').filter({ hasText: thirdEmail });
     await third.getByRole('button', { name: 'Hacer admin' }).click();

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeServerDB, createServerDB, getServerDB, sqliteSchema } from '@/server/db';
 import { parseServerEnv } from '@/server/env';
 import {
@@ -18,6 +18,7 @@ import {
 import {
   AdminAuthorizationError,
   createInvitation,
+  InvitationOperationError,
   listInvitations,
 } from '@/server/repositories/invitations-repository';
 import {
@@ -26,6 +27,7 @@ import {
   updateUserForAdmin,
 } from '@/server/repositories/admin-users-repository';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
+import { createAndDeliverInvitation } from '@/server/services/invitation-service';
 
 const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.test';
 const BOOTSTRAP_PASSWORD = 'bootstrap-test-password';
@@ -180,6 +182,63 @@ describe('cuentas, roles y administradores', () => {
 });
 
 describe('invitaciones de cuenta', () => {
+  it('con dos admins activos rechaza emisión antes de persistir o enviar correo, pero permite USER', async () => {
+    const admin = await bootstrapAdmin();
+    const second = await register('second-admin@example.test');
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, role: 'ADMIN' });
+    const send = vi.fn(async () => 'captured' as const);
+    await expect(createAndDeliverInvitation({
+      actorId: admin.id, email: 'blocked@example.test', role: 'ADMIN',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }, {
+      env: parseServerEnv({ NODE_ENV: 'test', EMAIL_PROVIDER: 'capture' }),
+      mailProvider: { kind: 'capture', send },
+    })).rejects.toBeInstanceOf(InvitationOperationError);
+    expect(send).not.toHaveBeenCalled();
+    expect(await listInvitations(admin.id)).toHaveLength(0);
+    const allowed = await createInvitation({
+      actorId: admin.id, email: 'user-allowed@example.test', role: 'USER',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(allowed.invitation.role).toBe('USER');
+  });
+
+  it('solicitudes ADMIN repetidas/concurrentes no crean registros cuando el cupo está lleno', async () => {
+    const admin = await bootstrapAdmin();
+    const second = await register('second-admin@example.test');
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, role: 'ADMIN' });
+    const results = await Promise.allSettled(Array.from({ length: 5 }, (_, index) => createInvitation({
+      actorId: admin.id, email: `blocked-${index}@example.test`, role: 'ADMIN',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    })));
+    expect(results.every((result) => result.status === 'rejected'
+      && result.reason instanceof InvitationOperationError)).toBe(true);
+    expect(await listInvitations(admin.id)).toHaveLength(0);
+  });
+
+  it('las pendientes no reservan plaza y una antigua no permite un tercer admin al aceptarse', async () => {
+    const admin = await bootstrapAdmin();
+    const input = { actorId: admin.id, role: 'ADMIN' as const, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    const first = await createInvitation({ ...input, email: 'first-admin@example.test' });
+    const second = await createInvitation({ ...input, email: 'second-admin@example.test' });
+    await register('ignored@example.test', { invitationToken: first.token, publicRegistrationEnabled: false });
+    await expect(register('ignored-again@example.test', { invitationToken: second.token, publicRegistrationEnabled: false }))
+      .rejects.toMatchObject({ code: 'ADMIN_LIMIT' });
+    expect((await listInvitations(admin.id)).find((invitation) => invitation.id === second.invitation.id)?.acceptedAt)
+      .toBeNull();
+  });
+
+  it('un admin deshabilitado libera cupo para emitir una nueva invitación', async () => {
+    const admin = await bootstrapAdmin();
+    const second = await register('disabled-admin@example.test');
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, role: 'ADMIN' });
+    await updateUserForAdmin({ actorId: admin.id, userId: second.id, status: 'DISABLED' });
+    expect((await createInvitation({
+      actorId: admin.id, email: 'next-admin@example.test', role: 'ADMIN',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    })).invitation.role).toBe('ADMIN');
+  });
+
   it('guarda solo el hash, deriva correo/rol y permite un único uso', async () => {
     const admin = await bootstrapAdmin();
     const created = await createInvitation({

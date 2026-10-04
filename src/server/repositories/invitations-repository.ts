@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { UserRole } from '@/lib/domain/types';
 import { uuid } from '@/lib/domain/ids';
 import { getServerDB, getSqlite, pgSchema, sqliteSchema } from '@/server/db';
@@ -122,6 +122,16 @@ export async function createInvitation(input: {
       if (actor?.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
         throw new AdminAuthorizationError();
       }
+      if (input.role === 'ADMIN') {
+        const activeAdmins = await tx
+          .select({ id: pgSchema.users.id })
+          .from(pgSchema.users)
+          .where(and(eq(pgSchema.users.role, 'ADMIN'), eq(pgSchema.users.status, 'ACTIVE')))
+          .limit(2);
+        if (activeAdmins.length >= 2) {
+          throw new InvitationOperationError('Ya existen dos administradores activos; no se pueden crear más invitaciones de administrador');
+        }
+      }
       await tx.insert(pgSchema.accountInvitations).values({
         ...invitation,
         tokenHash: hashInvitationToken(token),
@@ -136,6 +146,17 @@ export async function createInvitation(input: {
   const sqlite = db.sqlite;
   return sqlite.transaction((tx) => {
     assertActiveAdmin(tx, input.actorId);
+    if (input.role === 'ADMIN') {
+      const activeAdmins = tx
+        .select({ id: sqliteSchema.users.id })
+        .from(sqliteSchema.users)
+        .where(and(eq(sqliteSchema.users.role, 'ADMIN'), eq(sqliteSchema.users.status, 'ACTIVE')))
+        .limit(2)
+        .all();
+      if (activeAdmins.length >= 2) {
+        throw new InvitationOperationError('Ya existen dos administradores activos; no se pueden crear más invitaciones de administrador');
+      }
+    }
     tx.insert(sqliteSchema.accountInvitations)
       .values({ ...invitation, tokenHash: hashInvitationToken(token) })
       .run();
