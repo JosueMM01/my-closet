@@ -99,12 +99,12 @@ describe('callback de Google', () => {
     setFlow('login');
     const response = await callback(callbackRequest('wrong-state-value-with-at-least-thirty-two'));
 
-    expect(response.headers.get('location')).toBe('http://localhost/login?google=denied');
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=session-invalid');
     expect(getGoogleIdentityFromCode).not.toHaveBeenCalled();
     expect([...cookieState.keys()].filter((key) => key.startsWith('mc_google_'))).toEqual([]);
   });
 
-  it('deniega login no vinculado con un mensaje genérico', async () => {
+  it('explica que no hay cuenta activa vinculada después de verificar Google', async () => {
     setFlow('login');
     getGoogleIdentityFromCode.mockResolvedValue({
       subject: 'unlinked-subject',
@@ -112,8 +112,37 @@ describe('callback de Google', () => {
     });
     const response = await callback(callbackRequest());
 
-    expect(response.headers.get('location')).toBe('http://localhost/login?google=denied');
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=account-unavailable');
     expect(response.headers.get('location')).not.toContain('unlinked-subject');
+    expect(response.headers.get('location')).not.toContain('person@example.test');
+    expect(cookieState.has('mc_session')).toBe(false);
+  });
+
+  it('no vincula por coincidencia de correo aunque la cuenta ya exista', async () => {
+    await createUser({ email: 'existing@example.test', displayName: 'Existente', passwordHash: 'fixture-hash' });
+    setFlow('login');
+    getGoogleIdentityFromCode.mockResolvedValue({ subject: 'not-linked', email: 'existing@example.test' });
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=account-unavailable');
+    expect(cookieState.has('mc_session')).toBe(false);
+  });
+
+  it('distingue cancelación sin intercambiar código ni crear sesión', async () => {
+    setFlow('login');
+    const response = await callback(new Request('http://localhost/api/auth/google/callback?error=access_denied&state=state-value-with-at-least-thirty-two-bytes'));
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=cancelled');
+    expect(getGoogleIdentityFromCode).not.toHaveBeenCalled();
+    expect(cookieState.has('mc_session')).toBe(false);
+    expect([...cookieState.keys()].filter((key) => key.startsWith('mc_google_'))).toEqual([]);
+  });
+
+  it('oculta detalles internos cuando Google no puede verificarse', async () => {
+    setFlow('login');
+    getGoogleIdentityFromCode.mockRejectedValue(new Error('raw-sensitive-fixture'));
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=denied');
+    expect(response.headers.get('location')).not.toContain('raw-sensitive-fixture');
+    expect(cookieState.has('mc_session')).toBe(false);
   });
 
   it('inicia sesión solo para una cuenta ya vinculada y activa', async () => {
@@ -193,7 +222,7 @@ describe('callback de Google', () => {
     });
 
     const response = await callback(callbackRequest());
-    expect(response.headers.get('location')).toBe('http://localhost/login?google=denied');
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=account-unavailable');
     expect(cookieState.has('mc_session')).toBe(false);
   });
 
@@ -240,7 +269,7 @@ describe('callback de Google', () => {
     });
     const response = await callback(callbackRequest());
 
-    expect(response.headers.get('location')).toBe('http://localhost/profile?google=denied');
+    expect(response.headers.get('location')).toBe('http://localhost/profile?google=email-mismatch');
     await expect(findGoogleAccountByUserId(user.id)).resolves.toBeNull();
   });
 

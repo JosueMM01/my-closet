@@ -11,6 +11,7 @@ import {
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
+import { googleFailureMessage } from '@/lib/auth/google-feedback';
 
 interface InvitationView {
   email: string;
@@ -45,11 +46,8 @@ export default function RegisterPage() {
     }
     queueMicrotask(() => {
       setInvitationToken(token);
-      if (googleResult === 'email-mismatch') {
-        setError('El correo verificado de Google no coincide con el correo de la invitación.');
-      } else if (googleResult === 'denied') {
-        setError('No se pudo completar el registro con Google. Puedes crear una contraseña o intentarlo otra vez.');
-      }
+      const googleError = googleFailureMessage(googleResult);
+      if (googleError) setError(googleError);
     });
 
     void Promise.all([
@@ -154,7 +152,7 @@ export default function RegisterPage() {
                     type="submit"
                     className="flex min-h-12 w-full items-center justify-center rounded-full border border-border bg-surface px-5 text-sm font-bold text-text-primary transition-colors hover:bg-surface-alt"
                   >
-                    Continuar con Google
+                    Iniciar sesión con Google
                   </button>
                 </form>
                 <div className="flex items-center gap-3" aria-hidden="true">
