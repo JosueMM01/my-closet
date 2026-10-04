@@ -3,7 +3,10 @@
 Estado al 2026-10-04: copia, restauración temporal, rotación y omisión dentro del
 intervalo demostradas. Falta publicar las correcciones y probar el scheduler en
 GitHub antes de cerrar 4A operativamente. 4B trata publicación
-OAuth y continuidad. Véase [ROADMAP.md](ROADMAP.md).
+OAuth y continuidad. Véanse [ROADMAP.md](ROADMAP.md) y el procedimiento de
+[publicación OAuth](OAUTH_PUBLICATION.md). Su preparación local no publica las
+URLs ni cambia los Secrets. Los nuevos errores OAuth distinguen expiración o
+revocación de cliente/permisos inválidos y se detienen antes de tocar Drive.
 
 ## Checkpoint de fase 4A — 2026-10-04
 

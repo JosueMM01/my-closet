@@ -47,7 +47,7 @@ ignorada por Git. No contiene credenciales.
 | Fase | Estado inicial | Criterio de cierre |
 |---|---|---|
 | 4A — Recuperación operativa | Recuperación y rotación demostradas; integración remota/scheduler pendientes | Correcciones publicadas, run Actions y ejecución programada comprobados |
-| 4B — Publicación OAuth | Siguiente; pendiente | Páginas públicas y renovación de Drive comprobadas, con alertas |
+| 4B — Publicación OAuth | Páginas y diagnóstico preparados localmente; contacto/publicación pendientes | Páginas públicas y renovación de Drive comprobadas, con alertas |
 | 5 — Seguridad e identidad | Alta; auditoría y cambios pendientes | Permisos/aislamiento demostrados y hallazgos graves resueltos |
 | 6 — Rendimiento y recursos | Pendiente | Tiempo y peso medidos sin regresión móvil/offline |
 | 7 — Experiencia y documentación | Documentación inicial en curso | UX coherente y documentos vigentes sin referencias obsoletas |
@@ -87,6 +87,12 @@ producción. Detalles: [BACKUPS.md](BACKUPS.md).
 
 ### 4B — Publicación y continuidad de OAuth
 
+- Avance local del 4 de octubre en `feat/public-policies-drive-phase-4b`, creada
+  desde develop e integrada con las correcciones locales de 4A: `/about`,
+  `/privacy`, `/terms`, enlaces desde acceso/registro y separación del runtime
+  privado. Diagnóstico OAuth acotado, sin tocar Drive tras rechazo de renovación.
+  Responsable/contacto públicos pendientes; no reutilizar datos del administrador.
+  Procedimiento y checklist: [OAUTH_PUBLICATION.md](OAUTH_PUBLICATION.md).
 - Crear presentación pública y rutas propuestas `/privacy` y `/terms`, sin login,
   enlazadas desde el acceso. Describir datos, cookies, servicios, almacenamiento
   local, respaldo, retención, borrado y contacto reales. Revisión del propietario;

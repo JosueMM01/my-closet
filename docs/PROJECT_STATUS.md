@@ -12,7 +12,7 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
 | Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
 | Respaldos 4A | Recuperación real, 11 tablas, cifrado, dos generaciones y omisión dentro de ocho días demostrados el 4 de octubre; correcciones PG18/guardas locales. Publicación y scheduler pendientes |
-| OAuth 4B | Pendiente publicación pública y renovación duradera de Drive; independiente de Google Sign-In |
+| OAuth 4B | `/about`, `/privacy`, `/terms` y errores OAuth preparados localmente; responsable/contacto, publicación y renovación real de Drive pendientes; independiente de Google Sign-In |
 | Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
@@ -37,6 +37,16 @@ Rama preparada desde develop: `fix/backup-recovery-phase-4a`; integra el baselin
 de respaldos ya publicado a main, las correcciones y limpieza. Nada se publicó.
 El control de builds preparado en vercel.json todavía no opera en remoto.
 Véanse [BACKUPS.md](BACKUPS.md) y [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY_EVIDENCE.md).
+
+Continuación local de 4B: `feat/public-policies-drive-phase-4b`, desde develop y
+con la dependencia 4A integrada por fast-forward. No push, PR, preview o cambio
+de Secrets. Las páginas no cargan el runtime de sesión/sync/IndexedDB ni modelos;
+conservan revisión/noindex hasta configurar responsable y contacto deliberadamente
+públicos. Detalles y puertas operativas: [OAUTH_PUBLICATION.md](OAUTH_PUBLICATION.md).
+Validación local 4B: 50 tests dirigidos, 18 ejecuciones E2E seleccionadas,
+TypeScript, lint y build correctos. Sin servicios reales ni migraciones en esta
+continuación. Build local no genera Deployment Storage en Vercel. La referencia
+anterior sigue siendo 1,79/10 GB; no es una lectura nueva del contador.
 
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
