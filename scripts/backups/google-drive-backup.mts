@@ -47,6 +47,10 @@ const tokenResponseSchema = z.object({
   token_type: z.string().min(1),
 });
 
+const oauthErrorSchema = z.object({
+  error: z.enum(['invalid_grant', 'invalid_client', 'invalid_scope']),
+});
+
 const driveFileListSchema = z.object({
   nextPageToken: z.string().optional(),
   files: z.array(driveBackupFileSchema),
@@ -106,7 +110,18 @@ async function getAccessToken(): Promise<string> {
     body,
   });
   if (!response.ok) {
-    throw new Error(`Google OAuth rechazó la renovación del token (${response.status})`);
+    // Only allowlisted error codes are usable. Never log Google's response body,
+    // error_description, tokens or client credentials, even on malformed responses.
+    const result = oauthErrorSchema.safeParse(await response.json().catch(() => null));
+    const reason = result.success ? result.data.error : undefined;
+    const guidance = reason === 'invalid_grant'
+      ? 'invalid_grant: autorización vencida o revocada; reautoriza Drive con el cliente de respaldos y reemplaza GOOGLE_DRIVE_REFRESH_TOKEN. Las copias existentes no se modificaron.'
+      : reason === 'invalid_client'
+        ? 'invalid_client: revisa el ID y secreto del cliente OAuth de respaldos; no uses el cliente de Google Sign-In.'
+        : reason === 'invalid_scope'
+          ? 'invalid_scope: revisa los permisos de Drive y vuelve a autorizar el cliente de respaldos.'
+          : 'Revisa el estado de Google OAuth; no se realizaron operaciones en Drive.';
+    throw new Error(`Google OAuth rechazó la renovación del token (${response.status}). ${guidance}`);
   }
   return tokenResponseSchema.parse(await response.json()).access_token;
 }

@@ -122,4 +122,33 @@ describe('flujo Drive del respaldo sin servicios reales', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(console.log).not.toHaveBeenCalled();
   });
+
+  it.each(['status', 'maintain', 'download-latest'])('invalid_grant en %s no toca copias existentes', async (operation) => {
+    const fetchMock = vi.fn(async () => Response.json({
+      error: 'invalid_grant', error_description: 'private-fixture-token',
+    }, { status: 400 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(command(operation)).rejects.toThrow('invalid_grant: autorización vencida o revocada');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(console.log).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { body: { error: 'invalid_client' }, message: 'no uses el cliente de Google Sign-In' },
+    { body: { error: 'invalid_scope' }, message: 'revisa los permisos de Drive' },
+    { body: { error: 'unknown-private-fixture-token', error_description: 'private-fixture-token' }, message: 'no se realizaron operaciones en Drive' },
+  ])('diagnóstico OAuth acotado: $message', async ({ body, message }) => {
+    const fetchMock = vi.fn(async () => Response.json(body, { status: 400 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let failure: unknown;
+    try { await command('status'); } catch (error) { failure = error; }
+    expect(String(failure)).toContain(message);
+    expect(String(failure)).not.toContain('private-fixture-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('un rechazo OAuth con HTML no se imprime ni se confunde con JSON inválido', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('private-fixture-token', { status: 503 })));
+    await expect(command('status')).rejects.toThrow('Google OAuth rechazó la renovación del token (503). Revisa el estado');
+  });
 });
