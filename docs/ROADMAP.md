@@ -1,6 +1,6 @@
 # Ruta de mejora de My Closet
 
-Revisión: 2026-09-30. Este es el plan versionado del nuevo ciclo. No reinicia
+Revisión: 2026-10-04. Este es el plan versionado del nuevo ciclo. No reinicia
 funcionalidades ni renumera el historial; `PHASES.md` sigue como bitácora local,
 ignorada por Git. No contiene credenciales.
 
@@ -12,7 +12,12 @@ ignorada por Git. No contiene credenciales.
   antiguas de tests como validación de esta revisión.
 - Pipeline adaptativo confirmado por el propietario en Xiaomi 12 y Galaxy A35;
   tiempo reportado de 35–45 s. Optimización pendiente, no funcionalidad básica.
-- Respaldos implementados en la rama de fase 4, pero cierre operativo pendiente.
+- PR #7 de respaldos fusionado directamente a main el 2026-10-04; develop aún
+  no lo contiene. Tres commits posteriores siguen solo en local: 847a5fd,
+  f08a2b5 y acd6f27. Cierre operativo pendiente; no confundir merge con recuperación.
+- PR #8 de limpieza cerrado sin fusionar por solicitud del propietario. La rama
+  chore/remove-legacy-docs conserva la eliminación de 16 documentos y referencias.
+  No volver a abrirlo, publicar ramas o generar previews sin confirmación expresa.
 - Reautenticación de Perfil solo navega al login, que puede redirigir por el
   perfil local persistido. Rate limiting todavía en memoria.
 
@@ -20,6 +25,9 @@ ignorada por Git. No contiene credenciales.
 
 - Una unidad lógica por rama `feat/`, `fix/` o `chore/` desde develop; commits
   atómicos → PR a develop → validación → PR de lanzamiento a main.
+- Preparar y probar localmente antes de pedir autorización para push y PR.
+  Un push puede generar preview aunque no haya PR. Agrupar commits de una entrega
+  revisable; no juntar todas las fases en un único PR ni asumir un build por fase.
 - Preview usa Neon staging o rama temporal; producción usa Neon main. Verificar
   proyecto, rama y endpoint antes de migrar: la rama Git no selecciona Neon.
 - Migraciones compatibles, rollback explícito y ningún cambio destructivo sin
@@ -49,8 +57,12 @@ la fase 7 de esta tabla corresponde al nuevo ciclo.
 
 ### 4A — Terminar la recuperación existente
 
-- Mantener el alcance del PR de respaldos; reencauzar su base a develop con
-  autorización. No mezclar avatar, UI ni auditoría general en ese PR.
+- Antes de publicar: medir assets generados y preparar control de previews para
+  cambios de docs/respaldos. Este adelanto de 6 es una puerta de publicación,
+  no una reescritura del pipeline ni una nueva fase numerada.
+- Regularizar la divergencia main/develop tras PR #7 mediante integración revisada;
+  llevar las tres correcciones locales pendientes sin duplicar cambios. No se puede
+  cambiar la base del PR ya fusionado. No mezclar avatar o UI en esta entrega.
 - Validar y publicar la corrección local del workflow después de revisar CI y
   builds de Vercel. Confirmar Secrets/Variables sin imprimir valores.
 - Verificar destino de producción, acceso a Drive y custodia externa de age.
@@ -85,6 +97,13 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 
 ### 5 — Seguridad e identidad
 
+- 5A: corregir invitaciones ADMIN. Actualmente el selector ofrece ADMIN incluso
+  con dos activos y createInvitation no comprueba capacidad; registerAccount y
+  registerInvitedGoogleAccount sí protegen la aceptación con adminSlot.
+  Impedir emisión/envío desde el servidor y deshabilitar la opción en UI;
+  conservar validación transaccional al aceptar y el límite de BD. Probar ambos
+  dialectos, invitaciones antiguas y solicitudes concurrentes. Definir si las
+  invitaciones ADMIN pendientes reservan una plaza para no prometer plazas inexistentes.
 - Auditar autorización server-side por operación, usuario y propietario en sync,
   imágenes, shares y administración; probar rutas/IDs ajenos con dos usuarios.
 - Revisar SQL parametrizado, Zod, asignación masiva, XSS/CSP, CSRF/origen, CORS,
@@ -96,6 +115,22 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 - Verificar el nuevo correo y probar invitaciones de un uso y vinculación segura.
 - Revisar secretos/dependencias y diagnósticos sin datos sensibles. Passkeys se
   diseñan como subfase con recuperación; no guardar biometría.
+- 5B: límites compartidos, recuperación de sesión y verificación del nuevo correo.
+- 5C: diseñar baja voluntaria después de validar recuperación y permisos. Requerir
+  conexión, identidad/reautenticación reciente y palabra ELIMINAR validada también
+  por servidor, con explicación de datos, imágenes y nueva invitación necesaria.
+  Proteger al último administrador y revocar sesiones, identidades OAuth, enlaces
+  y operaciones posteriores antes de iniciar la eliminación.
+  Registrar trabajo durable e idempotente de limpieza Cloudinary antes de borrar
+  los storageKey en Neon: no existe una transacción común Neon/Cloudinary. No
+  prometer éxito completo si la nube falla; reintentar con trazabilidad sanitizada.
+  Resolver FKs account_invitations.createdBy/acceptedBy (sin cascade), referencias
+  de clones/shares y política de copias ajenas antes de borrar imágenes. No eliminar
+  recursos de otros usuarios; decidir cómo conservar copias independientes.
+  Limpiar IndexedDB/outbox y cachés de la cuenta en el dispositivo actual; otros
+  dispositivos offline requieren purga al reconectar y nunca deben reinsertar datos.
+  Documentar retención en los dos respaldos, impedir resurrección al restaurar y
+  no afirmar borrado inmediato de copias offline o respaldos históricos.
 
 Cierre: pruebas negativas y regresiones críticas cubiertas, hallazgos graves
 resueltos. No prometer inmunidad a todos los ataques.
@@ -107,12 +142,24 @@ resueltos. No prometer inmunidad a todos los ataques.
 - Comparar Pixel Crunch (IMG.LY 1.7.0; móvil CPU/quint8 y escritorio GPU/FP16).
   Revisar licencia antes de reutilizar código. No asumir que su política es más
   rápida sin medir calidad y estabilidad con las mismas entradas.
+- Hallazgo del 2026-10-04: sus 25 MiB son límite por archivo de Cloudflare, no el
+  tamaño del modelo completo. Ambos repos usan isnet 168.0 MiB, FP16 84.1 MiB y
+  quint8 42.3 MiB, en chunks de hasta 4 MiB; runtimes WASM 11.3/21.9 MiB.
+  Pixel Crunch prioriza quint8 en móviles; My Closet prioriza FP16 si no detecta
+  limitación y usa isnet completo en GPU permitida. Comparar mismas entradas y
+  caché fría/caliente. Ambos terminan Worker por intento: caché no conserva sesión ONNX.
 - Evaluar quint8 primero en móvil, FP16 en GPU estable y necesidad del modelo
   completo. Conservar liberación de Worker, fallback manual y caché tolerante.
 - Revisar retención, peso de assets y builds innecesarios. Hosting separado de
   modelos exige integridad, CORS y validación offline.
 - Medir compresión/reintentos y borrado con referencias; llevar presupuesto de
   uso de Vercel, Neon y Cloudinary. Gratis no significa recursos ilimitados.
+- Incluir presupuesto separado de Deployment Storage (GB-mes), Fast Data Transfer,
+  Fast Origin Transfer y builds. Evaluar retirar isnet completo solo tras demostrar
+  calidad/fallback con FP16/quint8; no borrar modelos por tamaño sin pruebas móviles.
+- Revisar precache de detalles offline (hasta 500 rutas), polling, pull paginado,
+  reintentos y bytes de imágenes. Ya hay WebP 1080 px/calidad 0.82 y deduplicación
+  de upload en vuelo; no asumir que compresión o deduplicación resuelven todo el uso.
 
 Cierre: comparación antes/después y límites acordados, sin regresiones móviles.
 
@@ -120,9 +167,12 @@ Cierre: comparación antes/después y límites acordados, sin regresiones móvil
 
 - Añadir icono oficial Google con guía de marca y accesibilidad.
 - Alinear mensajes de progreso, errores y sincronización con la etapa real.
-- Clasificar docs como vigentes, actualizables o históricos. Retirar `local-prs`
-  en un PR separado con referencias de README, AGENTS y DEVELOPMENT; conservar
-  decisiones relevantes. No borrar documentación por antigüedad solamente.
+- Integrar la limpieza ya preparada en chore/remove-legacy-docs: retirar decisions,
+  local-prs y reference por decisión explícita del propietario y eliminar enlaces
+  restantes. Se conservan solo en el historial Git, no como guía del proyecto.
+  La limpieza no necesita preview funcional propio; incluirla en la próxima entrega
+  documental compatible autorizada. ROADMAP, estado y documentos técnicos vigentes
+  describen exclusivamente My Closet y se actualizan con evidencias reales.
 - Actualizar arquitectura, servicios, autenticación, imágenes y seguridad.
 
 Cierre: recorridos dirigidos aprobados y referencias coherentes.
@@ -140,9 +190,12 @@ Cierre: decisión de viabilidad y prototipo medido; no bloquea el uso personal.
 
 ## Siguiente unidad
 
-Continuar 4A: workflow, integración por develop y ensayo autorizado de copia y
-restauración. Preparar 4B en una rama independiente. Esta actualización de docs
-no ejecutó copias, renovó tokens ni modificó servicios.
+Continuar 4A: puerta de publicación/recursos, workflow, regularización de develop
+y ensayo autorizado de copia/restauración. Preparar 4B sin publicar anticipadamente.
+Orden funcional conservado: 4A → 4B → 5A/5B/5C → 6 → 7 → 8. La medición inicial
+de 6 y actualización documental de 7 son transversales, no bloquean el plan.
+Esta revisión no implementó invitaciones/baja de cuenta, no ejecutó copias ni builds,
+no renovó tokens y no publicó cambios; únicamente cerró PR #8 sin fusionar.
 
 Checkpoint posterior de 4A (2026-09-30): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.

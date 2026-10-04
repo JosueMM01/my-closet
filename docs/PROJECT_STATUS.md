@@ -1,6 +1,6 @@
 # Estado del proyecto
 
-## Resumen vigente — 2026-09-30
+## Resumen vigente — 2026-10-04
 
 Plan compartido: [ROADMAP.md](ROADMAP.md). La sección posterior se conserva como
 snapshot histórico de agosto: sus ramas, cifras y marcas de completado no
@@ -11,12 +11,14 @@ describen necesariamente el estado actual ni certifican seguridad.
 | Aplicación | Desplegada; el propietario reporta login, correo y armario funcionales |
 | Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
 | Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
-| Respaldos 4A | Guardas reforzadas; 13 tests y actionlint correctos; Drive/Neon comprobados en lectura y configuración Actions registrada; pendiente publicación y ensayo real |
+| Respaldos 4A | PR #7 fusionado a main; develop desalineado; tres correcciones solo locales. Los 13 tests/actionlint son evidencia del 30 de septiembre, no ensayo real. Workflow publicado pendiente de corrección |
 | OAuth 4B | Pendiente publicación pública y renovación duradera de Drive; independiente de Google Sign-In |
 | Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
 | Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
 | Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
-| Documentación 7 | Nueva ruta documentada; clasificación y retiro de docs históricos pendientes |
+| Documentación 7 | PR #8 cerrado sin fusionar; eliminación de decisions/local-prs/reference preservada en su rama para próxima entrega autorizada |
+| Invitaciones ADMIN | Creación/envío no comprueban cupo; aceptación sí protege dos administradores activos. Corrección planificada en 5A |
+| Baja de cuenta | No implementada. Plan 5C: reautenticación, ELIMINAR, sesiones, Neon, Cloudinary/referencias, offline y respaldos |
 | Avatar 8 | Investigación opcional; no bloquea uso personal |
 
 Integración: ramas desde develop → PR a develop → PR de lanzamiento a main.
@@ -24,7 +26,9 @@ Verificar destinos Neon antes de migrar. No asumir que un build verde demuestra
 recuperación o aislamiento. El dump no respalda binarios Cloudinary ni borradores
 IndexedDB; documentar esa cobertura en [BACKUPS.md](BACKUPS.md).
 
-La revisión documental no ejecutó tests de aplicación, respaldos ni deployments.
+La revisión del 4 de octubre no ejecutó tests de aplicación, respaldos ni builds.
+Se cerró PR #8 sin fusionar. No hacer push, nuevos PR o cambios de configuración
+de deployments sin confirmación expresa; un push puede generar preview por sí solo.
 No publicar secretos o activar destinos de producción en pruebas ordinarias.
 
 Avance posterior de 4A: se ejecutaron tests dirigidos del respaldo, TypeScript,
