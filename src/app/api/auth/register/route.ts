@@ -1,6 +1,6 @@
 import { authResponseSchema, registerSchema } from '@/lib/domain/validation';
 import { hashPassword } from '@/server/auth/password';
-import { rateLimit } from '@/server/auth/rate-limit';
+import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
 import { createSession } from '@/server/auth/session';
 import { isPublicRegistrationEnabled } from '@/server/env';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin } from '@/server/http';
@@ -15,10 +15,9 @@ export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-  if (!rateLimit(`register:${ip}`, REGISTER_LIMIT, 60_000)) {
-    return jsonError(429, 'Demasiados intentos; espera un momento');
-  }
+  const ip = requestRateLimitIdentity(request);
+  const limited = await guardRateLimit(`register:${ip}`, REGISTER_LIMIT);
+  if (limited) return limited;
 
   const body = await request.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);

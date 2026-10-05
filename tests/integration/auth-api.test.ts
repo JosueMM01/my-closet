@@ -100,7 +100,7 @@ beforeEach(async () => {
   process.env.BOOTSTRAP_ADMIN_PASSWORD = BOOTSTRAP_PASSWORD;
   process.env.EMAIL_PROVIDER = 'capture';
   cookieState.clear();
-  resetRateLimits();
+  await resetRateLimits();
   resetCapturedMessagesForTests();
   await closeServerDB();
 });

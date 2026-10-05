@@ -1,7 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
-import { closeServerDB, getServerDB, pgSchema } from '@/server/db';
+import { closeServerDB, createServerDB, getServerDB, pgSchema } from '@/server/db';
+import { getEnv } from '@/server/env';
+import { rateLimit } from '@/server/auth/rate-limit';
+import { createHmac } from 'node:crypto';
+import { getAuthSecret } from '@/server/env';
 import {
   createUser,
   findUserByEmail,
@@ -30,6 +34,25 @@ const describePostgres = enabled ? describe : describe.skip;
 const cleanupUserIds: string[] = [];
 
 describePostgres('contrato de repositorios PostgreSQL', () => {
+  it('comparte límites atómicos entre dos conexiones independientes', async () => {
+    const first = await getServerDB();
+    const second = await createServerDB({ ...getEnv(), BOOTSTRAP_ADMIN_EMAIL: undefined, BOOTSTRAP_ADMIN_PASSWORD: undefined });
+    if (first.dialect !== 'postgres' || second.dialect !== 'postgres') throw new Error('Contrato requiere PostgreSQL');
+    const key = `contract-rate-${uuid()}`;
+    // Una ventana larga evita que el cambio de minuto vuelva frágil esta prueba.
+    const windowMs = 86_400_000;
+    const keyHash = createHmac('sha256', getAuthSecret()).update(JSON.stringify([key, 5, windowMs])).digest('hex');
+    try {
+      const attempts = await Promise.all(Array.from({ length: 30 }, (_, index) =>
+        rateLimit(key, 5, windowMs, index % 2 ? first : second)));
+      expect(attempts.filter(Boolean)).toHaveLength(5);
+      expect(await second.postgres.select({ hits: pgSchema.rateLimitBuckets.hits }).from(pgSchema.rateLimitBuckets)
+        .where(eq(pgSchema.rateLimitBuckets.keyHash, keyHash))).toEqual([{ hits: 5 }]);
+    } finally {
+      await first.postgres.delete(pgSchema.rateLimitBuckets).where(inArray(pgSchema.rateLimitBuckets.keyHash, [keyHash]));
+      await second.raw.end({ timeout: 5 });
+    }
+  });
   afterAll(async () => {
     const db = await getServerDB();
     if (db.dialect === 'postgres' && cleanupUserIds.length > 0) {

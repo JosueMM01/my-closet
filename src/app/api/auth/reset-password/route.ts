@@ -1,5 +1,5 @@
 import { operationSuccessResponseSchema, resetPasswordSchema } from '@/lib/domain/validation';
-import { rateLimit } from '@/server/auth/rate-limit';
+import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
 import { jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import { resetPasswordWithToken } from '@/server/services/password-recovery-service';
 
@@ -14,10 +14,9 @@ export async function POST(request: Request) {
   const parsed = resetPasswordSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError(400, INVALID_RESET_MESSAGE);
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-  if (!rateLimit(`reset-password:${ip}`, RESET_PASSWORD_LIMIT, 60_000)) {
-    return jsonError(429, 'Demasiados intentos; espera un momento');
-  }
+  const ip = requestRateLimitIdentity(request);
+  const limited = await guardRateLimit(`reset-password:${ip}`, RESET_PASSWORD_LIMIT);
+  if (limited) return limited;
   const reset = await resetPasswordWithToken(parsed.data.token, parsed.data.newPassword);
   if (!reset) return jsonError(400, INVALID_RESET_MESSAGE);
   return jsonOk(operationSuccessResponseSchema.parse({ ok: true }));

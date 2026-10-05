@@ -33,6 +33,7 @@ export interface PostgresServerDB {
 export type ServerDB = SqliteServerDB | PostgresServerDB;
 
 let instance: ServerDB | null = null;
+let initializing: Promise<ServerDB> | null = null;
 
 function ensureDataDir(sqlitePath: string): void {
   const dir = path.dirname(sqlitePath);
@@ -87,10 +88,13 @@ export async function createServerDB(env: ServerEnv): Promise<ServerDB> {
 }
 
 export async function getServerDB(): Promise<ServerDB> {
-  if (!instance) {
-    instance = await createServerDB(getEnv());
-  }
-  return instance;
+  if (instance) return instance;
+  // Peticiones concurrentes del mismo proceso comparten el arranque/pool.
+  initializing ??= createServerDB(getEnv()).then(db => {
+    instance = db;
+    return db;
+  }).finally(() => { initializing = null; });
+  return initializing;
 }
 
 /**
@@ -101,6 +105,10 @@ function ensureSqliteSchema(
   db: SqliteDB,
   raw: import('better-sqlite3').Database,
 ): void {
+  db.run(sql`CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+    key_hash TEXT PRIMARY KEY, hits INTEGER NOT NULL, expires_at INTEGER NOT NULL
+  )`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS rate_limit_buckets_expiry_idx ON rate_limit_buckets(expires_at)`);
   db.run(sql`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -415,6 +423,7 @@ async function ensureBootstrapAdminPostgres(
 }
 
 export async function closeServerDB(): Promise<void> {
+  if (initializing) await initializing.catch(() => undefined);
   if (instance?.dialect === 'sqlite') {
     instance.raw.close();
   } else if (instance?.dialect === 'postgres') {

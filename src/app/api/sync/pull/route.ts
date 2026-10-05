@@ -1,4 +1,5 @@
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { syncPullQuerySchema } from '@/lib/domain/validation';
 import { invalidBody, jsonOk, unauthorized } from '@/server/http';
 import {
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  const limited = await guardRateLimit(`sync-pull:${user.userId}`, 240);
+  if (limited) return limited;
 
   const url = new URL(request.url);
   const parsed = syncPullQuerySchema.safeParse({

@@ -1,5 +1,6 @@
 import { processedImageUploadSchema } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 
@@ -16,6 +17,8 @@ export async function POST(request: Request) {
 
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  const limited = await guardRateLimit(`image-upload:${user.userId}`, 60);
+  if (limited) return limited;
 
   const form = await request.formData().catch(() => null);
   if (!form) return invalidBody();

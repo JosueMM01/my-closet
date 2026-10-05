@@ -4,6 +4,7 @@ import { googleInvitationStartSchema } from '@/lib/domain/validation';
 import { buildGoogleAuthorizationUrl, createGoogleOAuthValues } from '@/server/auth/google';
 import { setGoogleFlowCookies } from '@/server/auth/google-flow';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
 import { getGoogleAuthConfig } from '@/server/env';
 import { jsonError, requireSameOrigin } from '@/server/http';
 import { inspectInvitationToken } from '@/server/repositories/invitations-repository';
@@ -37,6 +38,8 @@ export async function GET(request: Request): Promise<Response> {
   }
   const config = getGoogleAuthConfig();
   if (!config) return jsonError(404, 'Acceso con Google no disponible');
+  const limited = await guardRateLimit(`oauth-start:${requestRateLimitIdentity(request)}`, 30);
+  if (limited) return limited;
 
   const requiresSession = query.data.intent === 'link' || query.data.intent === 'photo';
   const principal = requiresSession ? await getSessionUser() : null;
@@ -57,6 +60,8 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+  const limited = await guardRateLimit(`oauth-start:${requestRateLimitIdentity(request)}`, 30);
+  if (limited) return limited;
   const config = getGoogleAuthConfig();
   if (!config) return jsonError(404, 'Acceso con Google no disponible');
   const formData = await request.formData().catch(() => null);
