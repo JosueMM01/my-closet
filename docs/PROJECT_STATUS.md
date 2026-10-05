@@ -106,6 +106,20 @@ nombre/extensión/contenido antes de concluir que hubo una copia sin cifrar.
 4A/4B/5A pueden integrarse juntos por develop; 5B/5C no están implementadas.
 No push, PR, despliegue ni ejecución remota de respaldo autorizados en esta revisión.
 
+### Preparación de publicación autorizada — 2026-10-04
+
+Propietario autoriza entregar 4A/4B/5A por PR hacia develop, sin merge automático.
+Privacidad pública abreviada: respaldos en Google, sin identificar el producto;
+se conservan cifrado, retención y límites reales. 5B incluye privacidad Cloudinary
+con autorización de lectura, migración de recursos existentes y pruebas offline.
+Drive consultado sin escrituras: dos archivos .dump.age de 49 835 bytes con
+cabecera age y dos JSON técnicos; no se repitió recuperación ni se cambió retención.
+El propietario sigue sin aceptar invitaciones manualmente; validación en preview
+pendiente, no se afirma resuelta por las pruebas automatizadas.
+Vercel Preview comparte las variables DATABASE_URL y NEXT_PUBLIC_APP_URL con
+Production: se desactiva deployment automático de esta rama antes del push, hasta
+autorizar separación de staging y un único preview. No se modifican variables remotas.
+
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
 Fecha: 2026-08-21 · Rama actual: `codex/feat-neon-cloudinary-staging`.

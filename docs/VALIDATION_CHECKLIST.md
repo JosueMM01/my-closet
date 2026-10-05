@@ -98,9 +98,31 @@ restauración sobre producción.
   con una identidad distinta; límites compartidos, verificación del nuevo correo
   y pruebas negativas de permisos. El login actual usa perfil local para
   redirigir: puede impedir «Iniciar sesión de nuevo». Aún no está corregido.
+- 5B: privacidad Cloudinary aprobada; originales/derivados privados, autorización
+  de lecturas y migración de URLs públicas antiguas. Comprobar acceso anónimo y
+  entre usuarios, shares, revocación, perfil y blobs offline. Una URL firmada no
+  equivale a exigir sesión y debe evaluarse el coste de cada estrategia.
 - 5C: baja irreversible con reautenticación y ELIMINAR; limpieza durable de
   Neon/Cloudinary con referencias/clones, sesiones, cachés y retención en backups.
   Requiere aprobar consecuencias antes de implementar/publicar; entrega separada.
+
+## Entrega agrupada autorizada — 2026-10-04
+
+- El propietario autoriza push de 4A/4B/5A y PR de la rama de trabajo a develop;
+  no autoriza fusionar automáticamente ni modificar main en esta entrega.
+- Aceptación manual de invitaciones sigue fallando según el propietario incluso
+  al abrir otra pestaña. No se considera validada por el bloqueo del tercer ADMIN.
+  Reproducir en preview staging con contexto privado: enlace exacto, caducidad,
+  respuesta de registro, sesión y redirección, sin registrar tokens ni correos.
+- Consulta read-only de la carpeta de respaldo: dos .dump.age (49 835 bytes cada
+  uno), ambos con cabecera age válida, y dos manifiestos JSON. No se volvió a descifrar/restaurar; evidencia previa
+  de recuperación en BACKUP_RECOVERY_EVIDENCE.md. Ningún archivo modificado.
+- Vercel consultado: DATABASE_URL y NEXT_PUBLIC_APP_URL comparten Preview y
+  Production. No crear un preview de prueba con esa configuración. Esta rama
+  omite deployments automáticos hasta autorizar variables Preview aisladas para
+  staging y luego un único preview; CI de PR usa su base sintética independiente.
+- La cifra anterior de Deployment Storage (1,79/10 GB) no se ha actualizado en
+  esta revisión. No se presume presupuesto disponible ni se dispara redeploy.
 - 6: medir optimización de modelos en dispositivos físicos; no eliminar modelos
   ni prometer 15 segundos sin comparar calidad, backend y caché fría/caliente.
 

@@ -134,6 +134,19 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 - Revisar secretos/dependencias y diagnósticos sin datos sensibles. Passkeys se
   diseñan como subfase con recuperación; no guardar biometría.
 - 5B: límites compartidos, recuperación de sesión y verificación del nuevo correo.
+  Privacidad de imágenes aprobada por el propietario: subir y entregar originales
+  y derivados Cloudinary como recursos autenticados, con autorización por propietario
+  o share vigente en servidor. La firma de subida actual no protege la entrega.
+  Diseñar primero el acceso: una URL firmada compartible no exige sesión por sí sola;
+  decidir entre autorización en cada lectura o acceso temporal, midiendo coste de
+  transferencia/funciones Vercel y compatibilidad del plan gratuito. No prometer
+  privacidad estricta por cambiar solamente el tipo de subida.
+  Migrar imágenes existentes, metadatos/sync y cachés remotas; comprobar que las
+  URLs públicas antiguas dejan de entregar originales y derivados. Preservar blobs
+  offline autorizados sin guardar credenciales ni URLs temporales como identidad
+  permanente. La revocación no puede retirar copias ya descargadas.
+  Probar dos usuarios, acceso anónimo, propietario, shares/revocación, expiración,
+  perfil/Google, clones y operación offline antes de promover a producción.
 - 5C: diseñar baja voluntaria después de validar recuperación y permisos. Requerir
   conexión, identidad/reautenticación reciente y palabra ELIMINAR validada también
   por servidor, con explicación de datos, imágenes y nueva invitación necesaria.
