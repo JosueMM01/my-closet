@@ -80,6 +80,20 @@ export function GarmentForm({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function choosePhotoSource(camera: boolean) {
+    const input = fileInputRef.current;
+    if (!input || photoBusy) return;
+    if (camera) {
+      input.setAttribute('capture', 'environment');
+      input.accept = 'image/*';
+    } else {
+      input.removeAttribute('capture');
+      input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif';
+    }
+    // Apertura síncrona dentro del gesto del usuario; misma validación/pipeline local.
+    input.click();
+  }
+
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -224,7 +238,7 @@ export function GarmentForm({
         <div className="relative">
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => choosePhotoSource(false)}
             disabled={photoBusy}
             data-testid="photo-upload"
             className="relative flex h-80 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait"
@@ -250,7 +264,7 @@ export function GarmentForm({
             ) : (
               <span className="flex flex-col items-center justify-center text-text-secondary">
                 <CameraIcon size={40} className="mb-3 opacity-50" />
-                <span className="text-[15px] font-semibold">Tomar una foto o subirla</span>
+                <span className="text-[15px] font-semibold">Elegir foto de la prenda</span>
                 <span className="mt-1 text-xs text-text-muted">JPEG, PNG, WebP, HEIC o AVIF</span>
               </span>
             )}
@@ -296,6 +310,14 @@ export function GarmentForm({
               </Button>
             </div>
           ) : null}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" disabled={photoBusy} onClick={() => choosePhotoSource(true)}>
+            <CameraIcon size={18} /> Tomar foto
+          </Button>
+          <Button type="button" variant="secondary" disabled={photoBusy} onClick={() => choosePhotoSource(false)}>
+            Elegir archivo
+          </Button>
         </div>
         <input
           ref={fileInputRef}
