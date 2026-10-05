@@ -36,6 +36,9 @@
   Limpieza oportunista de hasta 1000 claves caducadas por minuto/proceso; no
   requiere Redis ni un servicio de pago. El guard no cubre todavía todos los
   endpoints: completar el inventario es parte de 5B.
+- Cambios de contraseña y correo: 5/60 s por usuario; PATCH de perfil: 30/60 s;
+  desvinculación Google: 5/60 s. Se aplican después de autenticar y antes de
+  verificar contraseñas o escribir datos.
 - La migración `0003_shared_rate_limits.sql` es aditiva. Debe aplicarse antes de
   desplegar el código: sin esa tabla las operaciones protegidas devuelven 503.
   Rollback del código conserva la tabla; no necesita borrar datos de usuarios.

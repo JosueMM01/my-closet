@@ -130,10 +130,11 @@ generó deployment ni PR. La nueva organización de carpetas aún no se ejecutó
 contra Google. Antes del siguiente release aplicar migración en producción tras
 backup/verificación; el código nuevo sin tabla devolvería 503.
 
-Decisión pendiente de 5B: entrega autorizada por la app en cada lectura
-(privacidad estricta, transferencia Vercel) frente a URLs Cloudinary firmadas
-temporales (menor transferencia Vercel, quien tenga el enlace puede leerlo hasta
-su vencimiento). No presentar una firma de entrega como autorización por sesión.
+Decisión del propietario, 2026-10-05: mantener entrega pública desde Cloudinary,
+sin proxy Vercel ni firmas de entrega. No son imágenes privadas; también afecta
+fotografías de perfil. La firma de subida y finalize siguen protegiendo las
+credenciales y la asignación de propietario. Esta decisión sustituye el requisito
+anterior de entrega privada; no cambia permisos de escritura ni datos del armario.
 
 - 5A ampliada localmente en `fix/admin-invitation-seat-reservations-phase-5a`, creada
   desde develop e integrada por fast-forward con las dependencias 4A/4B pendientes.
@@ -159,19 +160,12 @@ su vencimiento). No presentar una firma de entrega como autorización por sesió
 - Revisar secretos/dependencias y diagnósticos sin datos sensibles. Passkeys se
   diseñan como subfase con recuperación; no guardar biometría.
 - 5B: límites compartidos, recuperación de sesión y verificación del nuevo correo.
-  Privacidad de imágenes aprobada por el propietario: subir y entregar originales
-  y derivados Cloudinary como recursos autenticados, con autorización por propietario
-  o share vigente en servidor. La firma de subida actual no protege la entrega.
-  Diseñar primero el acceso: una URL firmada compartible no exige sesión por sí sola;
-  decidir entre autorización en cada lectura o acceso temporal, midiendo coste de
-  transferencia/funciones Vercel y compatibilidad del plan gratuito. No prometer
-  privacidad estricta por cambiar solamente el tipo de subida.
-  Migrar imágenes existentes, metadatos/sync y cachés remotas; comprobar que las
-  URLs públicas antiguas dejan de entregar originales y derivados. Preservar blobs
-  offline autorizados sin guardar credenciales ni URLs temporales como identidad
-  permanente. La revocación no puede retirar copias ya descargadas.
-  Probar dos usuarios, acceso anónimo, propietario, shares/revocación, expiración,
-  perfil/Google, clones y operación offline antes de promover a producción.
+  Entrega Cloudinary pública aprobada; conservar advertencia en privacidad y
+  prohibición de fotos sensibles. Probar ownership de subida/finalize, imágenes
+  de perfil, clones y operación offline; no afirmar que revocar un share oculta
+  URLs de imagen ya conocidas. No migrar imágenes a privadas.
+  Checkpoint adicional: cuotas por usuario para contraseña/correo (5/min),
+  actualización de perfil (30/min) y desvinculación Google (5/min).
 - 5C: diseñar baja voluntaria después de validar recuperación y permisos. Requerir
   conexión, identidad/reautenticación reciente y palabra ELIMINAR validada también
   por servidor, con explicación de datos, imágenes y nueva invitación necesaria.
@@ -192,6 +186,14 @@ Cierre: pruebas negativas y regresiones críticas cubiertas, hallazgos graves
 resueltos. No prometer inmunidad a todos los ataques.
 
 ### 6 — Rendimiento y recursos
+
+Avance 2026-10-05: móviles sin historial priorizan CPU/quint8 antes de FP16,
+sin basarse únicamente en RAM. Se conserva una ruta exitosa anterior y se omiten
+rutas que fallaron dos veces; escritorio y guardas WebGPU Android no cambian.
+No se retiraron modelos ni se certifica reducción de tiempo sin comparación
+física en Xiaomi/A35. Cámara de prendas integrada mediante captura nativa,
+manteniendo selector de archivos y el mismo procesamiento local antes de guardar.
+Playwright puede comprobar el flujo, pero no la cámara física del teléfono.
 
 - Medir caché fría/caliente: descarga, runtime, preparación, inferencia y
   codificación en Xiaomi, Samsung y escritorio, sin conservar fotos ni EXIF.
