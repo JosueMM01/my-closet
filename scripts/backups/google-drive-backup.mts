@@ -12,7 +12,10 @@ import {
   expiredBackupRunIds,
   filesForRun,
   isBackupDue,
+  staleIncompleteFiles,
   validateDirectPostgresSource,
+  validateTemporaryRestoreTarget,
+  validatePostgresToolVersion,
   type BackupManifest,
   type DriveBackupFile,
 } from './policy.mts';
@@ -42,6 +45,10 @@ const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
   expires_in: z.number().positive(),
   token_type: z.string().min(1),
+});
+
+const oauthErrorSchema = z.object({
+  error: z.enum(['invalid_grant', 'invalid_client', 'invalid_scope']),
 });
 
 const driveFileListSchema = z.object({
@@ -103,7 +110,18 @@ async function getAccessToken(): Promise<string> {
     body,
   });
   if (!response.ok) {
-    throw new Error(`Google OAuth rechazó la renovación del token (${response.status})`);
+    // Only allowlisted error codes are usable. Never log Google's response body,
+    // error_description, tokens or client credentials, even on malformed responses.
+    const result = oauthErrorSchema.safeParse(await response.json().catch(() => null));
+    const reason = result.success ? result.data.error : undefined;
+    const guidance = reason === 'invalid_grant'
+      ? 'invalid_grant: autorización vencida o revocada; reautoriza Drive con el cliente de respaldos y reemplaza GOOGLE_DRIVE_REFRESH_TOKEN. Las copias existentes no se modificaron.'
+      : reason === 'invalid_client'
+        ? 'invalid_client: revisa el ID y secreto del cliente OAuth de respaldos; no uses el cliente de Google Sign-In.'
+        : reason === 'invalid_scope'
+          ? 'invalid_scope: revisa los permisos de Drive y vuelve a autorizar el cliente de respaldos.'
+          : 'Revisa el estado de Google OAuth; no se realizaron operaciones en Drive.';
+    throw new Error(`Google OAuth rechazó la renovación del token (${response.status}). ${guidance}`);
   }
   return tokenResponseSchema.parse(await response.json()).access_token;
 }
@@ -162,6 +180,7 @@ async function uploadResumable(input: {
   fileId?: string;
 }): Promise<z.infer<typeof uploadResultSchema>> {
   const fileStats = await stat(input.filePath);
+  const contents = await readFile(input.filePath);
   const endpoint = input.fileId
     ? `${DRIVE_UPLOAD_API}/files/${encodeURIComponent(input.fileId)}`
     : `${DRIVE_UPLOAD_API}/files`;
@@ -187,9 +206,14 @@ async function uploadResumable(input: {
       'content-type': input.mimeType,
       'content-length': String(fileStats.size),
     },
-    body: await readFile(input.filePath),
+    body: contents,
   });
-  return uploadResultSchema.parse(await upload.json());
+  const result = uploadResultSchema.parse(await upload.json());
+  if (Number(result.size) !== fileStats.size
+      || result.md5Checksum !== createHash('md5').update(contents).digest('hex')) {
+    throw new Error('El archivo subido a Drive no coincide en tamaño o MD5');
+  }
+  return result;
 }
 
 async function patchDriveMetadata(
@@ -239,16 +263,9 @@ async function maintainRetention(input: {
     }
   }
 
-  const completeRunIds = new Set(completedManifests(allFiles)
-    .map((file) => file.appProperties?.runId)
-    .filter((value): value is string => Boolean(value)));
-  const staleBefore = Date.now() - 48 * 60 * 60 * 1000;
-  for (const file of allFiles) {
-    const fileRunId = file.appProperties?.runId;
-    if (fileRunId && !completeRunIds.has(fileRunId) && Date.parse(file.createdTime) < staleBefore) {
-      await deleteDriveFile(input.token, file.id);
-      deletedFiles += 1;
-    }
+  for (const file of staleIncompleteFiles(allFiles, new Date(), input.retentionCount)) {
+    await deleteDriveFile(input.token, file.id);
+    deletedFiles += 1;
   }
   return deletedFiles;
 }
@@ -281,6 +298,15 @@ async function validateSource(): Promise<void> {
   console.log('La fuente del respaldo coincide con el endpoint directo de producción.');
 }
 
+async function validateToolVersion(): Promise<void> {
+  const [serverVersion, toolVersion] = await Promise.all([
+    readFile(requiredPath('BACKUP_SERVER_VERSION_PATH'), 'utf8'),
+    readFile(requiredPath('BACKUP_PG_DUMP_VERSION_PATH'), 'utf8'),
+  ]);
+  validatePostgresToolVersion(serverVersion, toolVersion);
+  console.log('pg_dump es compatible con la versión de PostgreSQL del origen.');
+}
+
 async function status(): Promise<void> {
   const env = environment(backupEnvironmentSchema);
   const token = await getAccessToken();
@@ -304,6 +330,26 @@ async function status(): Promise<void> {
       : `- Respaldo todavía vigente. Último respaldo: ${result.lastBackupAt}.`,
   );
   console.log(result.due ? 'Se debe crear un respaldo.' : 'Todavía no corresponde crear otro respaldo.');
+}
+
+async function validateRestore(): Promise<void> {
+  const env = environment(z.object({
+    RESTORE_DATABASE_URL: z.string().min(1),
+    EXPECTED_NEON_PRODUCTION_HOST: z.string().min(1),
+    EXPECTED_NEON_TEMPORARY_HOST: z.string().min(1),
+    RESTORE_BRANCH_ID: z.string().min(1),
+    RESTORE_BRANCH_CREATED: z.enum(['true', 'false']),
+    BACKUP_DATABASE_NAME: z.string().min(1),
+  }));
+  validateTemporaryRestoreTarget({
+    connectionUrl: env.RESTORE_DATABASE_URL,
+    productionHost: env.EXPECTED_NEON_PRODUCTION_HOST,
+    expectedTemporaryHost: env.EXPECTED_NEON_TEMPORARY_HOST,
+    branchId: env.RESTORE_BRANCH_ID,
+    branchCreated: env.RESTORE_BRANCH_CREATED === 'true',
+    expectedDatabase: env.BACKUP_DATABASE_NAME,
+  });
+  console.log('Destino de restauración validado: rama nueva y endpoint ajeno a producción.');
 }
 
 function requiredPath(name: string): string {
@@ -383,7 +429,7 @@ async function uploadBackup(): Promise<void> {
   });
   const manifestPath = path.join(path.dirname(archivePath), manifestName);
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  await uploadResumable({
+  const uploadedManifest = await uploadResumable({
     token,
     filePath: manifestPath,
     mimeType: 'application/json',
@@ -393,9 +439,17 @@ async function uploadBackup(): Promise<void> {
       appProperties: {
         ...commonProperties,
         kind: 'manifest',
-        status: 'complete',
+        status: 'uploading',
         restoreStatus: 'pending',
       },
+    },
+  });
+  await patchDriveMetadata(token, uploadedManifest.id, {
+    appProperties: {
+      ...commonProperties,
+      kind: 'manifest',
+      status: 'complete',
+      restoreStatus: 'pending',
     },
   });
 
@@ -519,6 +573,8 @@ const command = process.argv[2];
 const commands: Record<string, () => Promise<void>> = {
   'init-folder': initFolder,
   'validate-source': validateSource,
+  'validate-tool-version': validateToolVersion,
+  'validate-restore': validateRestore,
   status,
   upload: uploadBackup,
   maintain,
@@ -529,6 +585,6 @@ const commands: Record<string, () => Promise<void>> = {
 
 const handler = command ? commands[command] : undefined;
 if (!handler) {
-  throw new Error('Comando inválido. Usa init-folder, validate-source, status, upload, maintain, download-latest, verify-plain o mark-restored.');
+  throw new Error('Comando inválido. Usa init-folder, validate-source, validate-tool-version, validate-restore, status, upload, maintain, download-latest, verify-plain o mark-restored.');
 }
 await handler();

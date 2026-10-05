@@ -9,7 +9,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { useSession } from '@/components/providers';
+import { AppProviders, useSession } from '@/components/providers';
+import { ServiceWorkerRegister } from '@/components/sw-register';
 import { CalendarIcon, HangerIcon, PlusIcon, UserIcon, HomeIcon } from '@/components/icons';
 import { SyncBadge } from '@/components/ui';
 import { OfflineRouteCache } from '@/components/offline-route-cache';
@@ -23,6 +24,15 @@ const DOCK_ITEMS = [
 ] as const;
 
 export default function AppLayout({ children }: { children: ReactNode }) {
+  return (
+    <AppProviders>
+      <AppShell>{children}</AppShell>
+      <ServiceWorkerRegister />
+    </AppProviders>
+  );
+}
+
+function AppShell({ children }: { children: ReactNode }) {
   const { profile, loading } = useSession();
   const router = useRouter();
   const pathname = usePathname();

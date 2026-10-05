@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
+  "git": {
+    "deploymentEnabled": {
+      "fix/admin-invitation-seat-reservations-phase-5a": false,
+      "fix/backup-recovery-phase-4a": false,
+      "chore/remove-legacy-docs": false
+    }
+  }
+}

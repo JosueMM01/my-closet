@@ -4,6 +4,8 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { uuid } from '@/lib/domain/ids';
 import { getServerDB, pgSchema, sqliteSchema, type PostgresDB } from '@/server/db';
+import { adminCapacityMessage, MAX_ACTIVE_ADMINS } from '@/lib/domain/admin-capacity';
+import { lockAdminCapacity, pendingAdminReservationsPostgres, pendingAdminReservationsSqlite } from './admin-capacity';
 
 export interface UserRecord {
   id: string;
@@ -84,6 +86,8 @@ async function registerPostgres(
   now: string,
 ): Promise<UserRecord> {
   return postgres.transaction(async (tx) => {
+    await lockAdminCapacity(tx);
+    now = new Date().toISOString();
     let role: UserRole = 'USER';
     let invitationId: string | null = null;
     let email: string;
@@ -131,6 +135,9 @@ async function registerPostgres(
           .where(and(eq(pgSchema.users.role, 'ADMIN'), eq(pgSchema.users.status, 'ACTIVE')))
           .for('update')
       : [];
+    if (role === 'ADMIN' && activeAdmins.length + await pendingAdminReservationsPostgres(tx, invitationId) >= MAX_ACTIVE_ADMINS) {
+      throw new AccountError('ADMIN_LIMIT', adminCapacityMessage(activeAdmins.length));
+    }
     const adminSlot = role === 'ADMIN' ? availableAdminSlot(activeAdmins) : null;
     const record: UserRecord = {
       id: uuid(),
@@ -224,6 +231,13 @@ export async function registerAccount(input: RegisterAccountInput): Promise<User
       throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
     }
 
+    if (role === 'ADMIN') {
+      const activeAdmins = tx.select({ id: sqliteSchema.users.id }).from(sqliteSchema.users)
+        .where(and(eq(sqliteSchema.users.role, 'ADMIN'), eq(sqliteSchema.users.status, 'ACTIVE'))).all();
+      if (activeAdmins.length + pendingAdminReservationsSqlite(tx, invitationId) >= MAX_ACTIVE_ADMINS) {
+        throw new AccountError('ADMIN_LIMIT', adminCapacityMessage(activeAdmins.length));
+      }
+    }
     const adminSlot = role === 'ADMIN'
       ? availableAdminSlot(
           tx
@@ -285,11 +299,13 @@ export async function registerInvitedGoogleAccount(
   input: RegisterInvitedGoogleAccountInput,
 ): Promise<UserRecord> {
   const db = await getServerDB();
-  const now = new Date().toISOString();
+  let now = new Date().toISOString();
   const providerEmail = normalizeEmail(input.providerEmail);
 
   if (db.dialect === 'postgres') {
     return db.postgres.transaction(async (tx) => {
+      await lockAdminCapacity(tx);
+      now = new Date().toISOString();
       const invitations = await tx
         .select()
         .from(pgSchema.accountInvitations)
@@ -326,6 +342,9 @@ export async function registerInvitedGoogleAccount(
             .where(and(eq(pgSchema.users.role, 'ADMIN'), eq(pgSchema.users.status, 'ACTIVE')))
             .for('update')
         : [];
+      if (invitation.role === 'ADMIN' && activeAdmins.length + await pendingAdminReservationsPostgres(tx, invitation.id) >= MAX_ACTIVE_ADMINS) {
+        throw new AccountError('ADMIN_LIMIT', adminCapacityMessage(activeAdmins.length));
+      }
       const record: UserRecord = {
         id: uuid(),
         email,
@@ -389,6 +408,14 @@ export async function registerInvitedGoogleAccount(
       )).get();
     if (duplicateUser) throw new AccountError('EMAIL_EXISTS', 'Ya existe una cuenta con ese correo');
     if (duplicateAccount) throw new AccountError('GOOGLE_ACCOUNT_EXISTS', 'La cuenta de Google ya está vinculada');
+
+    if (invitation.role === 'ADMIN') {
+      const activeAdmins = tx.select({ id: sqliteSchema.users.id }).from(sqliteSchema.users)
+        .where(and(eq(sqliteSchema.users.role, 'ADMIN'), eq(sqliteSchema.users.status, 'ACTIVE'))).all();
+      if (activeAdmins.length + pendingAdminReservationsSqlite(tx, invitation.id) >= MAX_ACTIVE_ADMINS) {
+        throw new AccountError('ADMIN_LIMIT', adminCapacityMessage(activeAdmins.length));
+      }
+    }
 
     const record: UserRecord = {
       id: uuid(),

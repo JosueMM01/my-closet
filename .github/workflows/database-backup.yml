@@ -27,7 +27,8 @@ concurrency:
 env:
   BACKUP_MINIMUM_AGE_DAYS: '8'
   BACKUP_RETENTION_COUNT: '2'
-  POSTGRES_IMAGE: postgres:17-alpine
+  # Neon uses PostgreSQL 18; pg_dump cannot read a newer server major version.
+  POSTGRES_IMAGE: postgres:18-alpine
 
 jobs:
   backup:
@@ -44,11 +45,13 @@ jobs:
       BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
       EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
       FORCE_BACKUP: ${{ inputs.force_backup || false }}
-      BACKUP_DUMP_PATH: ${{ runner.temp }}/my-closet-backup/database.dump
-      BACKUP_ARCHIVE_PATH: ${{ runner.temp }}/my-closet-backup/database.dump.age
-      BACKUP_SERVER_VERSION_PATH: ${{ runner.temp }}/my-closet-backup/server-version.txt
-      BACKUP_PG_DUMP_VERSION_PATH: ${{ runner.temp }}/my-closet-backup/pg-dump-version.txt
     steps:
+      - name: Set runner backup paths
+        run: |
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-backup/database.dump" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-backup/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/server-version.txt" >> "$GITHUB_ENV"
+          echo "BACKUP_PG_DUMP_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/pg-dump-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -79,18 +82,20 @@ jobs:
         run: |
           docker run --rm \
             --env DATABASE_URL_UNPOOLED \
-            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup" \
-            "$POSTGRES_IMAGE" \
-            sh -ceu 'pg_dump --dbname="$DATABASE_URL_UNPOOLED" --format=custom --compress=zstd:9 --no-owner --no-privileges --file=/backup/database.dump'
-
-          docker run --rm \
-            --env DATABASE_URL_UNPOOLED \
             "$POSTGRES_IMAGE" \
             sh -ceu 'psql "$DATABASE_URL_UNPOOLED" --tuples-only --no-align --command="SHOW server_version"' \
             > "$BACKUP_SERVER_VERSION_PATH"
 
           docker run --rm "$POSTGRES_IMAGE" pg_dump --version \
             > "$BACKUP_PG_DUMP_VERSION_PATH"
+
+          node scripts/backups/google-drive-backup.mts validate-tool-version
+
+          docker run --rm \
+            --env DATABASE_URL_UNPOOLED \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup" \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'pg_dump --dbname="$DATABASE_URL_UNPOOLED" --format=custom --compress=zstd:9 --no-owner --no-privileges --file=/backup/database.dump'
 
           docker run --rm \
             --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup:ro" \
@@ -126,11 +131,13 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_BACKUP_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID }}
       BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
-      BACKUP_MANIFEST_PATH: ${{ runner.temp }}/my-closet-restore/manifest.json
-      BACKUP_ARCHIVE_PATH: ${{ runner.temp }}/my-closet-restore/database.dump.age
-      BACKUP_DUMP_PATH: ${{ runner.temp }}/my-closet-restore/database.dump
-      RESTORED_SERVER_VERSION_PATH: ${{ runner.temp }}/my-closet-restore/server-version.txt
     steps:
+      - name: Set runner restore paths
+        run: |
+          echo "BACKUP_MANIFEST_PATH=$RUNNER_TEMP/my-closet-restore/manifest.json" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-restore/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-restore/database.dump" >> "$GITHUB_ENV"
+          echo "RESTORED_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-restore/server-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -178,13 +185,20 @@ jobs:
           database: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
           role: ${{ vars.NEON_DATABASE_ROLE || 'neondb_owner' }}
           api_key: ${{ secrets.NEON_API_KEY }}
-          suspend_timeout: 60
+          # 0 delegates to the plan default; Neon Free disallows custom timeouts.
+          suspend_timeout: 0
           expires_at: ${{ steps.expiration.outputs.value }}
 
       - name: Restore and check database invariants
         env:
           RESTORE_DATABASE_URL: ${{ steps.restore-branch.outputs.db_url }}
+          EXPECTED_NEON_TEMPORARY_HOST: ${{ steps.restore-branch.outputs.db_host }}
+          RESTORE_BRANCH_ID: ${{ steps.restore-branch.outputs.branch_id }}
+          RESTORE_BRANCH_CREATED: ${{ steps.restore-branch.outputs.created }}
+          EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
+          BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
         run: |
+          node scripts/backups/google-drive-backup.mts validate-restore
           docker run --rm \
             --env RESTORE_DATABASE_URL \
             "$POSTGRES_IMAGE" \
@@ -212,7 +226,7 @@ jobs:
         run: node scripts/backups/google-drive-backup.mts mark-restored
 
       - name: Delete temporary Neon branch
-        if: always() && steps.restore-branch.outputs.branch_id != ''
+        if: always() && steps.restore-branch.outputs.created == 'true' && steps.restore-branch.outputs.branch_id != ''
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}

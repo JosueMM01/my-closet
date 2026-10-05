@@ -73,13 +73,8 @@ fotos; `/outfits/suggestions` está en el shell offline.
 
 ## Diferencias de dialecto SQLite/PostgreSQL
 
-Ver ADR-002. SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL
+SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL
 usa `boolean`/`timestamp` en tablas de sistema y `text` para campos de sync.
 Los diez conjuntos de tablas tienen declaraciones en ambos dialectos. Neon usa
 postgres.js, una migración base Drizzle y repositorios con el mismo contrato;
 las migraciones usan URL directa y el runtime una URL pooled.
-
-## Decisiones registradas
-
-`docs/decisions/001…007` (Next/Vercel, SQLite/Neon, Cloudinary,
-IndexedDB, imágenes en cliente, cookies seguras, sync local-first).
