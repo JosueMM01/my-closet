@@ -5,7 +5,7 @@ test.describe('Autenticación', () => {
   test('Google permanece oculto cuando el proveedor está deshabilitado', async ({ page }) => {
     await page.goto('/login');
     await waitForHydration(page);
-    await expect(page.getByRole('link', { name: 'Continuar con Google' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Iniciar sesión con Google', exact: true })).toHaveCount(0);
   });
 
   test('Google usa el inicio OAuth con intención login cuando está habilitado', async ({ page }) => {
@@ -23,7 +23,7 @@ test.describe('Autenticación', () => {
     });
     await page.goto('/login');
     await waitForHydration(page);
-    await expect(page.getByRole('link', { name: 'Continuar con Google' })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: 'Iniciar sesión con Google', exact: true })).toHaveAttribute(
       'href',
       '/api/auth/google/start?intent=login',
     );
