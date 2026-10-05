@@ -128,11 +128,11 @@ describe('orquestación de eliminación de fondo', () => {
     ]);
   });
 
-  it('empieza con FP16 en Android medio y con quint8 cuando faltan recursos', () => {
+  it('empieza con quint8 en móviles nuevos sin depender solo de la RAM', () => {
     const android = { ...desktop, isAndroid: true, isMobile: true };
     expect(backgroundRemovalAttempts(android)).toEqual([
-      { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
       { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
+      { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
     ]);
 
     const limited = { ...android, deviceMemoryGb: 4, hardwareConcurrency: 4 };
@@ -141,6 +141,14 @@ describe('orquestación de eliminación de fondo', () => {
       { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' },
       { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' },
     ]);
+  });
+
+  it('conserva FP16 ya certificado en el dispositivo y omite quint8 si falló repetidamente', () => {
+    const mobile = { ...desktop, isAndroid: true, isMobile: true };
+    const fp16 = { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' } as const;
+    expect(backgroundRemovalAttempts(mobile, { preferred: fp16, failures: {} })[0]).toEqual(fp16);
+    expect(backgroundRemovalAttempts(mobile, { preferred: null, failures: { 'cpu:isnet_quint8': 2 } })).toEqual([fp16]);
+    expect(backgroundRemovalAttempts({ ...mobile, isAndroid: false, webGpuAdapter: false })[0]?.model).toBe('isnet_quint8');
   });
 
   it('usa en Android solo un WebGPU que ya demostró funcionar y recuerda la ruta sana', () => {
