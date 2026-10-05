@@ -311,6 +311,18 @@ ESLint dirigido y diff sin errores. OAuth en E2E simula el retorno y la sesión;
 no demuestra interacción real con Google. Sin migraciones, borrados Cloudinary
 ni nuevo deployment del bloque 5B. CI del PR #10 también aprobado.
 
+Checkpoint 2026-10-05: decisión de entrega pública registrada; botones de cámara
+y galería integrados; modelo ligero como default en móviles nuevos, preservando
+historial exitoso. Build local correcto, 255 pruebas de la suite aprobadas y
+pruebas adicionales de límites de perfil correctas, junto con lint/TypeScript.
+La ejecución E2E nueva no pudo arrancar su servidor aislado por restricción del
+entorno: no está validada ni certifica cámara física. Vercel Development quedó
+aislado; Preview conserva URL de develop y las claves staging ya separadas;
+metadatos de todas las variables Production permanecieron sin cambios. No se
+publicó código ni generó deployment. 5B mantiene pendiente verificación del
+nuevo correo e inventario de permisos; 5C mantiene pendiente implementación de
+baja durable; 6 requiere medición/aceptación física de rendimiento y calidad.
+
 Checkpoint histórico de 4A (2026-09-30, anterior al ensayo del 4 de octubre): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.
 Workflow validado con actionlint; 13 tests dirigidos, TypeScript y lint correctos.
