@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
 
-test('cámara y galería comparten procesamiento local sin subir un borrador', async ({ page }) => {
+test('un único control usa el selector nativo y no sube el borrador', async ({ page }) => {
   await registerAndLogin(page);
   await page.goto('/wardrobe/new');
   await waitForHydration(page);
@@ -15,20 +15,21 @@ test('cámara y galería comparten procesamiento local sin subir un borrador', a
     }
   });
 
-  const cameraChooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Tomar foto', exact: true }).click();
-  const camera = await cameraChooser;
-  expect(await camera.element().getAttribute('capture')).toBe('environment');
-  // No certifica el hardware físico: simula el archivo devuelto por la cámara.
-  await camera.setFiles(path.resolve('public/item-jacket.jpg'));
+  await expect(page.getByRole('button', { name: 'Tomar foto', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Elegir archivo', exact: true })).toHaveCount(0);
+  const photoChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('photo-upload').click();
+  const chooser = await photoChooser;
+  expect(await chooser.element().getAttribute('capture')).toBeNull();
+  expect(await chooser.element().getAttribute('accept')).toBe('image/*');
+  // No certifica hardware físico ni el menú del sistema operativo.
+  await chooser.setFiles(path.resolve('public/item-jacket.jpg'));
   await expect(page.getByTestId('photo-preview')).toBeVisible();
 
-  const galleryChooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Elegir archivo', exact: true }).click();
-  const gallery = await galleryChooser;
-  expect(await gallery.element().getAttribute('capture')).toBeNull();
-  await gallery.setFiles(path.resolve('public/item-jacket.jpg'));
+  const replacementChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('photo-upload').click();
+  await (await replacementChooser).setFiles(path.resolve('public/item-jacket.jpg'));
   await expect(page.getByTestId('photo-preview')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Tomar foto', exact: true })).toBeEnabled();
+  await expect(page.getByTestId('photo-upload')).toBeEnabled();
   expect(imageWrites).toEqual([]);
 });

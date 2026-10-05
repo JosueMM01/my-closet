@@ -80,17 +80,10 @@ export function GarmentForm({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function choosePhotoSource(camera: boolean) {
+  function choosePhoto() {
     const input = fileInputRef.current;
     if (!input || photoBusy) return;
-    if (camera) {
-      input.setAttribute('capture', 'environment');
-      input.accept = 'image/*';
-    } else {
-      input.removeAttribute('capture');
-      input.accept = 'image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif';
-    }
-    // Apertura síncrona dentro del gesto del usuario; misma validación/pipeline local.
+    // El selector nativo decide cámara/galería; forzar capture puede ocultar la galería.
     input.click();
   }
 
@@ -238,7 +231,7 @@ export function GarmentForm({
         <div className="relative">
           <button
             type="button"
-            onClick={() => choosePhotoSource(false)}
+            onClick={choosePhoto}
             disabled={photoBusy}
             data-testid="photo-upload"
             className="relative flex h-80 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait"
@@ -311,18 +304,10 @@ export function GarmentForm({
             </div>
           ) : null}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" disabled={photoBusy} onClick={() => choosePhotoSource(true)}>
-            <CameraIcon size={18} /> Tomar foto
-          </Button>
-          <Button type="button" variant="secondary" disabled={photoBusy} onClick={() => choosePhotoSource(false)}>
-            Elegir archivo
-          </Button>
-        </div>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif"
+          accept="image/*"
           className="hidden"
           onChange={handleFile}
           aria-label="Subir foto de la prenda"
