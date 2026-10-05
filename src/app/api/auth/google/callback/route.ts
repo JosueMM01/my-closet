@@ -13,7 +13,9 @@ import {
 import { hashPassword } from '@/server/auth/password';
 import { createSession, getSessionUser } from '@/server/auth/session';
 import { getGoogleAuthConfig, type GoogleAuthConfig } from '@/server/env';
+import type { GoogleFailureReason } from '@/lib/auth/google-feedback';
 import {
+  AuthAccountError,
   findActiveUserByGoogleSubject,
   findGoogleAccountByUserId,
   linkGoogleAccount,
@@ -49,13 +51,13 @@ function redirectTo(request: Request, path: string, configAppUrl?: string): Resp
   });
 }
 
-function failurePath(intent: string | undefined, invitationToken: string | null, reason = 'denied'): string {
+function failurePath(intent: string | undefined, invitationToken: string | null, reason: GoogleFailureReason = 'denied'): string {
   if (intent === 'link' || intent === 'photo') return `/profile?google=${reason}`;
   if (intent === 'invite') {
     const fragment = invitationToken ? `#invite=${encodeURIComponent(invitationToken)}` : '';
     return `/register?google=${reason}${fragment}`;
   }
-  return '/login?google=denied';
+  return `/login?google=${reason}`;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -78,8 +80,6 @@ export async function GET(request: Request): Promise<Response> {
     const returnTo = store.get(GOOGLE_FLOW_COOKIES.returnTo)?.value;
     if (
       !query.success ||
-      query.data.error ||
-      !query.data.code ||
       !expectedState ||
       !verifier ||
       !nonce ||
@@ -87,15 +87,21 @@ export async function GET(request: Request): Promise<Response> {
       !(['login', 'link', 'invite', 'photo'] as const).includes(storedIntent) ||
       !safeStateEqual(query.data.state, expectedState)
     ) {
-      return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+      return redirectTo(request, failurePath(storedIntent, null, 'session-invalid'), config.appUrl);
     }
 
     if (storedIntent === 'invite') {
       invitationToken = readGoogleInvitationToken(store, expectedState);
       if (!invitationToken) {
-        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+        return redirectTo(request, failurePath(storedIntent, null, 'invitation-invalid'), config.appUrl);
       }
     }
+
+    if (query.data.error) {
+      return redirectTo(request, failurePath(storedIntent, invitationToken,
+        query.data.error === 'access_denied' ? 'cancelled' : 'provider-error'), config.appUrl);
+    }
+    if (!query.data.code) return redirectTo(request, failurePath(storedIntent, invitationToken), config.appUrl);
 
     const identity = await getGoogleIdentityFromCode({
       code: query.data.code,
@@ -108,7 +114,7 @@ export async function GET(request: Request): Promise<Response> {
       const storedLinkUser = store.get(GOOGLE_FLOW_COOKIES.linkUser)?.value;
       const principal = await getSessionUser();
       if (!principal || !storedLinkUser || principal.userId !== storedLinkUser) {
-        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+        return redirectTo(request, failurePath(storedIntent, null, 'reauth-required'), config.appUrl);
       }
       await linkGoogleAccount({
         userId: principal.userId,
@@ -134,7 +140,7 @@ export async function GET(request: Request): Promise<Response> {
         account?.providerSubject !== identity.subject ||
         account.providerEmail !== identity.email
       ) {
-        return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+        return redirectTo(request, failurePath(storedIntent, null, 'account-mismatch'), config.appUrl);
       }
       setGooglePictureCookie(store, { userId: principal.userId, pictureUrl: identity.pictureUrl });
       return redirectTo(
@@ -163,7 +169,7 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     const user = await findActiveUserByGoogleSubject(identity.subject);
-    if (!user) return redirectTo(request, failurePath(storedIntent, null), config.appUrl);
+    if (!user) return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
     await createSession(user.id);
     return redirectTo(
       request,
@@ -173,9 +179,20 @@ export async function GET(request: Request): Promise<Response> {
       config.appUrl,
     );
   } catch (error) {
-    const reason = error instanceof AccountError && error.code === 'INVITATION_EMAIL_MISMATCH'
-      ? 'email-mismatch'
-      : 'denied';
+    let reason: GoogleFailureReason = 'denied';
+    if (error instanceof AccountError) {
+      switch (error.code) {
+        case 'INVITATION_EMAIL_MISMATCH': reason = 'email-mismatch'; break;
+        case 'INVITATION_INVALID': reason = 'invitation-invalid'; break;
+        case 'INVITATION_EXPIRED': reason = 'invitation-expired'; break;
+        case 'ADMIN_LIMIT': reason = 'admin-limit'; break;
+        case 'EMAIL_EXISTS': reason = 'already-registered'; break;
+        case 'GOOGLE_ACCOUNT_EXISTS': reason = 'already-linked'; break;
+      }
+    } else if (error instanceof AuthAccountError) {
+      reason = error.code === 'EMAIL_MISMATCH' ? 'email-mismatch'
+        : error.code === 'ALREADY_LINKED' ? 'already-linked' : 'reauth-required';
+    }
     return redirectTo(request, failurePath(storedIntent, invitationToken, reason), config?.appUrl);
   } finally {
     clearGoogleFlowCookies(store);

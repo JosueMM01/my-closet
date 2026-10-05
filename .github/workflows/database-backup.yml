@@ -1,0 +1,238 @@
+name: Database backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+      timezone: America/Mexico_City
+  workflow_dispatch:
+    inputs:
+      force_backup:
+        description: Crear una copia aunque la última tenga menos de ocho días
+        required: false
+        default: false
+        type: boolean
+      verify_restore:
+        description: Restaurar la última copia en una rama temporal de Neon
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: my-closet-production-database-backup
+  cancel-in-progress: false
+
+env:
+  BACKUP_MINIMUM_AGE_DAYS: '8'
+  BACKUP_RETENTION_COUNT: '2'
+  # Neon uses PostgreSQL 18; pg_dump cannot read a newer server major version.
+  POSTGRES_IMAGE: postgres:18-alpine
+
+jobs:
+  backup:
+    name: Encrypted backup to Google Drive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DATABASE_URL_UNPOOLED: ${{ secrets.NEON_DATABASE_URL_UNPOOLED }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_ID }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_BACKUP_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID }}
+      BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+      BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
+      EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
+      FORCE_BACKUP: ${{ inputs.force_backup || false }}
+    steps:
+      - name: Set runner backup paths
+        run: |
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-backup/database.dump" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-backup/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/server-version.txt" >> "$GITHUB_ENV"
+          echo "BACKUP_PG_DUMP_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/pg-dump-version.txt" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate the production Neon target
+        run: node scripts/backups/google-drive-backup.mts validate-source
+
+      - name: Check whether a backup is due
+        id: policy
+        run: node scripts/backups/google-drive-backup.mts status
+
+      - name: Prepare backup tools
+        if: steps.policy.outputs.due == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age
+          docker pull "$POSTGRES_IMAGE"
+          mkdir -p "$(dirname "$BACKUP_DUMP_PATH")"
+
+      - name: Create a consistent PostgreSQL dump
+        if: steps.policy.outputs.due == 'true'
+        run: |
+          docker run --rm \
+            --env DATABASE_URL_UNPOOLED \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'psql "$DATABASE_URL_UNPOOLED" --tuples-only --no-align --command="SHOW server_version"' \
+            > "$BACKUP_SERVER_VERSION_PATH"
+
+          docker run --rm "$POSTGRES_IMAGE" pg_dump --version \
+            > "$BACKUP_PG_DUMP_VERSION_PATH"
+
+          node scripts/backups/google-drive-backup.mts validate-tool-version
+
+          docker run --rm \
+            --env DATABASE_URL_UNPOOLED \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup" \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'pg_dump --dbname="$DATABASE_URL_UNPOOLED" --format=custom --compress=zstd:9 --no-owner --no-privileges --file=/backup/database.dump'
+
+          docker run --rm \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup:ro" \
+            "$POSTGRES_IMAGE" \
+            pg_restore --list /backup/database.dump > /dev/null
+
+      - name: Encrypt the dump before upload
+        if: steps.policy.outputs.due == 'true'
+        run: age --recipient "$BACKUP_AGE_RECIPIENT" --output "$BACKUP_ARCHIVE_PATH" "$BACKUP_DUMP_PATH"
+
+      - name: Upload, verify and rotate backups
+        if: steps.policy.outputs.due == 'true'
+        run: node scripts/backups/google-drive-backup.mts upload
+
+      - name: Reconcile retention and incomplete uploads
+        run: node scripts/backups/google-drive-backup.mts maintain
+
+      - name: Remove runner copies
+        if: always()
+        run: rm -rf "${{ runner.temp }}/my-closet-backup"
+
+  restore-verification:
+    name: Restore verification on an ephemeral Neon branch
+    needs: backup
+    if: >-
+      ${{ always() && needs.backup.result == 'success' &&
+          github.event_name == 'workflow_dispatch' && inputs.verify_restore }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOOGLE_DRIVE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_ID }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_BACKUP_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID }}
+      BACKUP_AGE_IDENTITY: ${{ secrets.BACKUP_AGE_IDENTITY }}
+    steps:
+      - name: Set runner restore paths
+        run: |
+          echo "BACKUP_MANIFEST_PATH=$RUNNER_TEMP/my-closet-restore/manifest.json" >> "$GITHUB_ENV"
+          echo "BACKUP_ARCHIVE_PATH=$RUNNER_TEMP/my-closet-restore/database.dump.age" >> "$GITHUB_ENV"
+          echo "BACKUP_DUMP_PATH=$RUNNER_TEMP/my-closet-restore/database.dump" >> "$GITHUB_ENV"
+          echo "RESTORED_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-restore/server-version.txt" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Prepare restore tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age
+          docker pull "$POSTGRES_IMAGE"
+          mkdir -p "$(dirname "$BACKUP_DUMP_PATH")"
+
+      - name: Download and verify the latest encrypted backup
+        run: node scripts/backups/google-drive-backup.mts download-latest
+
+      - name: Decrypt and verify the PostgreSQL dump
+        run: |
+          identity_file="$(dirname "$BACKUP_DUMP_PATH")/age-identity.txt"
+          printf '%s\n' "$BACKUP_AGE_IDENTITY" > "$identity_file"
+          chmod 600 "$identity_file"
+          age --decrypt --identity "$identity_file" --output "$BACKUP_DUMP_PATH" "$BACKUP_ARCHIVE_PATH"
+          rm -f "$identity_file"
+          node scripts/backups/google-drive-backup.mts verify-plain
+          docker run --rm \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup:ro" \
+            "$POSTGRES_IMAGE" \
+            pg_restore --list /backup/database.dump > /dev/null
+
+      - name: Set temporary branch expiration
+        id: expiration
+        run: echo "value=$(date -u --date='+2 hours' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Create temporary Neon branch
+        id: restore-branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          parent_branch: ${{ vars.NEON_PRODUCTION_BRANCH || 'main' }}
+          branch_name: backup-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          database: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
+          role: ${{ vars.NEON_DATABASE_ROLE || 'neondb_owner' }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          # 0 delegates to the plan default; Neon Free disallows custom timeouts.
+          suspend_timeout: 0
+          expires_at: ${{ steps.expiration.outputs.value }}
+
+      - name: Restore and check database invariants
+        env:
+          RESTORE_DATABASE_URL: ${{ steps.restore-branch.outputs.db_url }}
+          EXPECTED_NEON_TEMPORARY_HOST: ${{ steps.restore-branch.outputs.db_host }}
+          RESTORE_BRANCH_ID: ${{ steps.restore-branch.outputs.branch_id }}
+          RESTORE_BRANCH_CREATED: ${{ steps.restore-branch.outputs.created }}
+          EXPECTED_NEON_PRODUCTION_HOST: ${{ vars.NEON_PRODUCTION_ENDPOINT_HOST }}
+          BACKUP_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME || 'neondb' }}
+        run: |
+          node scripts/backups/google-drive-backup.mts validate-restore
+          docker run --rm \
+            --env RESTORE_DATABASE_URL \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'psql "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; DROP SCHEMA IF EXISTS drizzle CASCADE"'
+
+          docker run --rm \
+            --env RESTORE_DATABASE_URL \
+            --volume "$(dirname "$BACKUP_DUMP_PATH"):/backup:ro" \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'pg_restore --dbname="$RESTORE_DATABASE_URL" --clean --if-exists --no-owner --no-privileges --exit-on-error /backup/database.dump'
+
+          docker run --rm \
+            --env RESTORE_DATABASE_URL \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'psql "$RESTORE_DATABASE_URL" --file=/workspace/scripts/backups/verify-restored-backup.sql'
+
+          docker run --rm \
+            --env RESTORE_DATABASE_URL \
+            "$POSTGRES_IMAGE" \
+            sh -ceu 'psql "$RESTORE_DATABASE_URL" --tuples-only --no-align --command="SHOW server_version"' \
+            > "$RESTORED_SERVER_VERSION_PATH"
+
+      - name: Record successful restore verification
+        run: node scripts/backups/google-drive-backup.mts mark-restored
+
+      - name: Delete temporary Neon branch
+        if: always() && steps.restore-branch.outputs.created == 'true' && steps.restore-branch.outputs.branch_id != ''
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ${{ steps.restore-branch.outputs.branch_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Remove runner copies
+        if: always()
+        run: rm -rf "${{ runner.temp }}/my-closet-restore"

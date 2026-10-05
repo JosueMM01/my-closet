@@ -8,6 +8,7 @@ import {
   operationSuccessResponseSchema,
 } from '@/lib/domain/validation';
 import { fetchAuthProviders } from '@/lib/auth/client';
+import { googleFailureMessage } from '@/lib/auth/google-feedback';
 import { updateProfile } from '@/lib/account/client';
 import { replaceLocalImageBlob, saveGarmentPhoto } from '@/lib/images/image-client';
 import { getDB } from '@/lib/local/db';
@@ -98,7 +99,9 @@ export function ProfileGoogle({
         if (googleResult === 'linked') setMessage('Google Sign-In vinculado.');
         if (googleResult === 'invited') setMessage('Cuenta creada con Google.');
         if (googleResult === 'picture') setMessage('Foto de Google disponible para importar.');
-        if (googleResult === 'denied') setMessage('No se pudo completar Google Sign-In.');
+        if (googleResult && !['linked', 'invited', 'picture', 'picture-missing'].includes(googleResult)) {
+          setMessage(googleFailureMessage(googleResult));
+        }
         if (!providers.google) return;
         setEnabled(true);
         const [statusResponse, pictureResponse] = await Promise.all([

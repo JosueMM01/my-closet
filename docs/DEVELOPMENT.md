@@ -89,10 +89,10 @@ Ver docs/ARCHITECTURE.md. Lo esencial: `src/lib/domain` (dominio),
 
 ```text
 main (estable)
-└── development (integración)
+└── develop (integración)
     ├── feat/*  fix/*  test/*  docs/*  chore/*
 ```
 
 Cada unidad lógica: rama → tests → revisión del diff → commits atómicos
-(Conventional Commits) → revisión tipo PR (docs/local-prs/) → merge a
-`development`. Los conjuntos estables se promueven a `main`. Sin remotes.
+(Conventional Commits) → PR en GitHub → merge a `develop`.
+Los conjuntos estables se promueven a `main` mediante otro PR revisado.

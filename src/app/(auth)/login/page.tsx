@@ -2,10 +2,13 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
+import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
+import { LegalLinks } from '@/components/legal-links';
+import { googleFailureMessage } from '@/lib/auth/google-feedback';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const hasGoogleFailure = useRef(false);
 
   function safeReturnPath(): string {
     const requested = new URL(window.location.href).searchParams.get('next');
@@ -25,19 +29,20 @@ export default function LoginPage() {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (!loading && profile) router.replace(safeReturnPath());
-    const googleDenied = url.searchParams.get('google') === 'denied';
-    if (googleDenied) {
+    const googleError = googleFailureMessage(url.searchParams.get('google'));
+    if (googleError) {
+      hasGoogleFailure.current = true;
       url.searchParams.delete('google');
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
+    if (!loading && profile && !hasGoogleFailure.current) router.replace(safeReturnPath());
     void fetchAuthProviders()
       .then((providers) => {
-        if (googleDenied) setError('No se pudo iniciar sesión con Google.');
+        if (googleError) setError(googleError);
         setGoogleEnabled(providers.google);
       })
       .catch(() => {
-        if (googleDenied) setError('No se pudo iniciar sesión con Google.');
+        if (googleError) setError(googleError);
         setGoogleEnabled(false);
       });
   }, [loading, profile, router]);
@@ -112,7 +117,7 @@ export default function LoginPage() {
             </Field>
             <Field label="Contraseña" htmlFor="login-password">
               <div className="relative">
-                <span className="absolute inset-y-0 left-3 flex items-center text-text-muted pointer-events-none">
+                <span className="absolute inset-y-0 left-3 z-10 flex items-center text-text-muted pointer-events-none" aria-hidden="true" data-testid="login-password-lock">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </span>
                 <PasswordInput
@@ -122,7 +127,7 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
+                  className="!pl-10"
                   required
                 />
               </div>
@@ -163,14 +168,15 @@ export default function LoginPage() {
                     window.location.href =
                       `/api/auth/google/start?intent=login&returnTo=${encodeURIComponent(safeReturnPath())}`;
                   }}
-                  className="inline-flex h-12 w-full items-center justify-center rounded-full border border-border bg-transparent px-6 text-[15px] font-semibold text-text-primary transition-colors hover:bg-surface-alt"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 text-[15px] font-medium text-[#1F1F1F] transition-colors hover:bg-gray-50"
                 >
-                  Continuar con Google
+                  <GoogleIcon />
+                  <span>Iniciar sesión con Google</span>
                 </a>
               </>
             )}
           </form>
-
+          <div className="mt-6"><LegalLinks /></div>
         </div>
       </div>
     </main>

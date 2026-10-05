@@ -110,11 +110,70 @@ test.describe('Administración', () => {
     const second = page.locator('li').filter({ hasText: secondEmail });
     await second.getByRole('button', { name: 'Hacer admin' }).click();
     await expect(page.getByText('2/2 admins activos')).toBeVisible();
+    // Native options have their own disabled state; checking the owning select
+    // would incorrectly require USER invitations to be disabled as well.
+    await expect(page.getByRole('option', { name: 'Administrador (cupo completo)' })).toHaveJSProperty('disabled', true);
+    await expect(page.getByText('Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.')).toBeVisible();
+
+    // UI caching does not grant permission: a forged request is rejected by the server.
+    const before = await page.request.get('/api/admin/invitations');
+    const rejected = await page.request.post('/api/admin/invitations', {
+      headers: { origin: new URL(page.url()).origin },
+      data: { email: uniqueEmail('admin-bloqueado'), role: 'ADMIN', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(rejected.status()).toBe(409);
+    expect((await rejected.json()).error).toContain('Ya existen dos administradores activos');
+    const after = await page.request.get('/api/admin/invitations');
+    expect((await after.json()).invitations.length).toBe((await before.json()).invitations.length);
 
     const third = page.locator('li').filter({ hasText: thirdEmail });
-    await third.getByRole('button', { name: 'Hacer admin' }).click();
-    await expect(page.getByTestId('admin-panel').getByRole('alert')).toContainText(
-      'Ya existen dos administradores activos',
-    );
+    await expect(third.getByRole('button', { name: 'Hacer admin' })).toBeDisabled();
+  });
+
+  test('una invitación ADMIN reserva cupo, bloquea otra y revocarla libera la plaza', async ({ page }) => {
+    const adminEmail = await registerAndLogin(page, 'Admin Reservas');
+    grantAdminAccess(adminEmail);
+    const userEmail = uniqueEmail('reservas-user');
+    createUserFixture(userEmail, 'Usuario Reservas');
+    await page.goto('/profile');
+    await waitForHydration(page);
+    const panel = page.getByTestId('admin-panel');
+    const invitedEmail = uniqueEmail('admin-reservado');
+    await page.getByLabel('Correo de la persona invitada').fill(invitedEmail);
+    await page.getByLabel('Rol inicial').selectOption('ADMIN');
+    await page.getByRole('button', { name: 'Crear invitación de 7 días' }).click();
+    await expect(page.getByText('Invitación capturada para pruebas. Caduca en 7 días.')).toBeVisible();
+    await expect(panel.getByText('1/2 admins activos · 1 plaza reservada')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Administrador (plaza reservada)' })).toHaveJSProperty('disabled', true);
+    await expect(panel.getByRole('status')).toContainText('Revoca una invitación ADMIN');
+    const user = panel.getByRole('listitem').filter({ hasText: userEmail });
+    await expect(user.getByRole('button', { name: 'Hacer admin' })).toBeDisabled();
+    const rejected = await page.request.post('/api/admin/invitations', {
+      headers: { origin: new URL(page.url()).origin },
+      data: { email: uniqueEmail('admin-sin-cupo'), role: 'ADMIN', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(rejected.status()).toBe(409);
+    expect((await rejected.json()).error).toContain('Revoca una invitación ADMIN');
+    await panel.getByRole('listitem').filter({ hasText: invitedEmail }).getByRole('button', { name: 'Revocar invitación' }).click();
+    await expect(panel.getByText('1/2 admins activos · 0 plazas reservadas')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
+    await expect(user.getByRole('button', { name: 'Hacer admin' })).toBeEnabled();
+  });
+
+  test('la reserva desaparece al caducar sin recargar el panel', async ({ page }) => {
+    const adminEmail = await registerAndLogin(page, 'Admin Caducidad');
+    grantAdminAccess(adminEmail);
+    await page.goto('/profile');
+    await waitForHydration(page);
+    await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeEnabled();
+    const created = await page.request.post('/api/admin/invitations', {
+      headers: { origin: new URL(page.url()).origin },
+      data: { email: uniqueEmail('admin-caduca'), role: 'ADMIN', expiresAt: new Date(Date.now() + 5_000).toISOString() },
+    });
+    expect(created.status()).toBe(201);
+    await page.getByRole('button', { name: 'Actualizar datos' }).click();
+    await expect(page.getByText('1/2 admins activos · 1 plaza reservada')).toBeVisible();
+    await expect(page.getByText('1/2 admins activos · 0 plazas reservadas')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
   });
 });

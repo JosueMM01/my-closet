@@ -1,5 +1,127 @@
 # Estado del proyecto
 
+## Resumen vigente — 2026-10-04
+
+Plan compartido: [ROADMAP.md](ROADMAP.md). La sección posterior se conserva como
+snapshot histórico de agosto: sus ramas, cifras y marcas de completado no
+describen necesariamente el estado actual ni certifican seguridad.
+
+| Área | Estado actual y evidencia pendiente |
+|---|---|
+| Aplicación | Desplegada; el propietario reporta login, correo y armario funcionales |
+| Stack | Next.js, Vercel, PostgreSQL/Neon y Cloudinary; UI offline-first en IndexedDB |
+| Imágenes | Pipeline adaptativo confirmado por el propietario en Xiaomi/Galaxy A35; 35–45 s reportados; optimización pendiente |
+| Respaldos 4A | Recuperación real, 11 tablas, cifrado, dos generaciones y omisión dentro de ocho días demostrados el 4 de octubre; correcciones PG18/guardas locales. Publicación y scheduler pendientes |
+| OAuth 4B | `/about`, `/privacy`, `/terms` locales; responsable/contacto aprobados; publicación y renovación real de Drive pendientes; independiente de Google Sign-In |
+| Seguridad 5 | Controles existentes, no auditoría cerrada; rate limiting en memoria y verificación del nuevo correo pendientes |
+| Reautenticación | Perfil navega a login, pero el perfil local puede redirigir de nuevo al inicio |
+| Recursos 6 | Medir modelo por etapas, assets de deployment y ciclos de imágenes con referencias |
+| Documentación 7 | PR #8 cerrado sin fusionar; limpieza de decisions/local-prs/reference integrada localmente en la rama 4A |
+| Invitaciones ADMIN 5A | Reserva local aprobada: activos + ADMIN pendientes/vigentes <= 2; revocación/caducidad liberan plaza, aceptación convierte reserva. Promociones/reactivaciones protegidas; revisión manual/integración pendientes |
+| Baja de cuenta | No implementada. Plan 5C: reautenticación, ELIMINAR, sesiones, Neon, Cloudinary/referencias, offline y respaldos |
+| Avatar 8 | Investigación opcional; no bloquea uso personal |
+
+Integración: ramas desde develop → PR a develop → PR de lanzamiento a main.
+Verificar destinos Neon antes de migrar. No asumir que un build verde demuestra
+recuperación o aislamiento. El dump no respalda binarios Cloudinary ni borradores
+IndexedDB; documentar esa cobertura en [BACKUPS.md](BACKUPS.md).
+
+La revisión inicial del 4 de octubre cerró PR #8 sin fusionar. Posteriormente se
+demostró la recuperación real y se validaron 35 tests dirigidos, TypeScript, lint
+y actionlint. No se ejecutaron builds ni E2E de la app. No hacer push, nuevos PR
+o cambios de configuración
+de deployments sin confirmación expresa; un push puede generar preview por sí solo.
+No publicar secretos o activar destinos de producción en pruebas ordinarias.
+
+Rama preparada desde develop: `fix/backup-recovery-phase-4a`; integra el baseline
+de respaldos ya publicado a main, las correcciones y limpieza. Nada se publicó.
+El control de builds preparado en vercel.json todavía no opera en remoto.
+Véanse [BACKUPS.md](BACKUPS.md) y [BACKUP_RECOVERY_EVIDENCE.md](BACKUP_RECOVERY_EVIDENCE.md).
+
+Continuación local de 4B: `feat/public-policies-drive-phase-4b`, desde develop y
+con la dependencia 4A integrada por fast-forward. No push, PR, preview o cambio
+de Secrets. Las páginas no cargan el runtime de sesión/sync/IndexedDB ni modelos;
+usan contacto público aprobado por el propietario (Josue Martinez,
+contacto@josuem01.dev) como default; overrides públicos vacíos mantienen revisión/noindex.
+Detalles y puertas operativas: [OAUTH_PUBLICATION.md](OAUTH_PUBLICATION.md).
+Validación local 4B: 50 tests dirigidos, 18 ejecuciones E2E seleccionadas,
+TypeScript, lint y build correctos. Sin servicios reales ni migraciones en esta
+continuación. Build local no genera Deployment Storage en Vercel. La referencia
+anterior sigue siendo 1,79/10 GB; no es una lectura nueva del contador.
+
+Continuación 5A: rama local `fix/admin-invitation-capacity-phase-5a`, desde develop
+con dependencias 4A/4B por fast-forward. Sin migraciones ni cambios de esquema.
+Se probaron 37 casos dirigidos de cuentas/invitaciones/Google/correo y cuatro
+contratos PostgreSQL reales en staging con tablas temporales, sin escribir en
+las cuentas reales. Ocho ejecuciones E2E de invitaciones/administración aprobadas
+en Chromium móvil/escritorio; TypeScript, lint y build local aislado correctos.
+Servidor local disponible en puerto 3001: destino Neon staging comprobado por
+API y SQL; producción no se usó. Solo este proceso fuerza imágenes locales,
+correo capture y bootstrap vacío; `.env.local` no se modifica y conserva su
+configuración original. No se certificó SMTP ni upload Cloudinary real.
+Supervisión del propietario y puertas de publicación: [VALIDATION_CHECKLIST.md](VALIDATION_CHECKLIST.md).
+5B sigue pendiente: el login redirige por perfil local sin exigir sesión remota
+válida, por lo que «Iniciar sesión de nuevo» puede regresar a Inicio. La lectura
+de código confirma ese camino; no demuestra por sí sola el origen de todas las
+peticiones repetidas observadas. No se borró IndexedDB ni outbox.
+
+Seguimiento: `fix/auth-feedback-public-contact-phase-4b`, desde develop con
+dependencias preparadas por fast-forward. Botón «Iniciar sesión con Google»,
+candado visible (el contenedor del input tapaba el icono) y errores clasificados
+por causa verificada, sin datos sensibles ni autovinculación. Los errores de
+callback no se ocultan por redirección de perfil local; reautenticación general
+de 5B sigue pendiente. 48 tests unit/integración y 20 ejecuciones E2E dirigidas
+en dev móvil/escritorio aprobados; TypeScript/lint correctos. No se repitió build
+de producción en este seguimiento ni se desplegó.
+El propietario confirmó que las invitaciones reportadas se probaron en localhost:3001.
+La consulta anterior de staging fue una instantánea, no prueba de dónde ocurrieron.
+Política de reservas aprobada e implementada en
+`fix/admin-invitation-seat-reservations-phase-5a` (desde develop y dependencias FF).
+Activos más ADMIN pendientes/vigentes no pueden superar dos. Contraseña/Google
+transfieren la reserva; revocación/caducidad liberan cupo. Promociones y reactivaciones
+también respetan reservas. El panel explica cómo liberar plazas y actualiza caducidad.
+PostgreSQL usa un bloqueo transaccional compartido, antes de los bloqueos de filas;
+no hay migraciones. Invitaciones antiguas sobreasignadas requieren revocar sobrantes.
+Google muestra la G oficial local en login/registro sin añadir SDK ni peticiones externas.
+Validación de esta ampliación: 62 unit/integración y ocho contratos reales en
+tablas temporales de staging aprobados; TypeScript/lint y build aislado correctos.
+La primera ejecución del contrato más largo superó los 5 s por consultas remotas;
+con límite explícito de 20 s por caso, los ocho pasaron (suite ~25 s).
+22 ejecuciones E2E dirigidas aprobadas en móvil/escritorio (~1,1 min).
+Revisión manual y puertas de publicación: véase VALIDATION_CHECKLIST.md.
+Avisos/toasts visibles se planifican en 7A; Web Push opt-in se evalúa aparte en 7B.
+
+### Revisión pública y alcance de la entrega — 2026-10-04
+
+El propietario confirma el bloqueo del tercer ADMIN en localhost:3001 y aprueba
+el botón Google y las páginas públicas. El servidor de pruebas usa correo capture:
+no entrega invitaciones por SMTP. La aceptación manual completa sigue pendiente.
+Textos públicos ampliados: datos de invitación/armario, permisos openid/email/profile,
+ausencia de acceso a Gmail/contactos/archivos de usuarios y separación de autorización
+interna para respaldos. Se conserva transparencia sobre almacenamiento de Google,
+URLs públicas Cloudinary, eliminación incompleta y continuidad de copias aún no cerrada.
+El dump age está cifrado; el manifiesto JSON técnico es legible. No se inspeccionó
+Drive en esta revisión: un archivo señalado por el propietario requiere identificar
+nombre/extensión/contenido antes de concluir que hubo una copia sin cifrar.
+4A/4B/5A pueden integrarse juntos por develop; 5B/5C no están implementadas.
+No push, PR, despliegue ni ejecución remota de respaldo autorizados en esta revisión.
+
+### Preparación de publicación autorizada — 2026-10-04
+
+Propietario autoriza entregar 4A/4B/5A por PR hacia develop, sin merge automático.
+Privacidad pública abreviada: respaldos en Google, sin identificar el producto;
+se conservan cifrado, retención y límites reales. 5B incluye privacidad Cloudinary
+con autorización de lectura, migración de recursos existentes y pruebas offline.
+Drive consultado sin escrituras: dos archivos .dump.age de 49 835 bytes con
+cabecera age y dos JSON técnicos; no se repitió recuperación ni se cambió retención.
+El propietario sigue sin aceptar invitaciones manualmente; validación en preview
+pendiente, no se afirma resuelta por las pruebas automatizadas.
+Vercel Preview comparte las variables DATABASE_URL y NEXT_PUBLIC_APP_URL con
+Production: se desactiva deployment automático de esta rama antes del push, hasta
+autorizar separación de staging y un único preview. No se modifican variables remotas.
+
+## Snapshot histórico — 2026-08-21 (no vigente)
+
 Fecha: 2026-08-21 · Rama actual: `codex/feat-neon-cloudinary-staging`.
 
 ## ✅ Completado

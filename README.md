@@ -119,7 +119,6 @@ por eslint-config-next) soporta `<6.1.0`; 5.9.3 es la última estable
 - `docs/SECURITY.md` — CSP, CSRF, rate limit, secretos
 - `docs/DEPLOYMENT.md` — checklist Vercel (sin ejecutar)
 - `docs/EXTERNAL_SERVICES_SETUP.md` — activar Neon/Cloudinary/Google/Vercel
-- `docs/decisions/` — ADRs · `docs/local-prs/` — revisiones tipo PR
 
 ## Licencia de assets
 
