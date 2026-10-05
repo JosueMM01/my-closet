@@ -33,6 +33,13 @@ export default function AboutPage() {
         los datos de cuenta y armario se conservan en Neon. Vercel aloja la aplicación.
         No es un servicio de prueba virtual de ropa ni genera imágenes de personas.
       </p>
+      <p className="mt-6 leading-7 text-text-secondary">
+        Al aceptar una invitación puedes crear tu cuenta con nombre y contraseña o iniciar sesión con Google
+        con el correo invitado. Google aporta tu identidad básica, nombre y foto cuando están disponibles;
+        no solicitamos acceso a tu correo, contactos ni archivos. Puedes cambiar tu foto desde Perfil.
+        Consulta la política de privacidad antes de subir fotografías: quien conozca su URL de entrega
+        puede verlas, aunque las pantallas de tu armario requieran una cuenta autorizada.
+      </p>
       <Link href="/login" prefetch={false} className="mt-8 inline-flex min-h-12 items-center rounded-full bg-primary px-7 font-semibold text-white hover:bg-primary-hover">Entrar a My Closet</Link>
       <p className="mt-4 text-sm leading-6 text-text-secondary">¿Tienes una invitación? Utiliza el enlace que recibiste. El registro público está deshabilitado.</p>
     </>

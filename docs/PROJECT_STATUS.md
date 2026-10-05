@@ -91,6 +91,21 @@ con límite explícito de 20 s por caso, los ocho pasaron (suite ~25 s).
 Revisión manual y puertas de publicación: véase VALIDATION_CHECKLIST.md.
 Avisos/toasts visibles se planifican en 7A; Web Push opt-in se evalúa aparte en 7B.
 
+### Revisión pública y alcance de la entrega — 2026-10-04
+
+El propietario confirma el bloqueo del tercer ADMIN en localhost:3001 y aprueba
+el botón Google y las páginas públicas. El servidor de pruebas usa correo capture:
+no entrega invitaciones por SMTP. La aceptación manual completa sigue pendiente.
+Textos públicos ampliados: datos de invitación/armario, permisos openid/email/profile,
+ausencia de acceso a Gmail/contactos/archivos de usuarios y separación de autorización
+interna para respaldos. Se conserva transparencia sobre almacenamiento de Google,
+URLs públicas Cloudinary, eliminación incompleta y continuidad de copias aún no cerrada.
+El dump age está cifrado; el manifiesto JSON técnico es legible. No se inspeccionó
+Drive en esta revisión: un archivo señalado por el propietario requiere identificar
+nombre/extensión/contenido antes de concluir que hubo una copia sin cifrar.
+4A/4B/5A pueden integrarse juntos por develop; 5B/5C no están implementadas.
+No push, PR, despliegue ni ejecución remota de respaldo autorizados en esta revisión.
+
 ## Snapshot histórico — 2026-08-21 (no vigente)
 
 Fecha: 2026-08-21 · Rama actual: `codex/feat-neon-cloudinary-staging`.

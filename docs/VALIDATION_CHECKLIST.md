@@ -43,6 +43,9 @@ de pruebas unitarias ni se certifican carreras de datos compartidos en producci�
 
 Supervisión del propietario:
 
+- [x] Propietario confirma en localhost:3001 que el cupo ADMIN bloquea un tercero;
+  aprueba el botón de Google y las páginas públicas. No equivale a validar SMTP
+  real, aceptación manual de invitaciones ni automatización de respaldos.
 - [ ] En Perfil staging, con dos administradores activos, actualizar datos y
   confirmar que ADMIN no se puede seleccionar y aparece «Cupo completo».
 - [ ] Confirmar que invitar como Usuario sigue disponible. En este servidor el
