@@ -49,6 +49,8 @@ export const serverEnvSchema = z
     CLOUDINARY_CLOUD_NAME: optionalEnvString,
     CLOUDINARY_API_KEY: optionalEnvString,
     CLOUDINARY_API_SECRET: optionalEnvString,
+    CLOUDINARY_FOLDER_PREFIX: z.enum(['my-closet', 'my-closet-preview', 'my-closet-staging']).optional(),
+    VERCEL_ENV: z.enum(['production', 'preview', 'development']).optional(),
     GOOGLE_AUTH_ENABLED: explicitBoolean,
     PUBLIC_REGISTRATION_ENABLED: explicitBoolean,
     GOOGLE_CLIENT_ID: optionalEnvString,
@@ -67,6 +69,21 @@ export const serverEnvSchema = z
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   })
   .superRefine((env, context) => {
+    if (env.VERCEL_ENV === 'preview' && env.CLOUDINARY_FOLDER_PREFIX === 'my-closet') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Preview no puede usar la carpeta Cloudinary de producción',
+        path: ['CLOUDINARY_FOLDER_PREFIX'],
+      });
+    }
+    if (env.VERCEL_ENV === 'production' && env.CLOUDINARY_FOLDER_PREFIX
+      && env.CLOUDINARY_FOLDER_PREFIX !== 'my-closet') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Production debe conservar la carpeta Cloudinary de producción',
+        path: ['CLOUDINARY_FOLDER_PREFIX'],
+      });
+    }
     const cloudinaryCredentials = [
       env.CLOUDINARY_CLOUD_NAME,
       env.CLOUDINARY_API_KEY,
@@ -274,6 +291,13 @@ export interface CloudinaryCredentials {
   cloudName: string;
   apiKey: string;
   apiSecret: string;
+}
+
+/** Aísla nuevas escrituras; conserva las URLs de las imágenes históricas. */
+export function getCloudinaryFolder(userId: string, env: ServerEnv = getEnv()): string {
+  const prefix = env.CLOUDINARY_FOLDER_PREFIX
+    ?? (env.VERCEL_ENV === 'preview' ? 'my-closet-preview' : 'my-closet');
+  return `${prefix}/${userId}`;
 }
 
 export function getCloudinaryCredentials(
