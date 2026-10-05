@@ -323,6 +323,32 @@ publicó código ni generó deployment. 5B mantiene pendiente verificación del
 nuevo correo e inventario de permisos; 5C mantiene pendiente implementación de
 baja durable; 6 requiere medición/aceptación física de rendimiento y calidad.
 
+### Puerta de entrega revisada — 2026-10-05
+
+- Bloque técnico de límites compartidos de 5B terminado y revalidado: 59 pruebas
+  dirigidas de contadores, autenticación, respaldos y pipeline aprobadas. El cierre
+  es de implementación local, no de toda 5B ni de validación en producción.
+- Git remoto y Vercel coinciden: main `2a2dddb` y develop `4d0e439`, ambos con
+  deployments READY. La rama de trabajo conserva cambios posteriores no publicados.
+- Preview tiene variables de conexión y sesión separadas de Production; Google,
+  SMTP y Cloudinary todavía comparten configuración. No promover el artefacto
+  Preview a Production con credenciales staging: producir un build de main con
+  variables de producción.
+- La rama de trabajo tiene autodeploy desactivado. Un push autorizado puede guardar
+  avances sin crear Preview; el Preview de develop requiere integrar el código.
+  Objetivo de la siguiente entrega: un Preview de develop y una publicación de main,
+  sin deployments por cada commit. CI y la validación específica siguen obligatorios.
+- Antes de publicar los límites en main, confirmar respaldo y aplicar/verificar la
+  migración aditiva `0003_shared_rate_limits.sql` en producción. Sin la tabla,
+  los endpoints protegidos fallan de forma cerrada con 503.
+- Consumo Vercel actual no confirmado: el conector de cargos respondió
+  `costs_not_found` y el navegador requiere autenticación. Los 1,79 GB anteriores
+  son una referencia histórica, no una medición actual. El directorio public local
+  mide 648.227.940 bytes; no equivale a tamaño facturado por deployment ni incluye
+  los bundles de Functions. Revisar ambas métricas en Usage antes de autorizar build.
+- No declarar cerradas 4A/4B por un merge: falta comprobar continuidad programada
+  y renovación OAuth. Tampoco cerrar 5B/5C/6 antes de completar sus puertas propias.
+
 Checkpoint histórico de 4A (2026-09-30, anterior al ensayo del 4 de octubre): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.
 Workflow validado con actionlint; 13 tests dirigidos, TypeScript y lint correctos.
