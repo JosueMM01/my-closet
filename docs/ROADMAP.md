@@ -256,12 +256,33 @@ el run manual/programado hospedado y notificaciones pendientes. Preparar 4B sin
 publicar anticipadamente y evitar otra entrega de modelos para estos cambios.
 Orden funcional conservado: 4A → 4B → 5A/5B/5C → 6 → 7 → 8. La medición inicial
 de 6 y actualización documental de 7 son transversales, no bloquean el plan.
-5A y 5B pueden compartir entrega/PR si los commits y pruebas son independientes;
-5C permanece aparte por su carácter irreversible y coordinación Neon/Cloudinary.
+Entrega autorizada el 5 de octubre: 4A/4B/5A integrada a develop mediante PR #9;
+PR #10 abierto de develop a main para revisión, sin merge automático.
+La siguiente entrega agrupa 5B/5C/6 en
+`feat/security-account-lifecycle-performance`, creada desde develop actualizado.
+Compartir PR/despliegue no mezcla sus puertas: commits y pruebas independientes;
+la baja irreversible 5C exige validación específica de referencias y limpieza durable.
 PR funcional no equivale a deployment por commit: preparar entrega completa,
 autorizar publicación una sola vez y revisar el presupuesto antes de cada release.
-Las páginas legales y la corrección de emisión ADMIN están preparadas localmente;
-no están publicadas. La baja de cuenta y el conjunto de 5B siguen pendientes.
+Preview de develop verificado READY para 4d0e439, con DATABASE_URL y conexión
+directa exclusivas de Neon staging, AUTH_SECRET independiente y URL de Preview.
+Los valores de producción no se modificaron. Cloudinary todavía comparte recursos;
+no efectuar migración/borrado destructivo de imágenes para probar 5B.
+Google Cloud debe autorizar el callback del dominio Preview antes de probar OAuth.
+La baja de cuenta y el conjunto de 5B siguen pendientes; no clasificar el lote como cerrado.
+
+Inicio local de 5B validado: recuperación de sesión con perfil/outbox conservados, bloqueo
+del reemplazo silencioso de identidad y cambio explícito de cuenta para aceptar
+invitaciones. El token permanece solo en memoria y se retira del fragmento; se
+conserva entre repeticiones del efecto en Strict Mode. La rama de trabajo no
+genera autodeploy; consolidar el lote antes de publicar, no abrir otro PR funcional
+por cada commit. Continuar con límites compartidos, verificación de correo y
+privacidad Cloudinary, después baja durable y mediciones del pipeline.
+Validación de este primer bloque: 63 tests dirigidos unitarios/integración,
+ocho E2E de móvil/escritorio sobre localhost con APIs interceptadas, TypeScript,
+ESLint dirigido y diff sin errores. OAuth en E2E simula el retorno y la sesión;
+no demuestra interacción real con Google. Sin migraciones, borrados Cloudinary
+ni nuevo deployment del bloque 5B. CI del PR #10 también aprobado.
 
 Checkpoint histórico de 4A (2026-09-30, anterior al ensayo del 4 de octubre): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.

@@ -2,6 +2,21 @@
 
 ## Resumen vigente — 2026-10-04
 
+### Actualización de integración — 2026-10-05
+
+- PR #9 integrado a develop (`4d0e439`): CI completo aprobado después de corregir
+  el locator antiguo de Google (`c393071`); no era un fallo de OAuth.
+- PR #10 develop → main abierto y pendiente de revisión; main no fue fusionada.
+- Preview de develop READY. Variables de base y sesión separadas de producción:
+  Neon staging, secreto de sesión independiente y URL de Preview. Registrar su
+  callback en Google Cloud. Cloudinary aún no tiene aislamiento de recursos.
+- Cinco ramas locales y dos remotas ya fusionadas retiradas. Se conservan ramas
+  con commits no contenidos por ancestry y el worktree de documentación antigua.
+- Nueva rama desde develop: `feat/security-account-lifecycle-performance` para
+  agrupar 5B/5C/6 sin deployments por commit. Recuperación de sesión e invitación
+  con otra cuenta en implementación local; no afirmar seguridad, baja ni rendimiento
+  completos hasta sus validaciones. La tabla inferior es el checkpoint anterior.
+
 Plan compartido: [ROADMAP.md](ROADMAP.md). La sección posterior se conserva como
 snapshot histórico de agosto: sus ramas, cifras y marcas de completado no
 describen necesariamente el estado actual ni certifican seguridad.
