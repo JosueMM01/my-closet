@@ -110,6 +110,27 @@ afterEach(async () => {
 });
 
 describe('API de cuentas y perfil', () => {
+  it.each([
+    { route: '/api/profile/password', handler: changePassword, extra: { newPassword: 'nueva-contrasena-segura' } },
+    { route: '/api/profile/email', handler: changeEmail, extra: { newEmail: 'destino@example.test' } },
+  ])('limita comprobaciones de contraseña en $route sin modificar la cuenta', async ({ route, handler, extra }) => {
+    const profile = await registerUser('limited-profile@example.test', 'Perfil');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Math.floor(Date.now() / 60_000) * 60_000 + 1000));
+    try {
+      const responses = await Promise.all(Array.from({ length: 6 }, () => handler(
+        jsonRequest(route, { currentPassword: 'contrasena-incorrecta', ...extra }),
+      )));
+      expect(responses.filter(response => response.status === 403)).toHaveLength(5);
+      expect(responses.filter(response => response.status === 429)).toHaveLength(1);
+      const stored = await findUserByEmail(profile.email);
+      expect(stored).toMatchObject({ email: profile.email });
+      if (!stored) throw new Error('Falta la cuenta de prueba');
+      expect(await verifyPassword('contrasena-segura', stored.passwordHash)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('anuncia registro público explícito y crea cuentas públicas como USER', async () => {
     const capabilities = await providers();
     expect(await capabilities.json()).toMatchObject({
