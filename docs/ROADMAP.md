@@ -19,8 +19,12 @@ ignorada por Git. No contiene credenciales.
 - PR #8 de limpieza cerrado sin fusionar por solicitud del propietario. La rama
   Su eliminación de 16 documentos y referencias ya está integrada en la rama 4A.
   No volver a abrirlo, publicar ramas o generar previews sin confirmación expresa.
-- Reautenticación de Perfil solo navega al login, que puede redirigir por el
-  perfil local persistido. Rate limiting todavía en memoria.
+- PR #10 confirmado fusionado en main. El propietario reporta callback de
+  develop registrado y cliente OAuth de respaldos publicado. Quedan por
+  comprobar renovación posterior al cambio, scheduler y alertas en operación.
+- En `feat/security-account-lifecycle-performance`: recuperación de sesión con
+  identidad local preservada; límites compartidos implementados; carpetas por
+  generación de respaldo implementadas. No equivale a publicación de 5B/5C/6.
 
 ## Integración y criterios generales
 
@@ -109,6 +113,27 @@ Cierre: páginas públicas verificadas, configuración revisada y renovación/al
 probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 
 ### 5 — Seguridad e identidad
+
+Checkpoint local: contador compartido con migración aditiva `0003`, límites de
+autenticación, invitaciones, imágenes y sync; guardas 429/503, HMAC y arranque de
+BD único por proceso. La migración se aplicó exclusivamente en Neon staging tras
+verificar el endpoint mediante API. No aplicada en producción. Falta completar
+el inventario de rutas, verificar nuevo correo y privacidad Cloudinary; 5C y la
+optimización móvil de 6 siguen pendientes. No habilitar borrado de cuentas antes
+de probar referencias compartidas, trabajos durables y recuperación.
+
+Evidencia de este checkpoint: suite local completa, TypeScript y lint correctos;
+27 pruebas dirigidas de respaldos; cuatro contratos PostgreSQL ejecutados en
+Neon staging, incluido cupo exacto 5/30 entre dos conexiones independientes;
+build local de producción correcto con SQLite y proveedores simulados. No se
+generó deployment ni PR. La nueva organización de carpetas aún no se ejecutó
+contra Google. Antes del siguiente release aplicar migración en producción tras
+backup/verificación; el código nuevo sin tabla devolvería 503.
+
+Decisión pendiente de 5B: entrega autorizada por la app en cada lectura
+(privacidad estricta, transferencia Vercel) frente a URLs Cloudinary firmadas
+temporales (menor transferencia Vercel, quien tenga el enlace puede leerlo hasta
+su vencimiento). No presentar una firma de entrega como autorización por sesión.
 
 - 5A ampliada localmente en `fix/admin-invitation-seat-reservations-phase-5a`, creada
   desde develop e integrada por fast-forward con las dependencias 4A/4B pendientes.
