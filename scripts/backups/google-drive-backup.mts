@@ -144,7 +144,7 @@ async function driveFetch(
   return response;
 }
 
-async function listDriveFiles(token: string, folderId: string): Promise<DriveBackupFile[]> {
+async function listDriveChildren(token: string, folderId: string): Promise<DriveBackupFile[]> {
   const files: DriveBackupFile[] = [];
   let pageToken: string | undefined;
 
@@ -155,7 +155,7 @@ async function listDriveFiles(token: string, folderId: string): Promise<DriveBac
       spaces: 'drive',
       pageSize: '1000',
       orderBy: 'createdTime desc',
-      fields: 'nextPageToken,files(id,name,size,md5Checksum,createdTime,appProperties)',
+      fields: 'nextPageToken,files(id,name,size,md5Checksum,createdTime,appProperties,mimeType,parents)',
     });
     if (pageToken) params.set('pageToken', pageToken);
     const response = await driveFetch(token, `${DRIVE_API}/files?${params}`);
@@ -164,7 +164,40 @@ async function listDriveFiles(token: string, folderId: string): Promise<DriveBac
     pageToken = page.nextPageToken;
   } while (pageToken);
 
-  return files.filter((file) => file.appProperties?.app === BACKUP_APP_ID);
+  return files;
+}
+
+function isGenerationFolder(file: DriveBackupFile): boolean {
+  return file.mimeType === DRIVE_FOLDER_MIME && file.appProperties?.app === BACKUP_APP_ID
+    && file.appProperties.kind === 'generation' && Boolean(file.appProperties.runId);
+}
+
+/** Compatible con copias históricas planas; no recorre carpetas ajenas ni recursivamente. */
+async function listDriveFiles(token: string, folderId: string): Promise<DriveBackupFile[]> {
+  const roots = (await listDriveChildren(token, folderId))
+    .filter(file => file.appProperties?.app === BACKUP_APP_ID);
+  const files = [...roots];
+  for (const folder of roots.filter(isGenerationFolder)) {
+    const children = await listDriveChildren(token, folder.id);
+    files.push(...children.filter(file => file.mimeType !== DRIVE_FOLDER_MIME
+      && file.appProperties?.app === BACKUP_APP_ID
+      && file.appProperties.runId === folder.appProperties?.runId));
+  }
+  return files;
+}
+
+async function createGenerationFolder(token: string, parentId: string, runId: string, createdAt: string): Promise<string> {
+  const response = await driveFetch(token, `${DRIVE_API}/files?fields=id`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=UTF-8' },
+    body: JSON.stringify({
+      name: `respaldo-${createdAt.replaceAll(':', '-')}`,
+      mimeType: DRIVE_FOLDER_MIME,
+      parents: [parentId],
+      appProperties: { app: BACKUP_APP_ID, kind: 'generation', runId, status: 'uploading' },
+    }),
+  });
+  return z.object({ id: z.string().min(1) }).parse(await response.json()).id;
 }
 
 async function hashFile(filePath: string, algorithm: 'md5' | 'sha256'): Promise<string> {
@@ -251,7 +284,7 @@ async function maintainRetention(input: {
   const expiredRuns = expiredBackupRunIds(allFiles, input.retentionCount);
   let deletedFiles = 0;
   for (const expiredRunId of expiredRuns) {
-    const runFiles = filesForRun(allFiles, expiredRunId)
+    const runFiles = filesForRun(allFiles, expiredRunId).filter(file => !isGenerationFolder(file))
       .toSorted((left, right) => {
         const leftOrder = left.appProperties?.kind === 'manifest' ? 0 : 1;
         const rightOrder = right.appProperties?.kind === 'manifest' ? 0 : 1;
@@ -264,8 +297,17 @@ async function maintainRetention(input: {
   }
 
   for (const file of staleIncompleteFiles(allFiles, new Date(), input.retentionCount)) {
+    if (isGenerationFolder(file)) continue; // Nunca borrar una carpeta con contenido desconocido.
     await deleteDriveFile(input.token, file.id);
     deletedFiles += 1;
+  }
+  // Primero archivos propios; la carpeta solo se elimina si está realmente vacía.
+  // Ante fallo parcial, el próximo mantenimiento vuelve a intentar de forma segura.
+  for (const folder of allFiles.filter(isGenerationFolder)) {
+    if ((await listDriveChildren(input.token, folder.id)).length === 0) {
+      await deleteDriveFile(input.token, folder.id);
+      deletedFiles += 1;
+    }
   }
   return deletedFiles;
 }
@@ -379,6 +421,7 @@ async function uploadBackup(): Promise<void> {
   const archiveName = `my-closet-${timestamp}.dump.age`;
   const manifestName = `my-closet-${timestamp}.manifest.json`;
   const commonProperties = { app: BACKUP_APP_ID, runId };
+  const generationFolderId = await createGenerationFolder(token, env.GOOGLE_DRIVE_BACKUP_FOLDER_ID, runId, createdAt);
 
   const uploadedArchive = await uploadResumable({
     token,
@@ -386,7 +429,7 @@ async function uploadBackup(): Promise<void> {
     mimeType: 'application/octet-stream',
     metadata: {
       name: `${archiveName}.uploading`,
-      parents: [env.GOOGLE_DRIVE_BACKUP_FOLDER_ID],
+      parents: [generationFolderId],
       appProperties: {
         ...commonProperties,
         kind: 'archive',
@@ -435,7 +478,7 @@ async function uploadBackup(): Promise<void> {
     mimeType: 'application/json',
     metadata: {
       name: manifestName,
-      parents: [env.GOOGLE_DRIVE_BACKUP_FOLDER_ID],
+      parents: [generationFolderId],
       appProperties: {
         ...commonProperties,
         kind: 'manifest',
@@ -451,6 +494,10 @@ async function uploadBackup(): Promise<void> {
       status: 'complete',
       restoreStatus: 'pending',
     },
+  });
+
+  await patchDriveMetadata(token, generationFolderId, {
+    appProperties: { ...commonProperties, kind: 'generation', status: 'complete' },
   });
 
   const retentionCount = positiveInteger(

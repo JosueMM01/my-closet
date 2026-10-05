@@ -86,6 +86,27 @@ original y del archivo cifrado. La rotación comienza únicamente después de qu
 la nueva pareja archivo/manifiesto está completa y conserva las dos generaciones
 más recientes.
 
+## Carpetas por generación
+
+Las nuevas copias se agrupan en una subcarpeta `respaldo-<fecha-UTC>` dentro del
+destino configurado. Cada carpeta contiene el dump cifrado `.age` y su manifiesto
+JSON. El manifiesto no está cifrado: contiene comprobaciones de integridad y
+metadatos técnicos, no registros de usuarios ni contraseñas. La fecha evita
+confundir posiciones de retención como «respaldo-1» con una copia concreta.
+
+Se conservan las dos generaciones completas más recientes. Primero se comprueba
+la nueva pareja y después se retiran los archivos de la generación excedente;
+solo se elimina su carpeta cuando está vacía. Nunca se borra recursivamente una
+carpeta con archivos ajenos. Las copias anteriores que están directamente en la
+carpeta raíz siguen disponibles para descarga, restauración y retención, sin
+moverlas automáticamente.
+
+Validación local del cambio: creación de carpetas, rotación de tres generaciones,
+descarga/SHA-256 tanto de carpetas como del formato plano anterior, conservación
+de archivos ajenos y parada antes de rotar ante cargas corruptas. Esta estructura
+todavía requiere publicación y un ensayo desde Actions; no se han reorganizado
+ni eliminado copias reales por este cambio.
+
 ## Separación de credenciales
 
 Estas credenciales pertenecen exclusivamente a GitHub Actions. No deben
