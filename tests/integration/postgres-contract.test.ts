@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
 import { closeServerDB, createServerDB, getServerDB, pgSchema } from '@/server/db';
 import { getEnv } from '@/server/env';
@@ -61,6 +61,33 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
       }
     }
     await closeServerDB();
+  });
+
+  it('pagina imágenes con microsegundos sin omisiones ni duplicados', async () => {
+    const user = await createUser({ email: `precision-${uuid()}@example.test`, displayName: 'Precisión', passwordHash: 'scrypt:test-contract' });
+    cleanupUserIds.push(user.id);
+    const db = await getServerDB();
+    if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
+    const base = new Date(Date.now() - 1000).toISOString().slice(0, 19);
+    const ids = [uuid(), uuid(), uuid()].sort();
+    const stamps = [`${base}.123456Z`, `${base}.123789Z`, `${base}.123789Z`];
+    for (const [index, id] of ids.entries()) {
+      await db.postgres.insert(pgSchema.images).values({
+        id, userId: user.id, mimeType: 'image/webp', width: 1, height: 1, byteSize: 1,
+        data: null, storageProvider: 'cloudinary', remoteUrl: `https://example.test/${id}.webp`,
+        updatedAt: sql`${stamps[index]}::timestamptz`,
+      });
+    }
+    const received: string[] = [];
+    let cursor: string | undefined;
+    for (let pageNumber = 0; pageNumber < 5; pageNumber += 1) {
+      const page = await pullAll(user.id, null, { cursor, limit: 1 });
+      expect(page.serverTime).toMatch(/\.\d{6}Z$/);
+      received.push(...page.images.map(image => image.id));
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    expect(received).toEqual(ids);
   });
 
   it('crea, consulta y actualiza una cuenta', async () => {
