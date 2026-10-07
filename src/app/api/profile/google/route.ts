@@ -3,6 +3,7 @@ import {
   operationSuccessResponseSchema,
 } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { isGoogleEnabled } from '@/server/env';
 import { jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 import {
@@ -32,6 +33,8 @@ export async function DELETE(request: Request): Promise<Response> {
   if (originError) return originError;
   const principal = await getSessionUser();
   if (!principal) return unauthorized();
+  const limited = await guardRateLimit(`profile-google-unlink:${principal.userId}`, 5);
+  if (limited) return limited;
   if (!isGoogleEnabled()) return jsonError(404, 'Acceso con Google no disponible');
   await unlinkGoogleAccount(principal.userId);
   return jsonOk(operationSuccessResponseSchema.parse({ ok: true }));

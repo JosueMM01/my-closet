@@ -2,7 +2,7 @@ import {
   invitationInspectionRequestSchema,
   invitationInspectionResponseSchema,
 } from '@/lib/domain/validation';
-import { rateLimit } from '@/server/auth/rate-limit';
+import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
 import { isGoogleEnabled } from '@/server/env';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import {
@@ -16,10 +16,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<Response> {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-  if (!rateLimit(`invitation-inspect:${ip}`, 30, 60_000)) {
-    return jsonError(429, 'Demasiados intentos; espera un momento');
-  }
+  const ip = requestRateLimitIdentity(request);
+  const limited = await guardRateLimit(`invitation-inspect:${ip}`, 30);
+  if (limited) return limited;
   const parsed = invitationInspectionRequestSchema.safeParse(
     await request.json().catch(() => null),
   );

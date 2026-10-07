@@ -1,5 +1,6 @@
 import { accountProfileSchema, profileUpdateSchema } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { invalidBody, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 import { ProfileUpdateError, updateProfile } from '@/server/repositories/users-repository';
 
@@ -27,6 +28,8 @@ export async function PATCH(request: Request) {
   if (originError) return originError;
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  const limited = await guardRateLimit(`profile-update:${user.userId}`, 30);
+  if (limited) return limited;
   const parsed = profileUpdateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return invalidBody('Datos de perfil inválidos');
   try {

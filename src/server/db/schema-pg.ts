@@ -8,6 +8,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  bigint,
   check,
   index,
   integer,
@@ -42,6 +43,12 @@ export const users = pgTable(
     ),
   ],
 );
+
+export const rateLimitBuckets = pgTable('rate_limit_buckets', {
+  keyHash: text('key_hash').primaryKey(),
+  hits: integer('hits').notNull(),
+  expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
+}, table => [index('rate_limit_buckets_expiry_idx').on(table.expiresAt)]);
 
 export const sessions = pgTable(
   'sessions',

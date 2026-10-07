@@ -1,7 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
-import { closeServerDB, getServerDB, pgSchema } from '@/server/db';
+import { closeServerDB, createServerDB, getServerDB, pgSchema } from '@/server/db';
+import { getEnv } from '@/server/env';
+import { rateLimit } from '@/server/auth/rate-limit';
+import { createHmac } from 'node:crypto';
+import { getAuthSecret } from '@/server/env';
 import {
   createUser,
   findUserByEmail,
@@ -30,6 +34,25 @@ const describePostgres = enabled ? describe : describe.skip;
 const cleanupUserIds: string[] = [];
 
 describePostgres('contrato de repositorios PostgreSQL', () => {
+  it('comparte límites atómicos entre dos conexiones independientes', async () => {
+    const first = await getServerDB();
+    const second = await createServerDB({ ...getEnv(), BOOTSTRAP_ADMIN_EMAIL: undefined, BOOTSTRAP_ADMIN_PASSWORD: undefined });
+    if (first.dialect !== 'postgres' || second.dialect !== 'postgres') throw new Error('Contrato requiere PostgreSQL');
+    const key = `contract-rate-${uuid()}`;
+    // Una ventana larga evita que el cambio de minuto vuelva frágil esta prueba.
+    const windowMs = 86_400_000;
+    const keyHash = createHmac('sha256', getAuthSecret()).update(JSON.stringify([key, 5, windowMs])).digest('hex');
+    try {
+      const attempts = await Promise.all(Array.from({ length: 30 }, (_, index) =>
+        rateLimit(key, 5, windowMs, index % 2 ? first : second)));
+      expect(attempts.filter(Boolean)).toHaveLength(5);
+      expect(await second.postgres.select({ hits: pgSchema.rateLimitBuckets.hits }).from(pgSchema.rateLimitBuckets)
+        .where(eq(pgSchema.rateLimitBuckets.keyHash, keyHash))).toEqual([{ hits: 5 }]);
+    } finally {
+      await first.postgres.delete(pgSchema.rateLimitBuckets).where(inArray(pgSchema.rateLimitBuckets.keyHash, [keyHash]));
+      await second.raw.end({ timeout: 5 });
+    }
+  });
   afterAll(async () => {
     const db = await getServerDB();
     if (db.dialect === 'postgres' && cleanupUserIds.length > 0) {
@@ -38,6 +61,33 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
       }
     }
     await closeServerDB();
+  });
+
+  it('pagina imágenes con microsegundos sin omisiones ni duplicados', async () => {
+    const user = await createUser({ email: `precision-${uuid()}@example.test`, displayName: 'Precisión', passwordHash: 'scrypt:test-contract' });
+    cleanupUserIds.push(user.id);
+    const db = await getServerDB();
+    if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
+    const base = new Date(Date.now() - 1000).toISOString().slice(0, 19);
+    const ids = [uuid(), uuid(), uuid()].sort();
+    const stamps = [`${base}.123456Z`, `${base}.123789Z`, `${base}.123789Z`];
+    for (const [index, id] of ids.entries()) {
+      await db.postgres.insert(pgSchema.images).values({
+        id, userId: user.id, mimeType: 'image/webp', width: 1, height: 1, byteSize: 1,
+        data: null, storageProvider: 'cloudinary', remoteUrl: `https://example.test/${id}.webp`,
+        updatedAt: sql`${stamps[index]}::timestamptz`,
+      });
+    }
+    const received: string[] = [];
+    let cursor: string | undefined;
+    for (let pageNumber = 0; pageNumber < 5; pageNumber += 1) {
+      const page = await pullAll(user.id, null, { cursor, limit: 1 });
+      expect(page.serverTime).toMatch(/\.\d{6}Z$/);
+      received.push(...page.images.map(image => image.id));
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    expect(received).toEqual(ids);
   });
 
   it('crea, consulta y actualiza una cuenta', async () => {

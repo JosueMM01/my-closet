@@ -1,5 +1,6 @@
 import { operationSuccessResponseSchema, passwordChangeSchema } from '@/lib/domain/validation';
 import { hashPassword, verifyPassword } from '@/server/auth/password';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { getSessionUser, rotateAllSessions } from '@/server/auth/session';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
@@ -11,6 +12,8 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const principal = await getSessionUser();
   if (!principal) return unauthorized();
+  const limited = await guardRateLimit(`profile-password:${principal.userId}`, 5);
+  if (limited) return limited;
   const parsed = passwordChangeSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return invalidBody('Datos de contraseña inválidos');
   const user = await findUserById(principal.userId);

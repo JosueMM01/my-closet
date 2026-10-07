@@ -24,6 +24,8 @@ export const driveBackupFileSchema = z.object({
   createdTime: isoDateSchema,
   size: z.string().regex(/^\d+$/).optional(),
   md5Checksum: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+  mimeType: z.string().optional(),
+  parents: z.array(z.string().min(1)).optional(),
   appProperties: z.record(z.string(), z.string()).optional(),
 });
 

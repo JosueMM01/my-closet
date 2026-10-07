@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { AuthError, fetchAuthProviders, register } from '@/lib/auth/client';
+import { useEffect, useRef, useState } from 'react';
+import { AuthError, fetchAuthProviders, logout, register } from '@/lib/auth/client';
 import {
   apiErrorResponseSchema,
   invitationInspectionResponseSchema,
@@ -33,15 +33,16 @@ export default function RegisterPage() {
   const [invitation, setInvitation] = useState<InvitationView | null>(null);
   const [registrationReady, setRegistrationReady] = useState(false);
   const [publicRegistration, setPublicRegistration] = useState(false);
-
-  useEffect(() => {
-    if (!loading && profile) router.replace('/');
-  }, [loading, profile, router]);
+  // Solo memoria de esta página: Strict Mode puede repetir el efecto después
+  // de retirar el fragmento, sin que eso deba perder la invitación.
+  const initialToken = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     const googleResult = new URL(window.location.href).searchParams.get('google');
-    const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const token = fragment.get('invite');
+    if (initialToken.current === undefined) {
+      initialToken.current = new URLSearchParams(window.location.hash.slice(1)).get('invite');
+    }
+    const token = initialToken.current;
     if (window.location.hash) {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
@@ -86,6 +87,7 @@ export default function RegisterPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    if (profile || loading) return;
     setError(null);
     if (passwordWeak) {
       setError('La contraseña debe tener al menos 8 caracteres');
@@ -117,7 +119,23 @@ export default function RegisterPage() {
           <p className="mt-2 text-sm text-text-secondary">Tu armario, tus conjuntos, tu calendario</p>
         </div>
 
-        {!registrationReady ? (
+        {profile ? (
+          <section className="card-surface space-y-4 p-6" aria-labelledby="invite-account-switch">
+            <h2 id="invite-account-switch" className="font-heading text-xl">Hay una cuenta abierta en este dispositivo</h2>
+            <p className="text-sm text-text-secondary">Para aceptar la invitación con otra cuenta, cierra primero la sesión de {profile.email}. Sus prendas y cambios pendientes permanecerán guardados en este dispositivo.</p>
+            {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+            <Button loading={submitting} onClick={async () => {
+              setSubmitting(true);
+              setError(null);
+              try {
+                await logout({ requireRemote: true });
+                await refreshProfile();
+              } catch (caught) {
+                setError(caught instanceof AuthError ? caught.message : 'No se pudo cerrar la sesión. Revisa la conexión.');
+              } finally { setSubmitting(false); }
+            }}>Cerrar sesión para aceptar la invitación</Button>
+          </section>
+        ) : !registrationReady || loading ? (
           <div className="card-surface flex min-h-32 items-center justify-center p-6" role="status">
             <span className="text-sm text-text-secondary">Comprobando invitación…</span>
           </div>

@@ -61,12 +61,14 @@ export function backgroundRemovalAttempts(
   capabilities: BackgroundRemovalCapabilities,
   history: BackgroundRemovalHistory = EMPTY_BACKGROUND_REMOVAL_HISTORY,
 ): BackgroundRemovalAttempt[] {
-  const limited = isLimitedImageDevice(capabilities);
+  // Un móvil con 8 GB tampoco garantiza memoria disponible para el navegador.
+  // El historial exitoso se conserva; dispositivos nuevos empiezan por la CPU ligera.
+  const smallerCpuFirst = capabilities.isMobile || isLimitedImageDevice(capabilities);
   const candidates: BackgroundRemovalAttempt[] = [
     ...(shouldAttemptWebGpu(capabilities, history)
       ? [{ type: 'remove-background', device: 'gpu', model: 'isnet' } as const]
       : []),
-    ...(limited
+    ...(smallerCpuFirst
       ? [
           { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' } as const,
           { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' } as const,

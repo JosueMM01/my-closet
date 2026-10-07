@@ -35,6 +35,30 @@ compartidos, logs, docs ni fixtures.
 
 ## Scripts
 
+### Entornos de Vercel y pruebas
+
+Configuración verificada el 2026-10-05: Preview conserva Neon staging, secreto
+de sesión independiente y URL estable de develop. Production no se modificó.
+Development usa `NEXT_PUBLIC_APP_URL=http://localhost:3001`, SQLite, imágenes
+locales, correo capture y Google/registro público desactivados por defecto.
+No se sobrescribió `.env.local`: sus conexiones staging autorizadas siguen siendo
+una selección explícita diferente de estos defaults aislados.
+
+El CI/E2E aislado continúa en puerto 3100 y habilita registro únicamente en su
+servidor de prueba. No necesita credenciales reales. Cambiar variables en Vercel
+no actualiza deployments existentes: se aplicarán en la siguiente construcción
+autorizada. No redeploy automáticamente para verificar un cambio de configuración.
+
+### Prueba manual de cámara
+
+En móvil/PWA, abrir Añadir prenda → Tomar foto, aceptar/cancelar captura y comprobar
+preview, orientación, recorte y guardado. Elegir archivo debe seguir abriendo la
+galería. Se solicita cámara tras pulsar, no al entrar en la página. El navegador
+decide cómo atender `capture=environment`; si no lo soporta puede mostrar archivos.
+No se mantiene una cámara encendida ni se añaden dependencias. Una foto capturada
+se valida/procesa igual que una seleccionada; el borrador no debe subirse antes
+de guardar la prenda. Comprobarlo en Xiaomi/A35 reales, no solo en emulación.
+
 | Comando | Qué hace |
 |---|---|
 | `pnpm dev` | Servidor de desarrollo |

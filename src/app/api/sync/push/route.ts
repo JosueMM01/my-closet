@@ -1,6 +1,7 @@
 import { syncPushSchema, validateEntityPayload } from '@/lib/domain/validation';
 import type { CalendarEntry, Garment, Outfit, WardrobeShare } from '@/lib/domain/types';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 import { OwnershipError, upsertCalendarEntry, upsertGarment, upsertOutfit, upsertWardrobeShare } from '@/server/repositories/sync-repository';
 
@@ -18,6 +19,8 @@ export async function POST(request: Request) {
 
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  const limited = await guardRateLimit(`sync-push:${user.userId}`, 240);
+  if (limited) return limited;
 
   const body = await request.json().catch(() => null);
   const parsed = syncPushSchema.safeParse(body);
