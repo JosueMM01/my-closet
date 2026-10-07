@@ -21,6 +21,7 @@ import { queueProcessedImage } from '@/lib/local/sync-engine';
 import { useImageUrl } from './garment-photo';
 import { CameraIcon, CheckIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
 import { ImageEditor, type ImageEditorUpdate } from './image-editor';
+import { PhotoCapture } from './photo-capture';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
@@ -55,6 +56,7 @@ export function GarmentForm({
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
   const [originalPhoto, setOriginalPhoto] = useState<Blob | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -81,17 +83,17 @@ export function GarmentForm({
   }
 
   function choosePhoto() {
-    const input = fileInputRef.current;
-    if (!input || photoBusy) return;
-    // El selector nativo decide cámara/galería; forzar capture puede ocultar la galería.
-    input.click();
+    if (!photoBusy) setCaptureOpen(true);
   }
 
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    await processPhoto(file);
+  }
 
+  async function processPhoto(file: File) {
     processingControllerRef.current?.abort();
     setEditorOpen(false);
     const controller = new AbortController();
@@ -313,6 +315,12 @@ export function GarmentForm({
           aria-label="Subir foto de la prenda"
         />
       </div>
+
+      {captureOpen ? <PhotoCapture
+        onClose={() => setCaptureOpen(false)}
+        onGallery={() => { setCaptureOpen(false); fileInputRef.current?.click(); }}
+        onPhoto={file => { setCaptureOpen(false); void processPhoto(file); }}
+      /> : null}
 
       {editorOpen && photo?.blob && originalPhoto && removeBackground ? (
         <ImageEditor

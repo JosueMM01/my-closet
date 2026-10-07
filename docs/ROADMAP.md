@@ -191,9 +191,13 @@ Avance 2026-10-05: móviles sin historial priorizan CPU/quint8 antes de FP16,
 sin basarse únicamente en RAM. Se conserva una ruta exitosa anterior y se omiten
 rutas que fallaron dos veces; escritorio y guardas WebGPU Android no cambian.
 No se retiraron modelos ni se certifica reducción de tiempo sin comparación
-física en Xiaomi/A35. Cámara de prendas integrada mediante captura nativa,
-manteniendo selector de archivos y el mismo procesamiento local antes de guardar.
-Playwright puede comprobar el flujo, pero no la cámara física del teléfono.
+física en Xiaomi/A35. Actualización local del 6 de octubre: un único control de
+foto abre un modal con cámara propia (getUserMedia, sin audio) y acceso a galería.
+Captura limitada a 1080 px, liberación al cerrar/salir y ante permisos tardíos;
+se conserva el procesamiento local y no se suben borradores antes de guardar.
+Build, TypeScript, lint y seis casos E2E dirigidos móvil/escritorio aprobados con
+cámara simulada. Pendiente publicar y validar físicamente en Xiaomi/Samsung;
+el Preview actual del PR #11 todavía no incluye esta actualización.
 
 - Medir caché fría/caliente: descarga, runtime, preparación, inferencia y
   codificación en Xiaomi, Samsung y escritorio, sin conservar fotos ni EXIF.
