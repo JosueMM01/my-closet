@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { AuthError, fetchAuthProviders, logout, register } from '@/lib/auth/client';
+import { AuthError, fetchAuthProviders, logout, register, startGoogleInvitation } from '@/lib/auth/client';
 import {
   apiErrorResponseSchema,
   invitationInspectionResponseSchema,
@@ -87,7 +87,7 @@ export default function RegisterPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (profile || loading) return;
+    if (profile || loading || submitting) return;
     setError(null);
     if (passwordWeak) {
       setError('La contraseña debe tener al menos 8 caracteres');
@@ -111,6 +111,18 @@ export default function RegisterPage() {
 
   const canRegister = publicRegistration || Boolean(invitationToken && invitation);
 
+  async function handleGoogleInvitation() {
+    if (!invitationToken || !invitation || profile || loading || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      window.location.assign(await startGoogleInvitation(invitationToken));
+    } catch (caught) {
+      setError(caught instanceof AuthError ? caught.message : 'No se pudo conectar con Google. Revisa la conexión e inténtalo de nuevo.');
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm">
@@ -119,7 +131,11 @@ export default function RegisterPage() {
           <p className="mt-2 text-sm text-text-secondary">Tu armario, tus conjuntos, tu calendario</p>
         </div>
 
-        {profile ? (
+        {!registrationReady || loading ? (
+          <div className="card-surface flex min-h-32 items-center justify-center p-6" role="status">
+            <span className="text-sm text-text-secondary">Comprobando invitación…</span>
+          </div>
+        ) : profile && invitation && invitation.email.toLowerCase() !== profile.email.toLowerCase() ? (
           <section className="card-surface space-y-4 p-6" aria-labelledby="invite-account-switch">
             <h2 id="invite-account-switch" className="font-heading text-xl">Hay una cuenta abierta en este dispositivo</h2>
             <p className="text-sm text-text-secondary">Para aceptar la invitación con otra cuenta, cierra primero la sesión de {profile.email}. Sus prendas y cambios pendientes permanecerán guardados en este dispositivo.</p>
@@ -135,10 +151,14 @@ export default function RegisterPage() {
               } finally { setSubmitting(false); }
             }}>Cerrar sesión para aceptar la invitación</Button>
           </section>
-        ) : !registrationReady || loading ? (
-          <div className="card-surface flex min-h-32 items-center justify-center p-6" role="status">
-            <span className="text-sm text-text-secondary">Comprobando invitación…</span>
-          </div>
+        ) : profile ? (
+          <section className="card-surface space-y-4 p-6">
+            <h2 className="font-heading text-xl">Ya tienes una sesión abierta</h2>
+            {error ? <p role="alert" className="text-sm text-danger">{error}</p> : (
+              <p className="text-sm text-text-secondary">Puedes continuar usando tu cuenta.</p>
+            )}
+            <Link href="/wardrobe" className="font-semibold text-primary">Ir a mi armario</Link>
+          </section>
         ) : !canRegister ? (
           <section className="card-surface p-6 text-center" aria-labelledby="invite-required-title">
             <h2 id="invite-required-title" className="font-heading text-xl">
@@ -165,16 +185,15 @@ export default function RegisterPage() {
 
             {invitation?.googleAvailable && invitationToken ? (
               <>
-                <form action="/api/auth/google/start" method="post">
-                  <input type="hidden" name="invitationToken" value={invitationToken} />
                   <button
-                    type="submit"
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void handleGoogleInvitation()}
                     className="flex min-h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 text-sm font-medium text-[#1F1F1F] transition-colors hover:bg-gray-50"
                   >
                     <GoogleIcon />
-                    <span>Iniciar sesión con Google</span>
+                    <span>{submitting ? 'Conectando…' : 'Iniciar sesión con Google'}</span>
                   </button>
-                </form>
                 <div className="flex items-center gap-3" aria-hidden="true">
                   <span className="h-px flex-1 bg-border" />
                   <span className="text-xs text-text-muted">o crea una contraseña</span>

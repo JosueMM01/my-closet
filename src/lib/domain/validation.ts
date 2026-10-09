@@ -154,6 +154,14 @@ export const googleInvitationStartSchema = z.object({
   invitationToken: invitationTokenSchema,
 }).strict();
 
+export const googleInvitationStartResponseSchema = z.object({
+  authorizationUrl: z.url().refine((value) => {
+    const url = new URL(value);
+    return url.origin === 'https://accounts.google.com' &&
+      url.pathname === '/o/oauth2/v2/auth' && !url.username && !url.password;
+  }, 'Destino de Google no válido'),
+}).strict();
+
 export const loginSchema = z.object({
   email: accountEmailSchema,
   password: z.string().min(1, 'La contraseña es obligatoria').max(128),

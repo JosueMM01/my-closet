@@ -14,6 +14,8 @@ import {
   registerSchema,
   resetPasswordSchema,
   sessionResponseSchema,
+  googleInvitationStartSchema,
+  googleInvitationStartResponseSchema,
 } from '@/lib/domain/validation';
 import { setLocalProfile, clearLocalProfile } from '@/lib/local/kv';
 import { maybeSync } from '@/lib/local/sync-engine';
@@ -34,6 +36,22 @@ export class AuthError extends Error {
     super(message);
     this.name = 'AuthError';
   }
+}
+
+export async function startGoogleInvitation(invitationToken: string): Promise<string> {
+  const body = googleInvitationStartSchema.parse({ invitationToken });
+  const response = await fetch('/api/auth/google/start', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+    body: JSON.stringify(body),
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    const parsed = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
+    throw new AuthError(parsed.success ? parsed.data.error : 'No se pudo iniciar el acceso con Google', response.status);
+  }
+  return googleInvitationStartResponseSchema.parse(await response.json()).authorizationUrl;
 }
 
 async function handleAuthResponse(response: Response, expectedUserId?: string): Promise<LocalProfile> {

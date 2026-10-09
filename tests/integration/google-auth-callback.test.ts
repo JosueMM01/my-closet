@@ -73,6 +73,30 @@ afterEach(async () => {
 });
 
 describe('callback de Google', () => {
+  it('rechaza formularios, JSON malformado y orígenes ajenos antes de crear cookies', async () => {
+    const form = new FormData();
+    form.set('invitationToken', 't'.repeat(43));
+    const rejectedForm = await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST', body: form,
+    }));
+    expect(rejectedForm.status).toBe(400);
+    const invalidJson = await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' }, body: '{',
+    }));
+    expect(invalidJson.status).toBe(400);
+    const foreign = await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST', headers: { origin: 'https://other.example', host: 'localhost',
+        'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+      body: JSON.stringify({ invitationToken: 't'.repeat(43) }),
+    }));
+    expect(foreign.status).toBe(403);
+    const unavailable = await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+      body: JSON.stringify({ invitationToken: 't'.repeat(43) }),
+    }));
+    expect(unavailable.status).toBe(410);
+    expect(cookieState.size).toBe(0);
+  });
   it('inicia login con cookies transitorias y parámetros OAuth estrictos', async () => {
     const response = await start(
       new Request('http://localhost/api/auth/google/start?intent=login'),
@@ -288,13 +312,17 @@ describe('callback de Google', () => {
       role: 'USER',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
-    const form = new FormData();
-    form.set('invitationToken', created.token);
     const started = await startInvitation(new Request('http://localhost/api/auth/google/start', {
       method: 'POST',
-      body: form,
+      headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+      body: JSON.stringify({ invitationToken: created.token }),
     }));
-    expect(started.status).toBe(302);
+    expect(started.status).toBe(200);
+    expect(started.headers.get('location')).toBeNull();
+    expect(started.headers.get('cache-control')).toBe('no-store');
+    const { authorizationUrl } = await started.json();
+    expect(new URL(authorizationUrl).origin).toBe('https://accounts.google.com');
+    expect(authorizationUrl).not.toContain(created.token);
     expect(cookieState.get(GOOGLE_FLOW_COOKIES.intent)).toBe('invite');
 
     getGoogleIdentityFromCode.mockResolvedValue({
