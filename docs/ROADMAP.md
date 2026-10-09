@@ -1,6 +1,6 @@
 # Ruta de mejora de My Closet
 
-Revisión: 2026-10-04. Este es el plan versionado del nuevo ciclo. No reinicia
+Revisión: 2026-10-08. Este es el plan versionado del nuevo ciclo. No reinicia
 funcionalidades ni renumera el historial; `PHASES.md` sigue como bitácora local,
 ignorada por Git. No contiene credenciales.
 
@@ -10,8 +10,9 @@ ignorada por Git. No contiene credenciales.
   No equivale a certificar todos los casos de permisos o sincronización.
 - Conservar las fases anteriores y sus evidencias históricas. No presentar cifras
   antiguas de tests como validación de esta revisión.
-- Pipeline adaptativo confirmado por el propietario en Xiaomi 12 y Galaxy A35;
-  tiempo reportado de 35–45 s. Optimización pendiente, no funcionalidad básica.
+- Pipeline adaptativo confirmado previamente por el propietario en Xiaomi 12 y
+  Galaxy A35 (35–45 s). El Preview de PR #11 presentó una regresión reportada en
+  Xiaomi desde cámara/galería: no considerar cerrada la compatibilidad actual.
 - PR #7 de respaldos fusionado directamente a main el 2026-10-04; develop aún
   no lo contiene en remoto. La rama local fix/backup-recovery-phase-4a, creada
   desde develop, integra el baseline publicado y las correcciones posteriores.
@@ -196,8 +197,34 @@ foto abre un modal con cámara propia (getUserMedia, sin audio) y acceso a galer
 Captura limitada a 1080 px, liberación al cerrar/salir y ante permisos tardíos;
 se conserva el procesamiento local y no se suben borradores antes de guardar.
 Build, TypeScript, lint y seis casos E2E dirigidos móvil/escritorio aprobados con
-cámara simulada. Pendiente publicar y validar físicamente en Xiaomi/Samsung;
-el Preview actual del PR #11 todavía no incluye esta actualización.
+cámara simulada. El propietario confirmó después la cámara en Preview, pero
+reportó fallo del modelo tanto desde cámara como galería. Pendiente revalidar
+inferencias en Xiaomi/Samsung; cámara funcional no certifica eliminación de fondo.
+
+Correcciones locales del 2026-10-08, sin nuevo deployment:
+- Google por invitación inicia por POST JSON validado y navegación posterior,
+  manteniendo `form-action 'self'`, cookies del flujo y token fuera de la URL.
+  Los errores permanecen en el formulario con opción de reintento.
+- Se inspecciona la invitación antes de mostrar cambio de cuenta. Un enlace usado
+  con sesión activa conserva su error y ofrece volver al armario, no cerrar sesión.
+- El Worker libera el bitmap original tras reducirlo y antes de cargar ONNX.
+  Sesión/compilación WASM y timeout tienen códigos separados de descarga/memoria;
+  fallar la sesión no purga la caché ni vuelve a descargar el mismo modelo.
+- Inferencia tiene margen acotado de 300 s sin progreso (otras etapas: 180 s).
+  Un timeout en quint8 no escala automáticamente a un modelo mayor.
+- Vetos de fallos caducan en 24 h y los heredados se invalidan conservando éxitos.
+  Reintento explícito ignora el historial una vez sin borrar fotos ni assets.
+  Diagnóstico añade duración por etapa y aislamiento del navegador.
+- Pruebas aisladas cubren red, sesión, inferencia lenta, timeout, historial y
+  liberación de memoria. La prueba real exige transparencia antes de editar a mano.
+  No cerrar 5B/6 ni certificar el dispositivo físico sin probar el nuevo Preview.
+
+Validación local 2026-10-08: TypeScript, lint y build correctos; 280 pruebas
+unitarias/integración aprobadas (13 skips de suites opt-in); 17 E2E dirigidas
+aprobadas y un skip esperado. Modelo real con transparencia antes de edición
+manual aprobado en Chromium escritorio y móvil emulado; OAuth de navegador
+simulado, sin credenciales ni servicios reales. No equivale a prueba física
+Xiaomi/A35 ni a aceptación real de Google en Preview.
 
 - Medir caché fría/caliente: descarga, runtime, preparación, inferencia y
   codificación en Xiaomi, Samsung y escritorio, sin conservar fotos ni EXIF.
