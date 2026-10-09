@@ -14,6 +14,7 @@ export interface BackgroundRemovalCapabilities {
   deviceMemoryGb: number | null;
   hardwareConcurrency: number;
   storageHeadroomBytes: number | null;
+  crossOriginIsolated?: boolean;
 }
 
 export interface BackgroundRemovalHistory {
@@ -95,7 +96,7 @@ export function backgroundRemovalAttempts(
 }
 
 export function shouldRetrySameAttempt(
-  code: ImageWorkerFailureCode | 'worker',
+  code: ImageWorkerFailureCode | 'worker' | 'timeout',
   online: boolean,
   retries: number,
 ): boolean {
@@ -103,9 +104,9 @@ export function shouldRetrySameAttempt(
 }
 
 export function shouldTryNextAttempt(
-  code: ImageWorkerFailureCode | 'worker',
+  code: ImageWorkerFailureCode | 'worker' | 'timeout',
   current: BackgroundRemovalAttempt,
 ): boolean {
-  if (code !== 'memory' && code !== 'worker') return true;
+  if (code !== 'memory' && code !== 'worker' && code !== 'timeout') return true;
   return current.model !== 'isnet_quint8';
 }

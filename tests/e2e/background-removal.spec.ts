@@ -84,6 +84,22 @@ test.describe('Eliminacion de fondo local', () => {
       throw error;
     });
     await expect(processingError).toHaveCount(0);
+    // Comprobar inferencia ANTES de borrar a mano: el editor también produce
+    // transparencia y no debe convertir un fallback en un falso positivo.
+    await expect(page.getByRole('status').filter({ hasText: 'La eliminación automática no pudo completarse' })).toHaveCount(0);
+    const automaticTransparency = await preview.evaluate(async image => {
+      const source = image.getAttribute('src');
+      if (!source) return false;
+      const bitmap = await createImageBitmap(await fetch(source).then(response => response.blob()));
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext('2d');
+      if (!context) { bitmap.close(); return false; }
+      context.drawImage(bitmap, 0, 0); bitmap.close();
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let index = 3; index < pixels.length; index += 4) if (pixels[index] !== 255) return true;
+      return false;
+    });
+    expect(automaticTransparency).toBe(true);
     const editPhoto = page.getByRole('button', { name: 'Editar recorte de la prenda' });
     await expect(editPhoto).toBeVisible();
     await editPhoto.click();

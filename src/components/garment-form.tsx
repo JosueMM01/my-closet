@@ -93,7 +93,7 @@ export function GarmentForm({
     await processPhoto(file);
   }
 
-  async function processPhoto(file: File) {
+  async function processPhoto(file: File, retryAutomatic = false) {
     processingControllerRef.current?.abort();
     setEditorOpen(false);
     const controller = new AbortController();
@@ -105,7 +105,8 @@ export function GarmentForm({
     setPhotoProgress({ stage: 'Preparando imagen', current: null, total: null });
     try {
       const record = await saveGarmentPhoto(userId, file, {
-        removeBackground,
+        removeBackground: retryAutomatic || removeBackground,
+        ignoreBackgroundRemovalHistory: retryAutomatic,
         queueForSync: false,
         signal: controller.signal,
         onProgress: setPhotoProgress,
@@ -488,6 +489,13 @@ export function GarmentForm({
       {photoWarning ? (
         <div role="status" className="space-y-2 rounded-xl bg-warning/10 p-3 text-sm text-text-secondary">
           <p>{photoWarning}</p>
+          {originalPhoto ? (
+            <button type="button" disabled={photoBusy}
+              className="font-semibold text-primary underline underline-offset-2"
+              onClick={() => void processPhoto(new File([originalPhoto], 'foto-original', { type: originalPhoto.type }), true)}>
+              Reintentar eliminación automática
+            </button>
+          ) : null}
           {photoDiagnostic ? (
             <button
               type="button"
