@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CameraIcon, XIcon } from './icons';
-import { Button } from './ui';
+import styles from './photo-capture.module.css';
 
 function cameraError(error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
@@ -38,8 +38,13 @@ export function PhotoCapture({ onPhoto, onGallery, onClose }: {
 
   useEffect(() => {
     const dialog = dialogRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+    };
   }, []);
 
   useEffect(() => {
@@ -50,9 +55,14 @@ export function PhotoCapture({ onPhoto, onGallery, onClose }: {
         return;
       }
       try {
+        const portrait = window.matchMedia('(orientation: portrait)').matches;
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: portrait ? 720 : 1280 },
+            height: { ideal: portrait ? 1280 : 720 },
+          },
         });
         // El permiso puede resolverse después de cerrar el modal o elegir galería.
         if (generation !== generationRef.current || !videoRef.current) {
@@ -129,23 +139,33 @@ export function PhotoCapture({ onPhoto, onGallery, onClose }: {
 
   return (
     <dialog ref={dialogRef} aria-labelledby="photo-capture-title"
-      className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto rounded-3xl border border-border bg-surface p-4 text-text-primary shadow-soft backdrop:bg-black/60"
+      className={styles.dialog}
       onCancel={event => { event.preventDefault(); close(); }}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 id="photo-capture-title" className="text-lg font-semibold">Foto de la prenda</h2>
-        <Button type="button" variant="ghost" size="icon" aria-label="Cerrar cámara" onClick={close}><XIcon /></Button>
+      <header className={styles.header}>
+        <div>
+          <span className={styles.eyebrow}>MY CLOSET</span>
+          <h2 id="photo-capture-title" className={styles.title}>Foto de la prenda</h2>
+        </div>
+        <button type="button" className={styles.close} aria-label="Cerrar cámara" onClick={close}><XIcon /></button>
+      </header>
+      <div className={styles.viewfinder}>
+        <video ref={videoRef} autoPlay muted playsInline aria-label="Vista previa de la cámara"
+          className={styles.video}
+          onLoadedData={() => { if (streamRef.current) setReady(true); }} />
       </div>
-      <video ref={videoRef} autoPlay muted playsInline aria-label="Vista previa de la cámara"
-        className="max-h-[55dvh] w-full rounded-2xl bg-black object-contain"
-        onLoadedData={() => { if (streamRef.current) setReady(true); }} />
-      <p className="my-3 text-sm text-text-secondary" role={error ? 'alert' : 'status'}>
-        {error ?? (ready ? 'Encuadra la prenda. La fotografía se procesa solo en este dispositivo.' : 'Esperando acceso a la cámara… También puedes elegir una foto existente.')}
-      </p>
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Button type="button" variant="secondary" onClick={gallery}>Elegir de la galería</Button>
-        <Button type="button" disabled={!ready || capturing} onClick={() => void capture()}><CameraIcon /> Tomar foto</Button>
-        {error ? <Button type="button" variant="ghost" onClick={() => { setError(null); setReady(false); setCapturing(false); setAttempt(value => value + 1); }}>Reabrir cámara</Button> : null}
-      </div>
+      <footer className={styles.footer}>
+        <p className={styles.status} role={error ? 'alert' : 'status'}>
+          {error ?? (ready ? 'Encuadra la prenda. La fotografía se procesa solo en este dispositivo.' : 'Esperando acceso a la cámara… También puedes elegir una foto existente.')}
+        </p>
+        <div className={styles.controls}>
+          <button type="button" className={styles.gallery} onClick={gallery}>Elegir de la galería</button>
+          <button type="button" className={styles.shutter} aria-label="Tomar foto" aria-busy={capturing}
+            disabled={!ready || capturing} onClick={() => void capture()}><CameraIcon /></button>
+          <div className={styles.retrySlot}>
+            {error ? <button type="button" className={styles.gallery} onClick={() => { setError(null); setReady(false); setCapturing(false); setAttempt(value => value + 1); }}>Reabrir cámara</button> : null}
+          </div>
+        </div>
+      </footer>
     </dialog>
   );
 }

@@ -78,7 +78,7 @@ async function mockCamera(page: Page, mode: 'ready' | 'denied' | 'pending') {
   }, mode);
 }
 
-test('captura local sin audio y libera la cámara antes de procesar', async ({ page }) => {
+test('captura local sin audio y libera la cámara antes de procesar', async ({ page }, testInfo) => {
   await mockCamera(page, 'ready');
   await registerAndLogin(page);
   await page.goto('/wardrobe/new');
@@ -93,20 +93,68 @@ test('captura local sin audio y libera la cámara antes de procesar', async ({ p
   await page.getByTestId('photo-upload').click();
   const dialog = page.getByRole('dialog', { name: 'Foto de la prenda' });
   await expect(dialog.getByRole('button', { name: 'Tomar foto', exact: true })).toBeEnabled();
+  const initialViewport = page.viewportSize();
+  const portrait = initialViewport ? initialViewport.height > initialViewport.width : false;
+  expect(await page.evaluate(() => (window as CameraTestWindow).__cameraTest.constraints?.video)).toMatchObject({
+    width: { ideal: portrait ? 720 : 1280 },
+    height: { ideal: portrait ? 1280 : 720 },
+  });
   const geometry = await dialog.boundingBox();
   const viewport = page.viewportSize();
   expect(geometry).not.toBeNull();
   expect(viewport).not.toBeNull();
   if (geometry && viewport) {
     expect(Math.abs(geometry.x + geometry.width / 2 - viewport.width / 2)).toBeLessThan(3);
-    expect(geometry.width).toBeLessThanOrEqual(viewport.width - 30);
+    if (viewport.width < 768) {
+      expect(geometry.x).toBeCloseTo(0, 0);
+      expect(geometry.y).toBeCloseTo(0, 0);
+      expect(geometry.width).toBeCloseTo(viewport.width, 0);
+      expect(geometry.height).toBeCloseTo(viewport.height, 0);
+    } else {
+      expect(geometry.width).toBeLessThanOrEqual(viewport.width - 30);
+    }
   }
+  await expect(dialog.locator('video')).toHaveCSS('object-fit', 'contain');
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  await page.screenshot({ path: testInfo.outputPath('camera-ready.png') });
   await dialog.getByRole('button', { name: 'Tomar foto', exact: true }).click();
   await expect(page.getByTestId('photo-preview')).toBeVisible();
   await expect(dialog).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
   expect(await page.evaluate(() => (window as CameraTestWindow).__cameraTest.constraints?.audio)).toBe(false);
   expect(await page.evaluate(() => (window as CameraTestWindow).__cameraTest.stream?.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
   expect(writes).toEqual([]);
+});
+
+test('cámara inmersiva mantiene controles visibles en móvil pequeño y horizontal', async ({ page }) => {
+  await mockCamera(page, 'ready');
+  await registerAndLogin(page);
+  await page.goto('/wardrobe/new');
+  await waitForHydration(page);
+  await page.getByTestId('photo-upload').click();
+  const dialog = page.getByRole('dialog', { name: 'Foto de la prenda' });
+  await expect(dialog.getByRole('button', { name: 'Tomar foto', exact: true })).toBeEnabled();
+  for (const viewport of [{ width: 320, height: 568 }, { width: 800, height: 360 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(async () => {
+      const box = await dialog.boundingBox();
+      return box ? Math.abs(box.height - viewport.height) + Math.abs(box.width - viewport.width) : Infinity;
+    }).toBeLessThan(2);
+    for (const name of ['Tomar foto', 'Cerrar cámara', 'Elegir de la galería']) {
+      const button = dialog.getByRole('button', { name, exact: true });
+      await expect(button).toBeInViewport();
+      const box = await button.boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+      }
+    }
+    expect(await dialog.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
+  }
+  await dialog.getByRole('button', { name: 'Cerrar cámara' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
 });
 
 test('cerrar mientras se espera permiso libera también una cámara concedida tarde', async ({ page }) => {
