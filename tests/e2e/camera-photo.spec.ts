@@ -114,11 +114,17 @@ test('captura local sin audio y libera la cámara antes de procesar', async ({ p
       expect(geometry.width).toBeLessThanOrEqual(viewport.width - 30);
     }
   }
-  await expect(dialog.locator('video')).toHaveCSS('object-fit', 'contain');
+  await expect(dialog.locator('video')).toHaveCSS('object-fit', 'cover');
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   await page.screenshot({ path: testInfo.outputPath('camera-ready.png') });
   await dialog.getByRole('button', { name: 'Tomar foto', exact: true }).click();
   await expect(page.getByTestId('photo-preview')).toBeVisible();
+  if (portrait) {
+    await expect.poll(() => page.getByTestId('photo-preview').evaluate(image => {
+      const img = image as HTMLImageElement;
+      return img.naturalHeight > img.naturalWidth;
+    })).toBe(true);
+  }
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
   expect(await page.evaluate(() => (window as CameraTestWindow).__cameraTest.constraints?.audio)).toBe(false);

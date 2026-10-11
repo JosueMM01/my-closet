@@ -18,6 +18,10 @@
 .dialog::backdrop { background: rgb(0 0 0 / 80%); }
 
 .header {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  background: linear-gradient(rgb(0 0 0 / 75%), transparent);
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -40,10 +44,14 @@
   cursor: pointer;
 }
 
-.viewfinder { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; }
-/* Match the full captured frame: do not crop away pixels the user will save. */
-.video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.viewfinder { position: absolute; inset: 0; overflow: hidden; background: #000; }
+/* cameraFrame saves exactly this visible, centered crop, without distortion. */
+.video { display: block; width: 100%; height: 100%; object-fit: cover; }
 .footer {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  background: linear-gradient(transparent, rgb(0 0 0 / 85%) 30%);
   flex-shrink: 0;
   padding: 0.75rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }

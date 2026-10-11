@@ -237,7 +237,7 @@ export function GarmentForm({
             onClick={choosePhoto}
             disabled={photoBusy}
             data-testid="photo-upload"
-            className="relative flex h-80 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait"
+            className={`relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait ${hasPhoto ? 'min-h-80' : 'h-80'}`}
             aria-label={hasPhoto ? 'Cambiar foto de la prenda' : 'Subir foto de la prenda'}
           >
             {hasPhoto ? (
@@ -247,7 +247,7 @@ export function GarmentForm({
                   <img
                     src={existingPhotoUrl}
                     alt="Vista previa de la prenda"
-                    className="absolute inset-0 h-full w-full object-contain p-4"
+                    className="block max-h-[70dvh] w-full object-contain p-4"
                     data-testid="photo-preview"
                   />
                 ) : null}
