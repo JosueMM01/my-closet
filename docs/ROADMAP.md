@@ -229,6 +229,17 @@ Correcciones locales del 2026-10-08, sin nuevo deployment:
   liberación de memoria. La prueba real exige transparencia antes de editar a mano.
   No cerrar 5B/6 ni certificar el dispositivo físico sin probar el nuevo Preview.
 
+Avance del 11 de octubre: cámara inmersiva a pantalla completa en móvil, con
+áreas seguras, controles accesibles y encuadre completo sin recortar la captura;
+vista centrada en escritorio. Solicita dimensiones orientadas a retrato cuando
+la pantalla es vertical, conserva galería y libera la cámara antes de procesar.
+Las correcciones del 8 de octubre y este ajuste se agrupan para el Preview del
+PR #11, sin promover main. Modelo real revalidado con transparencia automática
+en escritorio y móvil emulado; no demuestra tiempos ni compatibilidad física.
+Comparar Xiaomi/Samsung con la misma foto, primera carga y caché caliente, y
+registrar backend/modelo, duración por etapa y reintentos antes de cambiar la
+estrategia. No prometer volver a 15 s ni sacrificar compatibilidad por una cifra.
+
 Validación local 2026-10-08: TypeScript, lint y build correctos; 280 pruebas
 unitarias/integración aprobadas (13 skips de suites opt-in); 17 E2E dirigidas
 aprobadas y un skip esperado. Modelo real con transparencia antes de edición

@@ -202,8 +202,12 @@ generar la nueva autorización. No asumir que publicar reactiva el token anterio
 5. Validar el workflow y una copia cifrada nueva con restauración aislada antes de
    cerrar 4A/4B. La continuidad requiere también comprobar la ejecución programada.
 
-El comando y sus pruebas están preparados localmente; la renovación real queda
-pendiente del nuevo token. Nunca interpretar el token como permanente.
+Validación posterior del 11 de octubre: el propietario actualizó el token local;
+`check-oauth` renueva correctamente y `status` consulta las copias existentes.
+La política indica que aún no corresponde otra copia. No se forzó un respaldo,
+rotación ni restauración. Falta confirmar el Secret de GitHub y la ejecución
+hospedada con esa credencial; la prueba local no valida Actions. Nunca interpretar
+el token como permanente.
 
 ## Preparar el cifrado
 
