@@ -167,5 +167,32 @@ a compilarse fuera de Turbopack, debe retirarse esta excepción.
 
 ## Gestión de errores
 
+### Turnstile y límites de acceso (preparado, activación pendiente)
+
+- `TURNSTILE_ENABLED=false` (valor predeterminado) conserva el login actual.
+  Para activar, configurar `TURNSTILE_ENABLED=true`, `TURNSTILE_SITE_KEY`
+  (pública), `TURNSTILE_SECRET_KEY` (solo servidor) y `NEXT_PUBLIC_APP_URL`.
+  Guardar las claves reales únicamente en archivos ignorados/variables Vercel.
+  No habilitar antes de configurar el widget y validar Preview.
+- Crear un widget Managed en Cloudflare Turnstile, con los hostnames exactos
+  de producción y Preview estable; no rutas ni `https://`. No habilitar
+  pre-clearance. Las claves de prueba oficiales son exclusivamente para pruebas,
+  nunca protección de producción.
+- Login con contraseña y recuperación validan token de uso único en Siteverify,
+  hostname configurado y acción (`login`/`recovery`), con timeout y rechazo cerrado.
+  Solo token y clave de servidor se envían a Siteverify, nunca correo/contraseña.
+  El navegador conserva el token solo en memoria y renueva el widget tras envío.
+- Google mantiene su propio OAuth: este cambio no añade Turnstile al flujo Google.
+- Los límites persistidos siguen vigentes antes de contactar Siteverify.
+  Login: 5 solicitudes/min por IP+correo y 30/min por IP, ventanas fijas;
+  todavía no es un bloqueo de 60 segundos contado desde el quinto fallo.
+  Respuesta 429 incluye `Retry-After` y segundos restantes.
+- Recuperación: límite por IP, una solicitud/minuto por destinatario y diez/día
+  por destinatario, con respuesta genérica exista o no la cuenta. No impide
+  abusos distribuidos contra muchos destinatarios; no es protección DDoS.
+- Aceptación real del widget en Cloudflare/Preview está pendiente. Las pruebas
+  locales usan sustitutos, sin llamadas reales ni cambios de producción.
+
+
 - El cliente trata la falta de red como estado normal (badge), no como
   error; 401 de sync → re-autenticación sin pérdida de datos.

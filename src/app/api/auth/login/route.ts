@@ -4,6 +4,7 @@ import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-lim
 import { createSession } from '@/server/auth/session';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import { findUserByEmail } from '@/server/repositories/users-repository';
+import { guardTurnstile } from '@/server/auth/turnstile';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +22,9 @@ export async function POST(request: Request) {
   if (ipLimited) return ipLimited;
   const limited = await guardRateLimit(`login:${ip}:${parsed.data.email.toLowerCase()}`, 5);
   if (limited) return limited;
+
+  const challengeError = await guardTurnstile(parsed.data.turnstileToken, 'login');
+  if (challengeError) return challengeError;
 
   const user = await findUserByEmail(parsed.data.email);
   const valid = user ? await verifyPassword(parsed.data.password, user.passwordHash) : false;

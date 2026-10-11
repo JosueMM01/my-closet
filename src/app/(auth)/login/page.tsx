@@ -10,6 +10,7 @@ import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
 import { sessionResponseSchema } from '@/lib/domain/validation';
+import { TurnstileChallenge } from '@/components/turnstile-challenge';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,6 +20,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [challenge, setChallenge] = useState<{ enabled: boolean; siteKey: string | null } | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string>();
+  const [challengeAttempt, setChallengeAttempt] = useState(0);
   const hasGoogleFailure = useRef(false);
 
   function safeReturnPath(): string {
@@ -57,9 +61,11 @@ export default function LoginPage() {
       .then((providers) => {
         if (googleError) setError(googleError);
         setGoogleEnabled(providers.google);
+        setChallenge(providers.turnstile ?? { enabled: false, siteKey: null });
       })
       .catch(() => {
         if (googleError) setError(googleError);
+        else setError('No se pudo cargar la protección de acceso. Revisa la conexión y recarga la página.');
         setGoogleEnabled(false);
       });
     return () => { cancelled = true; };
@@ -71,13 +77,15 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const recovering = new URL(window.location.href).searchParams.get('reauth') === '1';
-      await login({ email, password }, recovering ? profile?.userId : undefined);
+      await login({ email, password, turnstileToken: challengeToken }, recovering ? profile?.userId : undefined);
       await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
       router.replace(safeReturnPath());
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'No se pudo iniciar sesión');
     } finally {
       setSubmitting(false);
+      setChallengeToken(undefined);
+      setChallengeAttempt(value => value + 1);
     }
   }
 
@@ -166,7 +174,11 @@ export default function LoginPage() {
             )}
             
             <div className="pt-2 flex flex-col gap-3">
-              <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
+              {challenge?.enabled && challenge.siteKey ? <TurnstileChallenge key={challengeAttempt}
+                siteKey={challenge.siteKey} action="login" onToken={setChallengeToken} /> : null}
+              {challenge?.enabled && !challenge.siteKey ? <p role="alert" className="text-sm text-danger">La verificación de seguridad no está configurada.</p> : null}
+              <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}
+                disabled={!challenge || (challenge.enabled && !challengeToken)}>
                 Entrar
               </Button>
             </div>

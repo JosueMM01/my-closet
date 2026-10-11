@@ -61,7 +61,11 @@ export async function rateLimit(key: string, limit: number, windowMs: number, da
 /** Fail-closed: distinguir almacenamiento no disponible de límite realmente alcanzado. */
 export async function guardRateLimit(key: string, limit: number, windowMs = 60_000): Promise<Response | null> {
   try {
-    return await rateLimit(key, limit, windowMs) ? null : jsonError(429, 'Demasiados intentos; espera un momento');
+    if (await rateLimit(key, limit, windowMs)) return null;
+    const seconds = Math.max(1, Math.ceil((Math.floor(Date.now() / windowMs) * windowMs + windowMs - Date.now()) / 1000));
+    const response = jsonError(429, `Demasiados intentos; vuelve a intentarlo en ${seconds} segundos.`);
+    response.headers.set('retry-after', String(seconds));
+    return response;
   } catch {
     return jsonError(503, 'La protección de acceso no está disponible. Vuelve a intentarlo más tarde.');
   }

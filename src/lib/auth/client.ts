@@ -96,7 +96,7 @@ export async function register(input: {
   return handleAuthResponse(response);
 }
 
-export async function login(input: { email: string; password: string }, expectedUserId?: string): Promise<LocalProfile> {
+export async function login(input: { email: string; password: string; turnstileToken?: string }, expectedUserId?: string): Promise<LocalProfile> {
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     throw new AuthError(parsed.error.issues[0]?.message ?? 'Datos de acceso inválidos', 400);
@@ -112,8 +112,8 @@ export async function endRemoteSession(): Promise<void> {
   operationSuccessResponseSchema.parse(await response.json());
 }
 
-export async function requestPasswordRecovery(email: string): Promise<void> {
-  const parsed = forgotPasswordSchema.safeParse({ email });
+export async function requestPasswordRecovery(email: string, turnstileToken?: string): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse({ email, turnstileToken });
   if (!parsed.success) {
     throw new AuthError(parsed.error.issues[0]?.message ?? 'Correo inválido', 400);
   }

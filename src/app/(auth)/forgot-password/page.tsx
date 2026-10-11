@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { AuthError, requestPasswordRecovery } from '@/lib/auth/client';
+import { useEffect, useState } from 'react';
+import { AuthError, fetchAuthProviders, requestPasswordRecovery } from '@/lib/auth/client';
+import { TurnstileChallenge } from '@/components/turnstile-challenge';
 import { Button, Field, TextInput } from '@/components/ui';
 
 const GENERIC_SUCCESS =
@@ -13,18 +14,30 @@ export default function ForgotPasswordPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [challenge, setChallenge] = useState<{ enabled: boolean; siteKey: string | null } | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string>();
+  const [challengeAttempt, setChallengeAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAuthProviders().then(providers => {
+      if (!cancelled) setChallenge(providers.turnstile ?? { enabled: false, siteKey: null });
+    }).catch(() => { if (!cancelled) setError('No se pudo cargar la protección de acceso. Revisa la conexión y recarga la página.'); });
+    return () => { cancelled = true; };
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await requestPasswordRecovery(email);
+      await requestPasswordRecovery(email, challengeToken);
       setSent(true);
     } catch (caught) {
       setError(caught instanceof AuthError ? caught.message : 'No se pudo procesar la solicitud');
     } finally {
       setSubmitting(false);
+      setChallengeToken(undefined);
+      setChallengeAttempt(value => value + 1);
     }
   }
 
@@ -56,7 +69,11 @@ export default function ForgotPasswordPage() {
               />
             </Field>
             {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
-            <Button type="submit" size="lg" className="w-full" loading={submitting}>
+            {challenge?.enabled && challenge.siteKey ? <TurnstileChallenge key={challengeAttempt}
+              siteKey={challenge.siteKey} action="recovery" onToken={setChallengeToken} /> : null}
+            {challenge?.enabled && !challenge.siteKey ? <p role="alert" className="text-sm text-danger">La verificación de seguridad no está configurada.</p> : null}
+            <Button type="submit" size="lg" className="w-full" loading={submitting}
+              disabled={!challenge || (challenge.enabled && !challengeToken)}>
               Enviar enlace
             </Button>
           </form>

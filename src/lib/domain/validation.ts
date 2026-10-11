@@ -165,10 +165,12 @@ export const googleInvitationStartResponseSchema = z.object({
 export const loginSchema = z.object({
   email: accountEmailSchema,
   password: z.string().min(1, 'La contraseña es obligatoria').max(128),
+  turnstileToken: z.string().min(1).max(2048).optional(),
 });
 
 export const forgotPasswordSchema = z.object({
   email: accountEmailSchema,
+  turnstileToken: z.string().min(1).max(2048).optional(),
 });
 
 export const passwordResetTokenSchema = z
@@ -209,6 +211,7 @@ export const authProvidersResponseSchema = z.object({
   google: z.boolean(),
   publicRegistration: z.boolean(),
   invitationRegistration: z.literal(true),
+  turnstile: z.object({ enabled: z.boolean(), siteKey: z.string().nullable() }).optional(),
 });
 
 export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
