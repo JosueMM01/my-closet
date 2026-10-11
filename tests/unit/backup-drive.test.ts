@@ -121,6 +121,25 @@ function mockDrive(corruptManifest = false) {
 }
 
 describe('flujo Drive del respaldo sin servicios reales', () => {
+  it('check-oauth renueva sin requerir carpeta, acceder a Drive ni imprimir credenciales', async () => {
+    vi.stubEnv('GOOGLE_DRIVE_BACKUP_FOLDER_ID', '');
+    const { fetchMock } = mockDrive();
+    await command('check-oauth');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://oauth2.googleapis.com/token');
+    expect(console.log).toHaveBeenCalledExactlyOnceWith(
+      'Renovación OAuth del respaldo correcta. No se modificaron archivos ni se comprobó acceso a la carpeta.',
+    );
+  });
+
+  it('check-oauth rechaza configuración incompleta antes de enviar credenciales', async () => {
+    vi.stubEnv('GOOGLE_DRIVE_REFRESH_TOKEN', '');
+    const { fetchMock } = mockDrive();
+    await expect(command('check-oauth')).rejects.toThrow('GOOGLE_DRIVE_REFRESH_TOKEN');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(console.log).not.toHaveBeenCalled();
+  });
+
   it('publica la generación solo después de verificar archivo y manifiesto', async () => {
     const { files, fetchMock } = mockDrive();
     await command('upload');
@@ -194,7 +213,7 @@ describe('flujo Drive del respaldo sin servicios reales', () => {
     expect(console.log).not.toHaveBeenCalled();
   });
 
-  it.each(['status', 'maintain', 'download-latest'])('invalid_grant en %s no toca copias existentes', async (operation) => {
+  it.each(['check-oauth', 'status', 'maintain', 'download-latest'])('invalid_grant en %s no toca copias existentes', async (operation) => {
     const fetchMock = vi.fn(async () => Response.json({
       error: 'invalid_grant', error_description: 'private-fixture-token',
     }, { status: 400 }));

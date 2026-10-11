@@ -63,6 +63,16 @@ la fase 7 de esta tabla corresponde al nuevo ciclo.
 
 ### 4A — Terminar la recuperación existente
 
+Checkpoint operativo del 11 de octubre de 2026: cinco ejecuciones programadas
+fallidas del 7 al 11 de octubre. El último run `38139034000` valida Neon, pero
+Google rechaza la renovación con `invalid_grant` antes de crear/subir/rotar copias.
+El propietario confirma publicación del proyecto OAuth de respaldos y que aún
+falta obtener el refresh token nuevo. La recuperación está abierta: reautorizar
+el mismo cliente, validar `check-oauth` y `status`, actualizar el Secret y comprobar
+copia/restauración aislada y continuidad programada. Preparado localmente el
+comando de diagnóstico sin acceso a Drive; no equivale a renovación real.
+No requiere un deployment web y no cierra 4A/4B por sí solo.
+
 - Antes de publicar: medir assets generados y preparar control de previews para
   cambios de docs/respaldos. Este adelanto de 6 es una puerta de publicación,
   no una reescritura del pipeline ni una nueva fase numerada.

@@ -616,8 +616,15 @@ async function markRestored(): Promise<void> {
   console.log('El manifiesto quedó marcado con una restauración verificada.');
 }
 
+async function checkOAuth(): Promise<void> {
+  // Renew only in memory: no Drive requests, dump, rotation or token output.
+  await getAccessToken();
+  console.log('Renovación OAuth del respaldo correcta. No se modificaron archivos ni se comprobó acceso a la carpeta.');
+}
+
 const command = process.argv[2];
 const commands: Record<string, () => Promise<void>> = {
+  'check-oauth': checkOAuth,
   'init-folder': initFolder,
   'validate-source': validateSource,
   'validate-tool-version': validateToolVersion,
@@ -632,6 +639,6 @@ const commands: Record<string, () => Promise<void>> = {
 
 const handler = command ? commands[command] : undefined;
 if (!handler) {
-  throw new Error('Comando inválido. Usa init-folder, validate-source, validate-tool-version, validate-restore, status, upload, maintain, download-latest, verify-plain o mark-restored.');
+  throw new Error('Comando inválido. Usa check-oauth, init-folder, validate-source, validate-tool-version, validate-restore, status, upload, maintain, download-latest, verify-plain o mark-restored.');
 }
 await handler();

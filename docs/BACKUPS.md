@@ -179,6 +179,32 @@ Publicar no garantiza token permanente: obtener autorización nueva, comprobar
 renovación y definir alertas de `invalid_grant` y copia atrasada. No reutilizar
 credenciales o sesiones Google Sign-In para Drive.
 
+### Recuperación de OAuth después de publicar el cliente
+
+El 11 de octubre de 2026, Actions falló con `invalid_grant` antes del dump,
+cifrado y subida; la validación del origen Neon fue correcta. La publicación
+del proyecto de respaldos fue confirmada por el propietario, pero todavía falta
+generar la nueva autorización. No asumir que publicar reactiva el token anterior.
+
+1. En OAuth Playground, usar el mismo cliente propio del proyecto de respaldos,
+   acceso offline y el permiso `https://www.googleapis.com/auth/drive.file`.
+   Autorizar otra vez e intercambiar el código por tokens; no revocar el proyecto
+   ni crear otro cliente para intentar resolver este fallo.
+2. Guardar únicamente el nuevo refresh token en `GOOGLE_DRIVE_REFRESH_TOKEN` de
+   `.env.local.backup`, sin pegarlo en conversaciones, capturas o logs.
+3. Validar la renovación sin crear ni borrar copias:
+   `node --env-file=.env.local.backup scripts/backups/google-drive-backup.mts check-oauth`.
+   Este comando no comprueba el estado de publicación, permisos de carpeta ni
+   integridad de las copias: solo confirma que Google acepta la renovación ahora.
+4. Ejecutar `status` con el mismo archivo para comprobar acceso a copias existentes
+   y antigüedad sin mutaciones de Drive. Reemplazar el Secret del mismo nombre en
+   GitHub Actions; el cambio no necesita despliegue de Vercel.
+5. Validar el workflow y una copia cifrada nueva con restauración aislada antes de
+   cerrar 4A/4B. La continuidad requiere también comprobar la ejecución programada.
+
+El comando y sus pruebas están preparados localmente; la renovación real queda
+pendiente del nuevo token. Nunca interpretar el token como permanente.
+
 ## Preparar el cifrado
 
 Generar una identidad age fuera del repositorio. La identidad privada debe
