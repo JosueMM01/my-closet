@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ApiClientError } from '@/lib/api/client';
 import { changeEmail, changePassword, updateProfile } from '@/lib/account/client';
-import { logout } from '@/lib/auth/client';
+import { AuthError, endRemoteSession, logout } from '@/lib/auth/client';
 import {
   ImageProcessingError,
   ImageValidationError,
@@ -25,6 +25,7 @@ import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 function readableError(error: unknown, fallback: string): string {
   if (
     error instanceof ApiClientError ||
+    error instanceof AuthError ||
     error instanceof ImageValidationError ||
     error instanceof ImageProcessingError
   ) {
@@ -241,7 +242,17 @@ export default function ProfilePage() {
           <p className="mt-1 text-sm text-text-secondary">
             Tus datos locales siguen a salvo. Inicia sesión de nuevo para cambiar la cuenta o sincronizar.
           </p>
-          <Button className="mt-3" onClick={() => router.push('/login')}>Iniciar sesión de nuevo</Button>
+          <Button className="mt-3" loading={busy === 'reauth'} disabled={!online || busy !== null} onClick={async () => {
+            begin('reauth');
+            try {
+              await endRemoteSession();
+              router.push('/login?reauth=1&next=/profile');
+            } catch (caught) {
+              setError(readableError(caught, 'No se pudo preparar el nuevo inicio de sesión'));
+            } finally {
+              setBusy(null);
+            }
+          }}>Iniciar sesión de nuevo</Button>
         </section>
       ) : null}
 
