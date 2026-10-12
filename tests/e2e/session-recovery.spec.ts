@@ -62,11 +62,12 @@ test('retorno OAuth de la misma cuenta completa recuperación', async ({ page })
 });
 
 test('invitación abierta en otra pestaña exige cambio explícito sin perder el token', async ({ page }) => {
+  const invitationToken = 's'.repeat(43);
   await seedLocalOwner(page);
   await page.route('**/api/auth/invitation', route => route.fulfill({ json: {
     email: 'invitee@example.test', role: 'USER', expiresAt: '2099-01-01T00:00:00.000Z', googleAvailable: true,
   } }));
-  await page.goto('/register#invite=synthetic-invitation-token-only-for-test');
+  await page.goto(`/register#invite=${invitationToken}`);
   await expect(page.getByRole('heading', { name: 'Hay una cuenta abierta en este dispositivo' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Crear cuenta', exact: true })).toHaveCount(0);
   await page.route('**/api/auth/logout', async route => {
@@ -76,6 +77,21 @@ test('invitación abierta en otra pestaña exige cambio explícito sin perder el
   await page.getByRole('button', { name: 'Cerrar sesión para aceptar la invitación' }).click();
   await expect(page.getByText('invitee@example.test', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Crear cuenta', exact: true })).toBeVisible();
-  await expect(page.locator('input[name="invitationToken"]')).toHaveValue('synthetic-invitation-token-only-for-test');
   await expect(page).toHaveURL(/\/register$/);
+  // El token vive en memoria, no en un campo oculto: comprobar el contrato real
+  // después del cambio de sesión sin crear una cuenta ni sustituir datos locales.
+  await page.route('**/api/auth/register', route => route.fulfill({
+    status: 409, json: { error: 'Registro detenido por la prueba' },
+  }));
+  await page.getByRole('textbox', { name: 'Nombre', exact: true }).fill('Persona invitada');
+  await page.getByLabel('Contraseña', { exact: true }).fill('synthetic-password');
+  const registrationRequest = page.waitForRequest(request =>
+    request.url().endsWith('/api/auth/register') && request.method() === 'POST');
+  await page.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
+  expect((await registrationRequest).postDataJSON()).toEqual({
+    displayName: 'Persona invitada',
+    password: 'synthetic-password',
+    invitationToken,
+  });
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('Registro detenido por la prueba');
 });
