@@ -18,12 +18,30 @@
 
 ## Rate limiting
 
-- Login: 5 intentos/60 s por IP+email. Registro: 10/60 s por IP
-  (`AUTH_RATE_LIMIT_REGISTER` ajustable). In-memory: adecuado para una
-  instancia; en multi-instancia mover a almacén compartido (bloqueador de
-  producción).
+- Contadores compartidos en `rate_limit_buckets` (Neon/PostgreSQL; SQLite local).
+  Inserción/incremento y decisión se realizan atómicamente. Ventanas fijas:
+  pueden permitir hasta dos cupos alrededor del límite entre ventanas; no son
+  ventanas deslizantes. Las claves se guardan con HMAC, sin IP/correo en claro.
+- Login: 30 intentos/60 s por IP y 5/60 s por IP+email. Registro: 10/60 s
+  por IP (`AUTH_RATE_LIMIT_REGISTER` ajustable). OAuth start: 30/60 s por IP;
+  consulta de invitación: 30/60 s por IP. No sustituye autorización ni CSRF.
 - Solicitud de recuperación: 5/60 s por IP manteniendo siempre la misma
   respuesta. Consumo de reset: 10/60 s por IP.
+- Usuario autenticado: firma/subida local de imágenes 60/60 s, finalize 120/60 s,
+  push y pull de sync 240/60 s cada uno; emisión de invitaciones 10/60 s por admin.
+  Vercel proporciona la IP; fuera de esa plataforma no se aceptan cabeceras
+  arbitrarias del cliente como identidad y se usa un cupo local compartido.
+- Fallo de almacenamiento: 503, sin omitir la protección. Recuperación conserva
+  su respuesta genérica y no envía correo si no puede consumir el contador.
+  Limpieza oportunista de hasta 1000 claves caducadas por minuto/proceso; no
+  requiere Redis ni un servicio de pago. El guard no cubre todavía todos los
+  endpoints: completar el inventario es parte de 5B.
+- Cambios de contraseña y correo: 5/60 s por usuario; PATCH de perfil: 30/60 s;
+  desvinculación Google: 5/60 s. Se aplican después de autenticar y antes de
+  verificar contraseñas o escribir datos.
+- La migración `0003_shared_rate_limits.sql` es aditiva. Debe aplicarse antes de
+  desplegar el código: sin esa tabla las operaciones protegidas devuelven 503.
+  Rollback del código conserva la tabla; no necesita borrar datos de usuarios.
 
 ## Validación y autorización
 
@@ -148,6 +166,33 @@ a compilarse fuera de Turbopack, debe retirarse esta excepción.
   de correo es un requisito pendiente para producción.
 
 ## Gestión de errores
+
+### Turnstile y límites de acceso (preparado, activación pendiente)
+
+- `TURNSTILE_ENABLED=false` (valor predeterminado) conserva el login actual.
+  Para activar, configurar `TURNSTILE_ENABLED=true`, `TURNSTILE_SITE_KEY`
+  (pública), `TURNSTILE_SECRET_KEY` (solo servidor) y `NEXT_PUBLIC_APP_URL`.
+  Guardar las claves reales únicamente en archivos ignorados/variables Vercel.
+  No habilitar antes de configurar el widget y validar Preview.
+- Crear un widget Managed en Cloudflare Turnstile, con los hostnames exactos
+  de producción y Preview estable; no rutas ni `https://`. No habilitar
+  pre-clearance. Las claves de prueba oficiales son exclusivamente para pruebas,
+  nunca protección de producción.
+- Login con contraseña y recuperación validan token de uso único en Siteverify,
+  hostname configurado y acción (`login`/`recovery`), con timeout y rechazo cerrado.
+  Solo token y clave de servidor se envían a Siteverify, nunca correo/contraseña.
+  El navegador conserva el token solo en memoria y renueva el widget tras envío.
+- Google mantiene su propio OAuth: este cambio no añade Turnstile al flujo Google.
+- Los límites persistidos siguen vigentes antes de contactar Siteverify.
+  Login: 5 solicitudes/min por IP+correo y 30/min por IP, ventanas fijas;
+  todavía no es un bloqueo de 60 segundos contado desde el quinto fallo.
+  Respuesta 429 incluye `Retry-After` y segundos restantes.
+- Recuperación: límite por IP, una solicitud/minuto por destinatario y diez/día
+  por destinatario, con respuesta genérica exista o no la cuenta. No impide
+  abusos distribuidos contra muchos destinatarios; no es protección DDoS.
+- Aceptación real del widget en Cloudflare/Preview está pendiente. Las pruebas
+  locales usan sustitutos, sin llamadas reales ni cambios de producción.
+
 
 - El cliente trata la falta de red como estado normal (badge), no como
   error; 401 de sync → re-autenticación sin pérdida de datos.

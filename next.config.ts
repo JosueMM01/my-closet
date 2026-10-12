@@ -19,7 +19,8 @@ function securityHeaders(): Record<string, string> {
     "default-src 'self'",
     // ONNX reconstruye su modulo ESM desde los chunks locales y lo importa
     // mediante una URL blob dentro del worker.
-    "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+    "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
+    "frame-src https://challenges.cloudflare.com",
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: http://localhost:* https://localhost:*${cloudinaryImageHost}`,
     "font-src 'self' data:",

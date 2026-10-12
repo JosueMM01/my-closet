@@ -11,6 +11,8 @@ import { imageProgressStageSchema } from './worker-protocol';
 
 const HISTORY_KEY = 'background-removal:strategy:adaptive-v1';
 const DIAGNOSTIC_KEY = 'background-removal:last-diagnostic:adaptive-v1';
+const STRATEGY_REVISION = 'adaptive-v2-session-timeout';
+const FAILURE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 const attemptSchema = z.object({
   type: z.literal('remove-background'),
@@ -21,6 +23,8 @@ const attemptSchema = z.object({
 const historySchema = z.object({
   preferred: attemptSchema.nullable(),
   failures: z.record(z.string(), z.number().int().nonnegative()),
+  revision: z.string().optional(),
+  failedAt: z.record(z.string(), z.number().nonnegative()).default({}),
 }).strict();
 
 const capabilitiesSchema = z.object({
@@ -30,6 +34,7 @@ const capabilitiesSchema = z.object({
   deviceMemoryGb: z.number().positive().nullable(),
   hardwareConcurrency: z.number().int().positive(),
   storageHeadroomBytes: z.number().nonnegative().nullable(),
+  crossOriginIsolated: z.boolean().optional(),
 }).strict();
 
 const diagnosticAttemptSchema = z.object({
@@ -43,11 +48,14 @@ const diagnosticAttemptSchema = z.object({
     'memory',
     'inference',
     'worker',
+    'session',
+    'timeout',
   ]).nullable(),
   stage: imageProgressStageSchema,
   durationMs: z.number().int().nonnegative(),
   retries: z.number().int().nonnegative(),
   detail: z.string().max(300).nullable(),
+  stageDurationsMs: z.partialRecord(imageProgressStageSchema, z.number().nonnegative()).optional(),
 }).strict();
 
 export const backgroundRemovalDiagnosticSchema = z.object({
@@ -65,7 +73,15 @@ export type BackgroundRemovalAttemptDiagnostic = z.infer<typeof diagnosticAttemp
 export async function readBackgroundRemovalHistory(): Promise<BackgroundRemovalHistory> {
   const stored = await getDB().kv.get(HISTORY_KEY);
   const parsed = historySchema.safeParse(stored?.value);
-  return parsed.success ? parsed.data : EMPTY_BACKGROUND_REMOVAL_HISTORY;
+  if (!parsed.success) return EMPTY_BACKGROUND_REMOVAL_HISTORY;
+  // Conservar éxitos; los vetos heredados/expirados no bloquean para siempre.
+  const failures = Object.fromEntries(Object.entries(parsed.data.failures).filter(([key, count]) => {
+    if (count === 0) return true;
+    const failedAt = parsed.data.failedAt[key];
+    return parsed.data.revision === STRATEGY_REVISION && failedAt !== undefined &&
+      Date.now() >= failedAt && Date.now() - failedAt < FAILURE_COOLDOWN_MS;
+  }));
+  return { ...parsed.data, failures };
 }
 
 export async function recordBackgroundRemovalSuccess(
@@ -78,6 +94,8 @@ export async function recordBackgroundRemovalSuccess(
     value: historySchema.parse({
       preferred: attempt,
       failures: { ...history.failures, [key]: 0 },
+      revision: STRATEGY_REVISION,
+      failedAt: historySchema.parse(history).failedAt,
     }),
   });
 }
@@ -95,6 +113,8 @@ export async function recordBackgroundRemovalFailure(
           ? null
           : history.preferred,
       failures: { ...history.failures, [key]: (history.failures[key] ?? 0) + 1 },
+      revision: STRATEGY_REVISION,
+      failedAt: { ...historySchema.parse(history).failedAt, [key]: Date.now() },
     }),
   });
 }

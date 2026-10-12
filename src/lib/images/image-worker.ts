@@ -1,5 +1,6 @@
 /** Web Worker de una sola operación. El cliente lo termina al recibir resultado. */
 import { BACKGROUND_REMOVAL_PUBLIC_PATH } from './background-removal';
+import { classifyImageWorkerFailure } from './worker-failure';
 import { closeDecodedImage, decodeImageFile, encodeBitmapToWebp, type DecodedImage } from './processor';
 import {
   imageWorkerMessageSchema,
@@ -22,27 +23,6 @@ function readableError(error: unknown): string {
   return message.slice(0, 500) || 'Error procesando imagen';
 }
 
-function classifyFailure(
-  error: unknown,
-  fallback: ImageWorkerFailureCode,
-): ImageWorkerFailureCode {
-  const message = readableError(error).toLowerCase();
-  if (
-    /out of memory|memory access out of bounds|cannot allocate|allocation failed|array buffer allocation failed/.test(
-      message,
-    )
-  ) {
-    return 'memory';
-  }
-  if (/failed to fetch|networkerror|load failed|resource metadata not found/.test(message)) {
-    return 'resource-download';
-  }
-  if (/with size .* but got|unexpected end|invalid.*chunk|integrity/.test(message)) {
-    return 'resource-integrity';
-  }
-  return fallback;
-}
-
 self.addEventListener('message', (event: MessageEvent<unknown>) => {
   const parsed = imageWorkerRequestSchema.safeParse(event.data);
   if (!parsed.success) return;
@@ -60,6 +40,10 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
       decoded = await decodeImageFile(file);
       failureCode = 'processing';
       const resized = await encodeBitmapToWebp(decoded.source, decoded.width, decoded.height);
+      // La inferencia solo necesita el WebP reducido. No retener el bitmap
+      // original (potencialmente decenas de megapíxeles) junto al modelo ONNX.
+      closeDecodedImage(decoded.source);
+      decoded = null;
 
       if (operation.type === 'resize') {
         reportProgress({ stage: 'Codificando WebP', current: null, total: null });
@@ -69,6 +53,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
 
       failureCode = 'resource-download';
       const { removeBackground } = await import('@imgly/background-removal');
+      failureCode = 'session';
       const publicPath = new URL(BACKGROUND_REMOVAL_PUBLIC_PATH, self.location.origin).toString();
       const result = await removeBackground(resized.blob, {
         publicPath,
@@ -103,7 +88,7 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
       post({
         type: 'failure',
         id,
-        code: classifyFailure(error, failureCode),
+        code: classifyImageWorkerFailure(error, failureCode),
         stage: currentStage,
         error: readableError(error),
       });

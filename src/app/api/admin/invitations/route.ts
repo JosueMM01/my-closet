@@ -4,6 +4,7 @@ import {
   invitationsResponseSchema,
 } from '@/lib/domain/validation';
 import { requireAdmin } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import {
   authGuardError,
   invalidBody,
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return invalidBody('Datos de invitación inválidos');
   try {
     const admin = await requireAdmin();
+    const limited = await guardRateLimit(`admin-invitations:${admin.userId}`, 10);
+    if (limited) return limited;
     const created = await createAndDeliverInvitation({ actorId: admin.userId, ...parsed.data });
     return jsonOk(invitationCreatedResponseSchema.parse(created), { status: 201 });
   } catch (error) {

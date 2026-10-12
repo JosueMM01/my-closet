@@ -86,6 +86,27 @@ original y del archivo cifrado. La rotación comienza únicamente después de qu
 la nueva pareja archivo/manifiesto está completa y conserva las dos generaciones
 más recientes.
 
+## Carpetas por generación
+
+Las nuevas copias se agrupan en una subcarpeta `respaldo-<fecha-UTC>` dentro del
+destino configurado. Cada carpeta contiene el dump cifrado `.age` y su manifiesto
+JSON. El manifiesto no está cifrado: contiene comprobaciones de integridad y
+metadatos técnicos, no registros de usuarios ni contraseñas. La fecha evita
+confundir posiciones de retención como «respaldo-1» con una copia concreta.
+
+Se conservan las dos generaciones completas más recientes. Primero se comprueba
+la nueva pareja y después se retiran los archivos de la generación excedente;
+solo se elimina su carpeta cuando está vacía. Nunca se borra recursivamente una
+carpeta con archivos ajenos. Las copias anteriores que están directamente en la
+carpeta raíz siguen disponibles para descarga, restauración y retención, sin
+moverlas automáticamente.
+
+Validación local del cambio: creación de carpetas, rotación de tres generaciones,
+descarga/SHA-256 tanto de carpetas como del formato plano anterior, conservación
+de archivos ajenos y parada antes de rotar ante cargas corruptas. Esta estructura
+todavía requiere publicación y un ensayo desde Actions; no se han reorganizado
+ni eliminado copias reales por este cambio.
+
 ## Separación de credenciales
 
 Estas credenciales pertenecen exclusivamente a GitHub Actions. No deben
@@ -157,6 +178,36 @@ vence en siete días. Una copia de prueba no demuestra continuidad cada ocho dí
 Publicar no garantiza token permanente: obtener autorización nueva, comprobar
 renovación y definir alertas de `invalid_grant` y copia atrasada. No reutilizar
 credenciales o sesiones Google Sign-In para Drive.
+
+### Recuperación de OAuth después de publicar el cliente
+
+El 11 de octubre de 2026, Actions falló con `invalid_grant` antes del dump,
+cifrado y subida; la validación del origen Neon fue correcta. La publicación
+del proyecto de respaldos fue confirmada por el propietario, pero todavía falta
+generar la nueva autorización. No asumir que publicar reactiva el token anterior.
+
+1. En OAuth Playground, usar el mismo cliente propio del proyecto de respaldos,
+   acceso offline y el permiso `https://www.googleapis.com/auth/drive.file`.
+   Autorizar otra vez e intercambiar el código por tokens; no revocar el proyecto
+   ni crear otro cliente para intentar resolver este fallo.
+2. Guardar únicamente el nuevo refresh token en `GOOGLE_DRIVE_REFRESH_TOKEN` de
+   `.env.local.backup`, sin pegarlo en conversaciones, capturas o logs.
+3. Validar la renovación sin crear ni borrar copias:
+   `node --env-file=.env.local.backup scripts/backups/google-drive-backup.mts check-oauth`.
+   Este comando no comprueba el estado de publicación, permisos de carpeta ni
+   integridad de las copias: solo confirma que Google acepta la renovación ahora.
+4. Ejecutar `status` con el mismo archivo para comprobar acceso a copias existentes
+   y antigüedad sin mutaciones de Drive. Reemplazar el Secret del mismo nombre en
+   GitHub Actions; el cambio no necesita despliegue de Vercel.
+5. Validar el workflow y una copia cifrada nueva con restauración aislada antes de
+   cerrar 4A/4B. La continuidad requiere también comprobar la ejecución programada.
+
+Validación posterior del 11 de octubre: el propietario actualizó el token local;
+`check-oauth` renueva correctamente y `status` consulta las copias existentes.
+La política indica que aún no corresponde otra copia. No se forzó un respaldo,
+rotación ni restauración. Falta confirmar el Secret de GitHub y la ejecución
+hospedada con esa credencial; la prueba local no valida Actions. Nunca interpretar
+el token como permanente.
 
 ## Preparar el cifrado
 

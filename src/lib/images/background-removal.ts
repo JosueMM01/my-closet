@@ -14,6 +14,7 @@ export interface BackgroundRemovalCapabilities {
   deviceMemoryGb: number | null;
   hardwareConcurrency: number;
   storageHeadroomBytes: number | null;
+  crossOriginIsolated?: boolean;
 }
 
 export interface BackgroundRemovalHistory {
@@ -61,12 +62,14 @@ export function backgroundRemovalAttempts(
   capabilities: BackgroundRemovalCapabilities,
   history: BackgroundRemovalHistory = EMPTY_BACKGROUND_REMOVAL_HISTORY,
 ): BackgroundRemovalAttempt[] {
-  const limited = isLimitedImageDevice(capabilities);
+  // Un móvil con 8 GB tampoco garantiza memoria disponible para el navegador.
+  // El historial exitoso se conserva; dispositivos nuevos empiezan por la CPU ligera.
+  const smallerCpuFirst = capabilities.isMobile || isLimitedImageDevice(capabilities);
   const candidates: BackgroundRemovalAttempt[] = [
     ...(shouldAttemptWebGpu(capabilities, history)
       ? [{ type: 'remove-background', device: 'gpu', model: 'isnet' } as const]
       : []),
-    ...(limited
+    ...(smallerCpuFirst
       ? [
           { type: 'remove-background', device: 'cpu', model: 'isnet_quint8' } as const,
           { type: 'remove-background', device: 'cpu', model: 'isnet_fp16' } as const,
@@ -93,7 +96,7 @@ export function backgroundRemovalAttempts(
 }
 
 export function shouldRetrySameAttempt(
-  code: ImageWorkerFailureCode | 'worker',
+  code: ImageWorkerFailureCode | 'worker' | 'timeout',
   online: boolean,
   retries: number,
 ): boolean {
@@ -101,9 +104,9 @@ export function shouldRetrySameAttempt(
 }
 
 export function shouldTryNextAttempt(
-  code: ImageWorkerFailureCode | 'worker',
+  code: ImageWorkerFailureCode | 'worker' | 'timeout',
   current: BackgroundRemovalAttempt,
 ): boolean {
-  if (code !== 'memory' && code !== 'worker') return true;
+  if (code !== 'memory' && code !== 'worker' && code !== 'timeout') return true;
   return current.model !== 'isnet_quint8';
 }

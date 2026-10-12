@@ -1,6 +1,6 @@
 # Ruta de mejora de My Closet
 
-Revisión: 2026-10-04. Este es el plan versionado del nuevo ciclo. No reinicia
+Revisión: 2026-10-08. Este es el plan versionado del nuevo ciclo. No reinicia
 funcionalidades ni renumera el historial; `PHASES.md` sigue como bitácora local,
 ignorada por Git. No contiene credenciales.
 
@@ -10,8 +10,9 @@ ignorada por Git. No contiene credenciales.
   No equivale a certificar todos los casos de permisos o sincronización.
 - Conservar las fases anteriores y sus evidencias históricas. No presentar cifras
   antiguas de tests como validación de esta revisión.
-- Pipeline adaptativo confirmado por el propietario en Xiaomi 12 y Galaxy A35;
-  tiempo reportado de 35–45 s. Optimización pendiente, no funcionalidad básica.
+- Pipeline adaptativo confirmado previamente por el propietario en Xiaomi 12 y
+  Galaxy A35 (35–45 s). El Preview de PR #11 presentó una regresión reportada en
+  Xiaomi desde cámara/galería: no considerar cerrada la compatibilidad actual.
 - PR #7 de respaldos fusionado directamente a main el 2026-10-04; develop aún
   no lo contiene en remoto. La rama local fix/backup-recovery-phase-4a, creada
   desde develop, integra el baseline publicado y las correcciones posteriores.
@@ -19,8 +20,12 @@ ignorada por Git. No contiene credenciales.
 - PR #8 de limpieza cerrado sin fusionar por solicitud del propietario. La rama
   Su eliminación de 16 documentos y referencias ya está integrada en la rama 4A.
   No volver a abrirlo, publicar ramas o generar previews sin confirmación expresa.
-- Reautenticación de Perfil solo navega al login, que puede redirigir por el
-  perfil local persistido. Rate limiting todavía en memoria.
+- PR #10 confirmado fusionado en main. El propietario reporta callback de
+  develop registrado y cliente OAuth de respaldos publicado. Quedan por
+  comprobar renovación posterior al cambio, scheduler y alertas en operación.
+- En `feat/security-account-lifecycle-performance`: recuperación de sesión con
+  identidad local preservada; límites compartidos implementados; carpetas por
+  generación de respaldo implementadas. No equivale a publicación de 5B/5C/6.
 
 ## Integración y criterios generales
 
@@ -57,6 +62,16 @@ La antigua fase 7 de compatibilidad móvil se conserva como historial cerrado;
 la fase 7 de esta tabla corresponde al nuevo ciclo.
 
 ### 4A — Terminar la recuperación existente
+
+Checkpoint operativo del 11 de octubre de 2026: cinco ejecuciones programadas
+fallidas del 7 al 11 de octubre. El último run `38139034000` valida Neon, pero
+Google rechaza la renovación con `invalid_grant` antes de crear/subir/rotar copias.
+El propietario confirma publicación del proyecto OAuth de respaldos y que aún
+falta obtener el refresh token nuevo. La recuperación está abierta: reautorizar
+el mismo cliente, validar `check-oauth` y `status`, actualizar el Secret y comprobar
+copia/restauración aislada y continuidad programada. Preparado localmente el
+comando de diagnóstico sin acceso a Drive; no equivale a renovación real.
+No requiere un deployment web y no cierra 4A/4B por sí solo.
 
 - Antes de publicar: medir assets generados y preparar control de previews para
   cambios de docs/respaldos. Este adelanto de 6 es una puerta de publicación,
@@ -110,6 +125,28 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 
 ### 5 — Seguridad e identidad
 
+Checkpoint local: contador compartido con migración aditiva `0003`, límites de
+autenticación, invitaciones, imágenes y sync; guardas 429/503, HMAC y arranque de
+BD único por proceso. La migración se aplicó exclusivamente en Neon staging tras
+verificar el endpoint mediante API. No aplicada en producción. Falta completar
+el inventario de rutas, verificar nuevo correo y privacidad Cloudinary; 5C y la
+optimización móvil de 6 siguen pendientes. No habilitar borrado de cuentas antes
+de probar referencias compartidas, trabajos durables y recuperación.
+
+Evidencia de este checkpoint: suite local completa, TypeScript y lint correctos;
+27 pruebas dirigidas de respaldos; cuatro contratos PostgreSQL ejecutados en
+Neon staging, incluido cupo exacto 5/30 entre dos conexiones independientes;
+build local de producción correcto con SQLite y proveedores simulados. No se
+generó deployment ni PR. La nueva organización de carpetas aún no se ejecutó
+contra Google. Antes del siguiente release aplicar migración en producción tras
+backup/verificación; el código nuevo sin tabla devolvería 503.
+
+Decisión del propietario, 2026-10-05: mantener entrega pública desde Cloudinary,
+sin proxy Vercel ni firmas de entrega. No son imágenes privadas; también afecta
+fotografías de perfil. La firma de subida y finalize siguen protegiendo las
+credenciales y la asignación de propietario. Esta decisión sustituye el requisito
+anterior de entrega privada; no cambia permisos de escritura ni datos del armario.
+
 - 5A ampliada localmente en `fix/admin-invitation-seat-reservations-phase-5a`, creada
   desde develop e integrada por fast-forward con las dependencias 4A/4B pendientes.
   Política aprobada: activos + invitaciones ADMIN pendientes y vigentes <= 2.
@@ -134,19 +171,12 @@ probadas. Testing permite un ensayo puntual de 4A, no demuestra continuidad.
 - Revisar secretos/dependencias y diagnósticos sin datos sensibles. Passkeys se
   diseñan como subfase con recuperación; no guardar biometría.
 - 5B: límites compartidos, recuperación de sesión y verificación del nuevo correo.
-  Privacidad de imágenes aprobada por el propietario: subir y entregar originales
-  y derivados Cloudinary como recursos autenticados, con autorización por propietario
-  o share vigente en servidor. La firma de subida actual no protege la entrega.
-  Diseñar primero el acceso: una URL firmada compartible no exige sesión por sí sola;
-  decidir entre autorización en cada lectura o acceso temporal, midiendo coste de
-  transferencia/funciones Vercel y compatibilidad del plan gratuito. No prometer
-  privacidad estricta por cambiar solamente el tipo de subida.
-  Migrar imágenes existentes, metadatos/sync y cachés remotas; comprobar que las
-  URLs públicas antiguas dejan de entregar originales y derivados. Preservar blobs
-  offline autorizados sin guardar credenciales ni URLs temporales como identidad
-  permanente. La revocación no puede retirar copias ya descargadas.
-  Probar dos usuarios, acceso anónimo, propietario, shares/revocación, expiración,
-  perfil/Google, clones y operación offline antes de promover a producción.
+  Entrega Cloudinary pública aprobada; conservar advertencia en privacidad y
+  prohibición de fotos sensibles. Probar ownership de subida/finalize, imágenes
+  de perfil, clones y operación offline; no afirmar que revocar un share oculta
+  URLs de imagen ya conocidas. No migrar imágenes a privadas.
+  Checkpoint adicional: cuotas por usuario para contraseña/correo (5/min),
+  actualización de perfil (30/min) y desvinculación Google (5/min).
 - 5C: diseñar baja voluntaria después de validar recuperación y permisos. Requerir
   conexión, identidad/reautenticación reciente y palabra ELIMINAR validada también
   por servidor, con explicación de datos, imágenes y nueva invitación necesaria.
@@ -167,6 +197,55 @@ Cierre: pruebas negativas y regresiones críticas cubiertas, hallazgos graves
 resueltos. No prometer inmunidad a todos los ataques.
 
 ### 6 — Rendimiento y recursos
+
+Avance 2026-10-05: móviles sin historial priorizan CPU/quint8 antes de FP16,
+sin basarse únicamente en RAM. Se conserva una ruta exitosa anterior y se omiten
+rutas que fallaron dos veces; escritorio y guardas WebGPU Android no cambian.
+No se retiraron modelos ni se certifica reducción de tiempo sin comparación
+física en Xiaomi/A35. Actualización local del 6 de octubre: un único control de
+foto abre un modal con cámara propia (getUserMedia, sin audio) y acceso a galería.
+Captura limitada a 1080 px, liberación al cerrar/salir y ante permisos tardíos;
+se conserva el procesamiento local y no se suben borradores antes de guardar.
+Build, TypeScript, lint y seis casos E2E dirigidos móvil/escritorio aprobados con
+cámara simulada. El propietario confirmó después la cámara en Preview, pero
+reportó fallo del modelo tanto desde cámara como galería. Pendiente revalidar
+inferencias en Xiaomi/Samsung; cámara funcional no certifica eliminación de fondo.
+
+Correcciones locales del 2026-10-08, sin nuevo deployment:
+- Google por invitación inicia por POST JSON validado y navegación posterior,
+  manteniendo `form-action 'self'`, cookies del flujo y token fuera de la URL.
+  Los errores permanecen en el formulario con opción de reintento.
+- Se inspecciona la invitación antes de mostrar cambio de cuenta. Un enlace usado
+  con sesión activa conserva su error y ofrece volver al armario, no cerrar sesión.
+- El Worker libera el bitmap original tras reducirlo y antes de cargar ONNX.
+  Sesión/compilación WASM y timeout tienen códigos separados de descarga/memoria;
+  fallar la sesión no purga la caché ni vuelve a descargar el mismo modelo.
+- Inferencia tiene margen acotado de 300 s sin progreso (otras etapas: 180 s).
+  Un timeout en quint8 no escala automáticamente a un modelo mayor.
+- Vetos de fallos caducan en 24 h y los heredados se invalidan conservando éxitos.
+  Reintento explícito ignora el historial una vez sin borrar fotos ni assets.
+  Diagnóstico añade duración por etapa y aislamiento del navegador.
+- Pruebas aisladas cubren red, sesión, inferencia lenta, timeout, historial y
+  liberación de memoria. La prueba real exige transparencia antes de editar a mano.
+  No cerrar 5B/6 ni certificar el dispositivo físico sin probar el nuevo Preview.
+
+Avance del 11 de octubre: cámara inmersiva a pantalla completa en móvil, con
+áreas seguras, controles accesibles y encuadre completo sin recortar la captura;
+vista centrada en escritorio. Solicita dimensiones orientadas a retrato cuando
+la pantalla es vertical, conserva galería y libera la cámara antes de procesar.
+Las correcciones del 8 de octubre y este ajuste se agrupan para el Preview del
+PR #11, sin promover main. Modelo real revalidado con transparencia automática
+en escritorio y móvil emulado; no demuestra tiempos ni compatibilidad física.
+Comparar Xiaomi/Samsung con la misma foto, primera carga y caché caliente, y
+registrar backend/modelo, duración por etapa y reintentos antes de cambiar la
+estrategia. No prometer volver a 15 s ni sacrificar compatibilidad por una cifra.
+
+Validación local 2026-10-08: TypeScript, lint y build correctos; 280 pruebas
+unitarias/integración aprobadas (13 skips de suites opt-in); 17 E2E dirigidas
+aprobadas y un skip esperado. Modelo real con transparencia antes de edición
+manual aprobado en Chromium escritorio y móvil emulado; OAuth de navegador
+simulado, sin credenciales ni servicios reales. No equivale a prueba física
+Xiaomi/A35 ni a aceptación real de Google en Preview.
 
 - Medir caché fría/caliente: descarga, runtime, preparación, inferencia y
   codificación en Xiaomi, Samsung y escritorio, sin conservar fotos ni EXIF.
@@ -256,12 +335,71 @@ el run manual/programado hospedado y notificaciones pendientes. Preparar 4B sin
 publicar anticipadamente y evitar otra entrega de modelos para estos cambios.
 Orden funcional conservado: 4A → 4B → 5A/5B/5C → 6 → 7 → 8. La medición inicial
 de 6 y actualización documental de 7 son transversales, no bloquean el plan.
-5A y 5B pueden compartir entrega/PR si los commits y pruebas son independientes;
-5C permanece aparte por su carácter irreversible y coordinación Neon/Cloudinary.
+Entrega autorizada el 5 de octubre: 4A/4B/5A integrada a develop mediante PR #9;
+PR #10 abierto de develop a main para revisión, sin merge automático.
+La siguiente entrega agrupa 5B/5C/6 en
+`feat/security-account-lifecycle-performance`, creada desde develop actualizado.
+Compartir PR/despliegue no mezcla sus puertas: commits y pruebas independientes;
+la baja irreversible 5C exige validación específica de referencias y limpieza durable.
 PR funcional no equivale a deployment por commit: preparar entrega completa,
 autorizar publicación una sola vez y revisar el presupuesto antes de cada release.
-Las páginas legales y la corrección de emisión ADMIN están preparadas localmente;
-no están publicadas. La baja de cuenta y el conjunto de 5B siguen pendientes.
+Preview de develop verificado READY para 4d0e439, con DATABASE_URL y conexión
+directa exclusivas de Neon staging, AUTH_SECRET independiente y URL de Preview.
+Los valores de producción no se modificaron. Cloudinary todavía comparte recursos;
+no efectuar migración/borrado destructivo de imágenes para probar 5B.
+Google Cloud debe autorizar el callback del dominio Preview antes de probar OAuth.
+La baja de cuenta y el conjunto de 5B siguen pendientes; no clasificar el lote como cerrado.
+
+Inicio local de 5B validado: recuperación de sesión con perfil/outbox conservados, bloqueo
+del reemplazo silencioso de identidad y cambio explícito de cuenta para aceptar
+invitaciones. El token permanece solo en memoria y se retira del fragmento; se
+conserva entre repeticiones del efecto en Strict Mode. La rama de trabajo no
+genera autodeploy; consolidar el lote antes de publicar, no abrir otro PR funcional
+por cada commit. Continuar con límites compartidos, verificación de correo y
+privacidad Cloudinary, después baja durable y mediciones del pipeline.
+Validación de este primer bloque: 63 tests dirigidos unitarios/integración,
+ocho E2E de móvil/escritorio sobre localhost con APIs interceptadas, TypeScript,
+ESLint dirigido y diff sin errores. OAuth en E2E simula el retorno y la sesión;
+no demuestra interacción real con Google. Sin migraciones, borrados Cloudinary
+ni nuevo deployment del bloque 5B. CI del PR #10 también aprobado.
+
+Checkpoint 2026-10-05: decisión de entrega pública registrada; botones de cámara
+y galería integrados; modelo ligero como default en móviles nuevos, preservando
+historial exitoso. Build local correcto, 255 pruebas de la suite aprobadas y
+pruebas adicionales de límites de perfil correctas, junto con lint/TypeScript.
+La ejecución E2E nueva no pudo arrancar su servidor aislado por restricción del
+entorno: no está validada ni certifica cámara física. Vercel Development quedó
+aislado; Preview conserva URL de develop y las claves staging ya separadas;
+metadatos de todas las variables Production permanecieron sin cambios. No se
+publicó código ni generó deployment. 5B mantiene pendiente verificación del
+nuevo correo e inventario de permisos; 5C mantiene pendiente implementación de
+baja durable; 6 requiere medición/aceptación física de rendimiento y calidad.
+
+### Puerta de entrega revisada — 2026-10-05
+
+- Bloque técnico de límites compartidos de 5B terminado y revalidado: 59 pruebas
+  dirigidas de contadores, autenticación, respaldos y pipeline aprobadas. El cierre
+  es de implementación local, no de toda 5B ni de validación en producción.
+- Git remoto y Vercel coinciden: main `2a2dddb` y develop `4d0e439`, ambos con
+  deployments READY. La rama de trabajo conserva cambios posteriores no publicados.
+- Preview tiene variables de conexión y sesión separadas de Production; Google,
+  SMTP y Cloudinary todavía comparten configuración. No promover el artefacto
+  Preview a Production con credenciales staging: producir un build de main con
+  variables de producción.
+- La rama de trabajo tiene autodeploy desactivado. Un push autorizado puede guardar
+  avances sin crear Preview; el Preview de develop requiere integrar el código.
+  Objetivo de la siguiente entrega: un Preview de develop y una publicación de main,
+  sin deployments por cada commit. CI y la validación específica siguen obligatorios.
+- Antes de publicar los límites en main, confirmar respaldo y aplicar/verificar la
+  migración aditiva `0003_shared_rate_limits.sql` en producción. Sin la tabla,
+  los endpoints protegidos fallan de forma cerrada con 503.
+- Consumo Vercel actual no confirmado: el conector de cargos respondió
+  `costs_not_found` y el navegador requiere autenticación. Los 1,79 GB anteriores
+  son una referencia histórica, no una medición actual. El directorio public local
+  mide 648.227.940 bytes; no equivale a tamaño facturado por deployment ni incluye
+  los bundles de Functions. Revisar ambas métricas en Usage antes de autorizar build.
+- No declarar cerradas 4A/4B por un merge: falta comprobar continuidad programada
+  y renovación OAuth. Tampoco cerrar 5B/5C/6 antes de completar sus puertas propias.
 
 Checkpoint histórico de 4A (2026-09-30, anterior al ensayo del 4 de octubre): renovación OAuth y listado Drive reales
 correctos, destino Neon confirmado por API y configuración Actions registrada.

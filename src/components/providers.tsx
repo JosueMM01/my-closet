@@ -162,13 +162,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
       try {
         const response = await fetch('/api/auth/session', {
           headers: { 'x-requested-with': 'my-closet' },
+          cache: 'no-store',
         });
         if (cancelled) return;
         if (!response.ok) return;
         const parsed = sessionResponseSchema.safeParse(await response.json());
         if (!parsed.success || cancelled) return;
-        setRemoteExpired(!parsed.data.authenticated);
-        if (parsed.data.authenticated) {
+        const sameAccount = parsed.data.authenticated && parsed.data.profile.userId === profile.userId;
+        setRemoteExpired(!sameAccount);
+        // Una cookie de otra cuenta no autoriza sustituir el perfil de IndexedDB.
+        if (parsed.data.authenticated && sameAccount) {
           const remoteProfile = toLocalProfile(parsed.data.profile);
           const changed = JSON.stringify(remoteProfile) !== JSON.stringify(profile);
           if (changed) {

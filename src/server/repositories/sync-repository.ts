@@ -1,7 +1,7 @@
 /**
  * Repositorio de sincronización compartido por SQLite y PostgreSQL.
  */
-import { and, asc, eq, gt, gte, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, getTableColumns, inArray, lte, or, sql } from 'drizzle-orm';
 import { resolveConflict } from '@/lib/domain/conflict';
 import {
   syncPullCursorPayloadSchema,
@@ -494,11 +494,13 @@ export async function pullAll(
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
   let serverTime = new Date().toISOString();
   if (db.dialect === 'postgres') {
+    // Keep PostgreSQL microseconds: Date truncation can exclude fresh writes
+    // from the snapshot or repeat the last row when continuing a keyset page.
     const clockRows = await db.postgres.execute<{ value: string }>(
-      sql`select current_timestamp as value`,
+      sql`select to_char(current_timestamp at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as value`,
     );
     serverTime = clockRows[0]?.value
-      ? new Date(clockRows[0].value).toISOString()
+      ? clockRows[0].value
       : '';
   }
   if (!serverTime) throw new Error('PostgreSQL no devolvió la hora del servidor');
@@ -517,19 +519,19 @@ export async function pullAll(
     const sharePosition = state.entities.wardrobeShares.position;
     const [imageRows, garmentRows, outfitRows, calendarRows, shareRows] = await Promise.all([
       state.entities.images.done ? Promise.resolve([]) : db.postgres
-        .select()
+        .select({ ...getTableColumns(pgSchema.images), cursorAt: sql<string>`to_char(${pgSchema.images.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` })
         .from(pgSchema.images)
         .where(
           and(
             eq(pgSchema.images.userId, userId),
-            lte(pgSchema.images.updatedAt, new Date(upperBound)),
+            lte(pgSchema.images.updatedAt, sql`${upperBound}::timestamptz`),
             or(
               imagePosition
-                ? gt(pgSchema.images.updatedAt, new Date(after(imagePosition)))
-                : gte(pgSchema.images.updatedAt, new Date(cutoff)),
+                ? gt(pgSchema.images.updatedAt, sql`${after(imagePosition)}::timestamptz`)
+                : gte(pgSchema.images.updatedAt, sql`${cutoff}::timestamptz`),
               imagePosition
                 ? and(
-                    eq(pgSchema.images.updatedAt, new Date(imagePosition.at)),
+                    eq(pgSchema.images.updatedAt, sql`${imagePosition.at}::timestamptz`),
                     gt(pgSchema.images.id, imagePosition.id),
                   )
                 : undefined,
@@ -539,18 +541,18 @@ export async function pullAll(
         .orderBy(asc(pgSchema.images.updatedAt), asc(pgSchema.images.id))
         .limit(limit + 1),
       state.entities.garments.done ? Promise.resolve([]) : db.postgres
-        .select()
+        .select({ ...getTableColumns(pgSchema.garments), cursorAt: sql<string>`to_char(${pgSchema.garments.serverUpdatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` })
         .from(pgSchema.garments)
         .where(and(
           eq(pgSchema.garments.userId, userId),
-          lte(pgSchema.garments.serverUpdatedAt, new Date(upperBound)),
+          lte(pgSchema.garments.serverUpdatedAt, sql`${upperBound}::timestamptz`),
           or(
             garmentPosition
-              ? gt(pgSchema.garments.serverUpdatedAt, new Date(after(garmentPosition)))
-              : gte(pgSchema.garments.serverUpdatedAt, new Date(cutoff)),
+              ? gt(pgSchema.garments.serverUpdatedAt, sql`${after(garmentPosition)}::timestamptz`)
+              : gte(pgSchema.garments.serverUpdatedAt, sql`${cutoff}::timestamptz`),
             garmentPosition
               ? and(
-                  eq(pgSchema.garments.serverUpdatedAt, new Date(garmentPosition.at)),
+                  eq(pgSchema.garments.serverUpdatedAt, sql`${garmentPosition.at}::timestamptz`),
                   gt(pgSchema.garments.id, garmentPosition.id),
                 )
               : undefined,
@@ -559,18 +561,18 @@ export async function pullAll(
         .orderBy(asc(pgSchema.garments.serverUpdatedAt), asc(pgSchema.garments.id))
         .limit(limit + 1),
       state.entities.outfits.done ? Promise.resolve([]) : db.postgres
-        .select()
+        .select({ ...getTableColumns(pgSchema.outfits), cursorAt: sql<string>`to_char(${pgSchema.outfits.serverUpdatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` })
         .from(pgSchema.outfits)
         .where(and(
           eq(pgSchema.outfits.userId, userId),
-          lte(pgSchema.outfits.serverUpdatedAt, new Date(upperBound)),
+          lte(pgSchema.outfits.serverUpdatedAt, sql`${upperBound}::timestamptz`),
           or(
             outfitPosition
-              ? gt(pgSchema.outfits.serverUpdatedAt, new Date(after(outfitPosition)))
-              : gte(pgSchema.outfits.serverUpdatedAt, new Date(cutoff)),
+              ? gt(pgSchema.outfits.serverUpdatedAt, sql`${after(outfitPosition)}::timestamptz`)
+              : gte(pgSchema.outfits.serverUpdatedAt, sql`${cutoff}::timestamptz`),
             outfitPosition
               ? and(
-                  eq(pgSchema.outfits.serverUpdatedAt, new Date(outfitPosition.at)),
+                  eq(pgSchema.outfits.serverUpdatedAt, sql`${outfitPosition.at}::timestamptz`),
                   gt(pgSchema.outfits.id, outfitPosition.id),
                 )
               : undefined,
@@ -579,19 +581,19 @@ export async function pullAll(
         .orderBy(asc(pgSchema.outfits.serverUpdatedAt), asc(pgSchema.outfits.id))
         .limit(limit + 1),
       state.entities.calendarEntries.done ? Promise.resolve([]) : db.postgres
-        .select()
+        .select({ ...getTableColumns(pgSchema.calendarEntries), cursorAt: sql<string>`to_char(${pgSchema.calendarEntries.serverUpdatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` })
         .from(pgSchema.calendarEntries)
         .where(
           and(
             eq(pgSchema.calendarEntries.userId, userId),
-            lte(pgSchema.calendarEntries.serverUpdatedAt, new Date(upperBound)),
+            lte(pgSchema.calendarEntries.serverUpdatedAt, sql`${upperBound}::timestamptz`),
             or(
               calendarPosition
-                ? gt(pgSchema.calendarEntries.serverUpdatedAt, new Date(after(calendarPosition)))
-                : gte(pgSchema.calendarEntries.serverUpdatedAt, new Date(cutoff)),
+                ? gt(pgSchema.calendarEntries.serverUpdatedAt, sql`${after(calendarPosition)}::timestamptz`)
+                : gte(pgSchema.calendarEntries.serverUpdatedAt, sql`${cutoff}::timestamptz`),
               calendarPosition
                 ? and(
-                    eq(pgSchema.calendarEntries.serverUpdatedAt, new Date(calendarPosition.at)),
+                    eq(pgSchema.calendarEntries.serverUpdatedAt, sql`${calendarPosition.at}::timestamptz`),
                     gt(pgSchema.calendarEntries.id, calendarPosition.id),
                   )
                 : undefined,
@@ -601,7 +603,7 @@ export async function pullAll(
         .orderBy(asc(pgSchema.calendarEntries.serverUpdatedAt), asc(pgSchema.calendarEntries.id))
         .limit(limit + 1),
       state.entities.wardrobeShares.done ? Promise.resolve([]) : db.postgres
-        .select()
+        .select({ ...getTableColumns(pgSchema.wardrobeShares), cursorAt: sql<string>`to_char(${pgSchema.wardrobeShares.serverUpdatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')` })
         .from(pgSchema.wardrobeShares)
         .where(
           and(
@@ -609,14 +611,14 @@ export async function pullAll(
               eq(pgSchema.wardrobeShares.grantorId, userId),
               eq(pgSchema.wardrobeShares.granteeId, userId),
             ),
-            lte(pgSchema.wardrobeShares.serverUpdatedAt, new Date(upperBound)),
+            lte(pgSchema.wardrobeShares.serverUpdatedAt, sql`${upperBound}::timestamptz`),
             or(
               sharePosition
-                ? gt(pgSchema.wardrobeShares.serverUpdatedAt, new Date(after(sharePosition)))
-                : gte(pgSchema.wardrobeShares.serverUpdatedAt, new Date(cutoff)),
+                ? gt(pgSchema.wardrobeShares.serverUpdatedAt, sql`${after(sharePosition)}::timestamptz`)
+                : gte(pgSchema.wardrobeShares.serverUpdatedAt, sql`${cutoff}::timestamptz`),
               sharePosition
                 ? and(
-                    eq(pgSchema.wardrobeShares.serverUpdatedAt, new Date(sharePosition.at)),
+                    eq(pgSchema.wardrobeShares.serverUpdatedAt, sql`${sharePosition.at}::timestamptz`),
                     gt(pgSchema.wardrobeShares.id, sharePosition.id),
                   )
                 : undefined,
@@ -627,11 +629,11 @@ export async function pullAll(
         .limit(limit + 1),
     ]);
     const pages = {
-      images: pageRows(imageRows, limit, (row) => row.updatedAt.toISOString()),
-      garments: pageRows(garmentRows, limit, (row) => row.serverUpdatedAt.toISOString()),
-      outfits: pageRows(outfitRows, limit, (row) => row.serverUpdatedAt.toISOString()),
-      calendarEntries: pageRows(calendarRows, limit, (row) => row.serverUpdatedAt.toISOString()),
-      wardrobeShares: pageRows(shareRows, limit, (row) => row.serverUpdatedAt.toISOString()),
+      images: pageRows(imageRows, limit, (row) => row.cursorAt),
+      garments: pageRows(garmentRows, limit, (row) => row.cursorAt),
+      outfits: pageRows(outfitRows, limit, (row) => row.cursorAt),
+      calendarEntries: pageRows(calendarRows, limit, (row) => row.cursorAt),
+      wardrobeShares: pageRows(shareRows, limit, (row) => row.cursorAt),
     };
     const nextState: SyncPullCursorPayload = {
       ...state,

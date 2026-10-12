@@ -94,22 +94,77 @@ function capturedResetToken(): string {
 }
 
 beforeEach(async () => {
+  vi.stubEnv('TURNSTILE_ENABLED', 'false');
   process.env.DATABASE_URL = 'file::memory:';
   process.env.PUBLIC_REGISTRATION_ENABLED = 'true';
   process.env.BOOTSTRAP_ADMIN_EMAIL = BOOTSTRAP_EMAIL;
   process.env.BOOTSTRAP_ADMIN_PASSWORD = BOOTSTRAP_PASSWORD;
   process.env.EMAIL_PROVIDER = 'capture';
   cookieState.clear();
-  resetRateLimits();
+  await resetRateLimits();
   resetCapturedMessagesForTests();
   await closeServerDB();
 });
 
 afterEach(async () => {
   await closeServerDB();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe('API de cuentas y perfil', () => {
+  it('Turnstile obligatorio bloquea login antes de crear sesión y no revela claves', async () => {
+    vi.stubEnv('TURNSTILE_ENABLED', 'true');
+    vi.stubEnv('TURNSTILE_SITE_KEY', 'synthetic-site');
+    vi.stubEnv('TURNSTILE_SECRET_KEY', 'synthetic-secret');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost');
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    const response = await login(jsonRequest('/api/auth/login', { email: BOOTSTRAP_EMAIL, password: BOOTSTRAP_PASSWORD }));
+    expect(response.status).toBe(403);
+    expect(cookieState.size).toBe(0);
+    expect(fetcher).not.toHaveBeenCalled();
+    const capabilities = await (await providers()).text();
+    expect(capabilities).toContain('synthetic-site');
+    expect(capabilities).not.toContain('synthetic-secret');
+    const recovery = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: BOOTSTRAP_EMAIL }));
+    expect(recovery.status).toBe(403);
+    expect(readCapturedMessagesForTests()).toHaveLength(0);
+    fetcher.mockResolvedValue(Response.json({ success: true, action: 'login', hostname: 'localhost' }));
+    const verified = await login(jsonRequest('/api/auth/login', {
+      email: BOOTSTRAP_EMAIL, password: BOOTSTRAP_PASSWORD, turnstileToken: 'synthetic-token',
+    }));
+    expect(verified.status).toBe(200);
+    expect(cookieState.size).toBeGreaterThan(0);
+  });
+  it('limita recuperaciones del mismo destinatario y conserva la respuesta genérica', async () => {
+    const user = await registerUser('limited-mail@example.test', 'Correo');
+    const responses = await Promise.all(Array.from({ length: 3 }, () => forgotPassword(
+      jsonRequest('/api/auth/forgot-password', { email: user.email }),
+    )));
+    expect(responses.every(response => response.status === 200)).toBe(true);
+    expect(readCapturedMessagesForTests().filter(message => message.subject.includes('Recupera'))).toHaveLength(1);
+  });
+  it.each([
+    { route: '/api/profile/password', handler: changePassword, extra: { newPassword: 'nueva-contrasena-segura' } },
+    { route: '/api/profile/email', handler: changeEmail, extra: { newEmail: 'destino@example.test' } },
+  ])('limita comprobaciones de contraseña en $route sin modificar la cuenta', async ({ route, handler, extra }) => {
+    const profile = await registerUser('limited-profile@example.test', 'Perfil');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(Math.floor(Date.now() / 60_000) * 60_000 + 1000));
+    try {
+      const responses = await Promise.all(Array.from({ length: 6 }, () => handler(
+        jsonRequest(route, { currentPassword: 'contrasena-incorrecta', ...extra }),
+      )));
+      expect(responses.filter(response => response.status === 403)).toHaveLength(5);
+      expect(responses.filter(response => response.status === 429)).toHaveLength(1);
+      const stored = await findUserByEmail(profile.email);
+      expect(stored).toMatchObject({ email: profile.email });
+      if (!stored) throw new Error('Falta la cuenta de prueba');
+      expect(await verifyPassword('contrasena-segura', stored.passwordHash)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('anuncia registro público explícito y crea cuentas públicas como USER', async () => {
     const capabilities = await providers();
     expect(await capabilities.json()).toMatchObject({

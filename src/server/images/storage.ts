@@ -12,6 +12,7 @@ import {
 } from '@/lib/domain/validation';
 import {
   getCloudinaryCredentials,
+  getCloudinaryFolder,
   type CloudinaryCredentials,
 } from '@/server/env';
 import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
@@ -185,7 +186,7 @@ class CloudinaryImageStorage implements ImageStorage {
     if (existing && existing.userId !== input.userId) throw new ImageOwnershipError();
     const { cloudName, apiKey, apiSecret } = this.credentials;
     const timestamp = Math.floor(Date.now() / 1000);
-    const folder = `my-closet/${input.userId}`;
+    const folder = getCloudinaryFolder(input.userId);
     const signature = createHash('sha1')
       .update(`folder=${folder}&timestamp=${timestamp}${apiSecret}`)
       .digest('hex');
@@ -262,7 +263,7 @@ export function buildDirectUploadSignature(
   publicId: string;
 } {
   const timestamp = Math.floor(Date.now() / 1000);
-  const folder = `my-closet/${userId}`;
+  const folder = getCloudinaryFolder(userId);
   const publicId = imageId;
   const signature = createHash('sha1')
     .update(`folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`)
@@ -276,7 +277,7 @@ export async function finalizeDirectCloudinaryUpload(
 ): Promise<RemoteImageMetadata> {
   const credentials = getCloudinaryCredentials();
   if (!credentials) throw new Error('Cloudinary no está configurado');
-  const expectedPublicId = `my-closet/${userId}/${imageId}`;
+  const expectedPublicId = `${getCloudinaryFolder(userId)}/${imageId}`;
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.apiSecret}`).toString('base64');
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${encodeURIComponent(credentials.cloudName)}`

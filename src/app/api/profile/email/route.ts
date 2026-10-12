@@ -1,5 +1,6 @@
 import { emailChangeResponseSchema, emailChangeSchema } from '@/lib/domain/validation';
 import { verifyPassword } from '@/server/auth/password';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import { getSessionUser, rotateAllSessions } from '@/server/auth/session';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 import { AccountError, findUserById, updateEmail } from '@/server/repositories/users-repository';
@@ -11,6 +12,8 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const principal = await getSessionUser();
   if (!principal) return unauthorized();
+  const limited = await guardRateLimit(`profile-email:${principal.userId}`, 5);
+  if (limited) return limited;
   const parsed = emailChangeSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return invalidBody('Datos de correo inválidos');
   const user = await findUserById(principal.userId);
