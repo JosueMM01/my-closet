@@ -16,7 +16,7 @@ UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──�
 ## Requisitos
 
 - **Node.js 24 LTS** (`.nvmrc` y `.node-version` fijan `24.13.0`)
-- **pnpm 11** (`nvm use && corepack enable` o `npx -y pnpm@11.22.0 …`)
+- **pnpm 12.14.0**, fijado en `packageManager` (`corepack pnpm` o `npx -y pnpm@12.14.0 …`)
 
 ## Puesta en marcha
 
@@ -63,9 +63,8 @@ IA, red ni análisis de fotos y funciona offline.
 | `pnpm test` | Vitest: unitarios + integración |
 | `pnpm e2e` | build + Playwright (Chromium) |
 
-Estado conocido: **124 Vitest**; **64 E2E aprobadas y 4 skips esperados**. La
-prueba del modelo real de eliminación de fondo es opt-in y se vuelve a ejecutar
-por separado.
+Los resultados vigentes de pruebas se consultan en cada ejecución de CI. La
+prueba del modelo real de eliminación de fondo es opt-in y se ejecuta por separado.
 
 Chromium de Playwright se instala **dentro del proyecto**:
 
@@ -81,46 +80,21 @@ cuenta existente que antes se vinculó desde Perfil con el mismo correo
 verificado. Neon y Cloudinary tienen runtime y flujo directo funcionales, pero
 solo deben activarse explícitamente y probarse primero en staging. La app local
 no realiza llamadas externas con los proveedores desactivados. Detalles:
-**`docs/EXTERNAL_SERVICES_SETUP.md`**.
+**[Stack y entornos](docs/STACK.md#entornos)**.
 
-## Versiones principales utilizadas
+## Stack
 
-| Paquete | Versión |
-|---|---|
-| Node.js (LTS) | 24.13.0 (`.nvmrc`, `engines >=24 <25`) |
-| pnpm | 11.22.0 |
-| next | 16.3.1 |
-| react / react-dom | 19.2.8 |
-| typescript | 5.9.3 * |
-| tailwindcss | ^4 (4.x) |
-| drizzle-orm / drizzle-kit | 0.45.2 / 0.31.10 |
-| better-sqlite3 | 13.0.3 |
-| dexie / dexie-react-hooks | 4.4.5 / 4.4.0 |
-| zod | 4.4.3 |
-| jose | 6.2.9 |
-| @imgly/background-removal | 1.7.0 |
-| onnxruntime-web | 1.21.0 |
-| @playwright/test | 1.62.1 |
-| vitest | 4.1.10 |
-
-\* TypeScript 7.0.2 es la última publicada, pero typescript-eslint (usado
-por eslint-config-next) soporta `<6.1.0`; 5.9.3 es la última estable
-**compatible** con el toolchain actual.
+Las versiones y la separación entre producción, desarrollo y pruebas se
+documentan en [STACK.md](docs/STACK.md). `package.json` y `pnpm-lock.yaml`
+son la referencia ejecutable de dependencias.
 
 ## Documentación
 
-- `docs/ARCHITECTURE.md` — capas y flujo offline-first
-- `docs/OFFLINE_FIRST.md` — IndexedDB, Service Worker, offline
-- `docs/SYNC.md` — outbox, conflictos, cambio de dispositivo
-- `docs/AUTHENTICATION.md` — sesiones, cookies HttpOnly, offline
-- `docs/IMAGES.md` — pipeline en el navegador, Cloudinary
-- `docs/DEVELOPMENT.md` — entorno local, SQLite e IndexedDB
-- `docs/TESTING.md` — cómo ejecutar y qué cubre cada suite
-- `docs/SECURITY.md` — CSP, CSRF, rate limit, secretos
-- `docs/DEPLOYMENT.md` — checklist Vercel (sin ejecutar)
-- `docs/EXTERNAL_SERVICES_SETUP.md` — activar Neon/Cloudinary/Google/Vercel
+- [PHASES.md](docs/PHASES.md) — fases y pendientes del proyecto
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — capas, datos y flujo offline-first
+- [STACK.md](docs/STACK.md) — tecnologías, entornos, herramientas y licencias
 
 ## Licencia de assets
 
-Fotos demo: Unsplash License (ver `docs/ASSET_SOURCES.md`). Iconos: obra
+Fotos demo: Unsplash License (ver [STACK.md](docs/STACK.md#licencias-y-assets)). Iconos: obra
 propia del proyecto.

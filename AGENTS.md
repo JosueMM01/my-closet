@@ -49,5 +49,4 @@ SQLite/PG, auth scrypt, ImageStorage) · `src/app/api` (rutas nodejs) ·
 `src/app/(app)` (UI que lee IndexedDB).
 
 ## Lectura recomendada
-`docs/ARCHITECTURE.md` · `docs/SYNC.md` · `docs/OFFLINE_FIRST.md` ·
-`docs/SECURITY.md` · `docs/DEVELOPMENT.md`.
+`docs/PHASES.md` · `docs/ARCHITECTURE.md` · `docs/STACK.md`.

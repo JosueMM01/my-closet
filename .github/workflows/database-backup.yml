@@ -54,8 +54,6 @@ jobs:
           echo "BACKUP_PG_DUMP_VERSION_PATH=$RUNNER_TEMP/my-closet-backup/pg-dump-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
@@ -140,8 +138,6 @@ jobs:
           echo "RESTORED_SERVER_VERSION_PATH=$RUNNER_TEMP/my-closet-restore/server-version.txt" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
