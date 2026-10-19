@@ -44,6 +44,14 @@ localStorage, sessionStorage ni IndexedDB. Una sesión remota expirada exige
 reautenticación y preserva la identidad local y la outbox. El trabajo offline
 permanece ligado al origen del navegador y al usuario correspondiente.
 
+El cambio de correo exige contraseña actual y un código enviado al nuevo buzón,
+con caducidad de 15 minutos y hash SHA-256 en el servidor. La confirmación está
+ligada a la cuenta, correo y credenciales originales; solo la última solicitud
+es válida. Una transacción cambia el correo e invalida el código, las sesiones
+y los enlaces de recuperación anteriores; después se emite una sesión nueva.
+Si el correo está deshabilitado o falla la entrega, no se cambia la dirección.
+El código solo vive en memoria en la UI; no se añade a IndexedDB ni a URLs.
+
 ## Imágenes y sugerencias
 
 El navegador realiza todo el procesamiento de imágenes. Los workers preservan
@@ -52,8 +60,11 @@ bajo demanda; la cámara y la galería comparten el flujo de captura.
 
 LocalImageStorage cubre pruebas aisladas. Cloudinary recibe las subidas directas
 del navegador en los entornos autorizados; Preview tiene un prefijo separado
-para imágenes nuevas. La privacidad de recursos históricos y el garbage
-collection siguen sujetos a las puertas de la fase 5B.
+para imágenes nuevas. La entrega actual de Cloudinary es pública, incluidas
+fotos de perfil: conocer la URL permite acceder a la imagen, y revocar un share
+no invalida las URLs ya conocidas. No subir fotos sensibles. Las firmas de subida
+y finalize protegen la asignación de propietario, no la lectura privada del CDN.
+La revisión de permisos y el garbage collection siguen pendientes en 5B/5C.
 
 `recommendOutfits()` es pura y determinista. Lee prendas, conjuntos y calendario
 locales, usa una semilla y contexto manual validado, y devuelve hasta tres

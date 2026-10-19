@@ -18,8 +18,8 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 4A — Respaldos y recuperación | Copia cifrada, retención de dos generaciones y restauración aislada verificadas en Actions | Confirmar continuidad programada y alertas de copia atrasada |
 | 4B — Publicación OAuth | Páginas de presentación, privacidad y términos publicadas; cliente de respaldos en producción; renovación comprobada | Mantener comprobaciones de renovación, permisos y alertas |
 | 5A — Invitaciones y cupo ADMIN | Reservas transaccionales integradas: activos más invitaciones ADMIN vigentes no superan dos | Completar la aceptación manual de los flujos relevantes |
-| 5B — Seguridad e identidad | Recuperación de sesión, límites compartidos y guardas integrados; migraciones de producción aplicadas | Verificación del nuevo correo, revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
-| 5C — Baja de cuentas | Pendiente | Reautenticación, confirmación, revocación de sesiones y borrado durable con referencias compartidas y respaldos |
+| 5B — Seguridad e identidad | Verificación del nuevo correo en Preview aislado; PostgreSQL, ensayo idempotente de migración y flujo de confirmación alojado comprobados | Completar CI del último commit y recepción SMTP real; aceptación manual; revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
+| 5C — Baja de cuentas | Diseño iniciado; sin endpoint ni borrado habilitado | Reautenticación, confirmación, protección del último administrador, revocación y borrado durable con referencias compartidas y respaldos |
 | 6 — Rendimiento y compatibilidad | Cámara móvil y recuperación del pipeline integradas | Validación física en iPhone y mediciones de tiempo, memoria y calidad |
 | 7 — Experiencia y documentación | Documentación pública reducida a fases, arquitectura y stack | Coherencia de mensajes, avisos y revisión de experiencia; Web Push se evalúa aparte |
 | 8 — Avatar experimental | Opcional | Prototipo local medido y decisión de viabilidad |
@@ -28,6 +28,21 @@ Los respaldos de PostgreSQL no incluyen binarios Cloudinary ni borradores
 IndexedDB. No declarar recuperación completa de imágenes por restaurar la base.
 Turnstile tiene claves separadas para Production y Preview; producción permanece
 desactivada hasta comprobar el flujo real del dominio canónico.
+
+El nuevo cambio de correo conserva la dirección actual hasta confirmar un código
+de un solo uso. Su migración `0004` se ensayó en una copia aislada y no se ha
+aplicado a producción. Este avance no cierra 5B ni habilita la baja de cuentas.
+El Preview de correo desactiva Google y Turnstile solo en su rama, cuyos alias
+no están registrados en esos proveedores; no demuestra la validación de OAuth
+ni del desafío real y no modifica la configuración de producción.
+
+Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,
+registrar limpieza Cloudinary durable antes de perder sus claves y proteger al
+último administrador. Exigir conexión, reautenticación y confirmación ELIMINAR.
+Los dispositivos offline y los respaldos históricos no se borran de inmediato;
+la reconexión y la restauración deben impedir reintroducir cuentas eliminadas.
+Las pruebas de limpieza no deben borrar recursos de producción referenciados
+por una copia de su base: deben utilizar exclusivamente assets sintéticos.
 
 ## Orden de entrega
 
