@@ -36,6 +36,14 @@ El Preview de correo desactiva Google y Turnstile solo en su rama, cuyos alias
 no están registrados en esos proveedores; no demuestra la validación de OAuth
 ni del desafío real y no modifica la configuración de producción.
 
+Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,
+registrar limpieza Cloudinary durable antes de perder sus claves y proteger al
+último administrador. Exigir conexión, reautenticación y confirmación ELIMINAR.
+Los dispositivos offline y los respaldos históricos no se borran de inmediato;
+la reconexión y la restauración deben impedir reintroducir cuentas eliminadas.
+Las pruebas de limpieza no deben borrar recursos de producción referenciados
+por una copia de su base: deben utilizar exclusivamente assets sintéticos.
+
 ## Orden de entrega
 
 1. Confirmar un respaldo recuperable y verificar el endpoint de producción.
