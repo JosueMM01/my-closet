@@ -20,7 +20,7 @@ export default defineConfig({
     timeout: 10_000,
   },
   webServer: externalBaseUrl ? undefined : {
-    command: 'npx -y pnpm@11.22.0 exec next start -p ' + PORT,
+    command: 'node node_modules/next/dist/bin/next start -p ' + PORT,
     port: PORT,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,

@@ -4,18 +4,18 @@
   "private": true,
   "engines": {
     "node": ">=24.13.0",
-    "pnpm": ">=11.0.0"
+    "pnpm": ">=12.14.0 <13"
   },
   "scripts": {
     "prepare:background-removal": "node scripts/prepare-background-removal-assets.mjs",
-    "predev": "pnpm prepare:background-removal",
+    "predev": "node scripts/prepare-background-removal-assets.mjs",
     "dev": "next dev",
-    "prebuild": "pnpm prepare:background-removal",
+    "prebuild": "node scripts/prepare-background-removal-assets.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "pretest": "pnpm prepare:background-removal",
+    "pretest": "node scripts/prepare-background-removal-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -60,5 +60,5 @@
     "typescript": "^5.9.3",
     "vitest": "4.1.10"
   },
-  "packageManager": "pnpm@11.22.0"
+  "packageManager": "pnpm@12.14.0"
 }

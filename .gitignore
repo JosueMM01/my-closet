@@ -52,5 +52,8 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 
-# local development plan (not versioned)
-/docs/PHASES.md
+# Public documentation allowlist; all other notes stay local.
+/docs/*
+!/docs/PHASES.md
+!/docs/ARCHITECTURE.md
+!/docs/STACK.md
