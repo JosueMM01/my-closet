@@ -10,7 +10,9 @@ import {
   shouldTryNextAttempt,
   type BackgroundRemovalAttempt,
   type BackgroundRemovalCapabilities,
+  EMPTY_BACKGROUND_REMOVAL_HISTORY,
 } from './background-removal';
+import { imageWorkerInactivityLimit } from './worker-failure';
 import {
   capabilitySnapshot,
   readBackgroundRemovalHistory,
@@ -41,6 +43,8 @@ export const PROCESSED_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 
 export interface SaveGarmentPhotoOptions {
   removeBackground?: boolean;
+  /** Reintento explícito único: ignora vetos históricos sin borrar datos. */
+  ignoreBackgroundRemovalHistory?: boolean;
   /** Reserva la imagen para un flujo que controla la subida explícitamente. */
   queueForSync?: boolean;
   signal?: AbortSignal;
@@ -54,7 +58,7 @@ export interface SaveGarmentPhotoOptions {
 class WorkerProcessingError extends Error {
   constructor(
     message: string,
-    readonly code: ImageWorkerFailureCode | 'worker',
+    readonly code: ImageWorkerFailureCode | 'worker' | 'timeout',
     readonly stage: ImageProgress['stage'],
   ) {
     super(message);
@@ -102,11 +106,11 @@ function runWorker(
       if (inactivityTimer) clearTimeout(inactivityTimer);
       inactivityTimer = setTimeout(() => {
         finish(() => reject(new WorkerProcessingError(
-          'El proceso aislado dejó de responder; el navegador pudo haberlo cerrado por falta de recursos.',
-          'worker',
+          'Se alcanzó el tiempo límite sin progreso. La inferencia puede ser lenta o el proceso estar bloqueado; no confirma falta de memoria.',
+          'timeout',
           lastStage,
         )));
-      }, 180_000);
+      }, imageWorkerInactivityLimit(lastStage));
     };
 
     try {
@@ -212,6 +216,7 @@ async function detectBackgroundRemovalCapabilities(): Promise<BackgroundRemovalC
         : null,
     hardwareConcurrency: Math.max(1, navigator.hardwareConcurrency || 1),
     storageHeadroomBytes,
+    crossOriginIsolated: globalThis.crossOriginIsolated === true,
   });
 }
 
@@ -238,6 +243,10 @@ function friendlyBackgroundRemovalFailure(error: WorkerProcessingError): string 
       return 'ONNX no pudo reservar la memoria necesaria';
     case 'worker':
       return 'el navegador cerró el proceso aislado, probablemente por presión de recursos';
+    case 'timeout':
+      return 'se agotó el tiempo de espera del proceso; no confirma falta de memoria';
+    case 'session':
+      return 'ONNX no pudo iniciar el modelo o compilar su motor WASM';
     case 'inference':
       return 'el modelo falló durante la inferencia';
     case 'decode':
@@ -315,7 +324,9 @@ async function processWithBackgroundRemoval(
   diagnostic: BackgroundRemovalDiagnostic;
 }> {
   const capabilities = await detectBackgroundRemovalCapabilities();
-  const history = await readBackgroundRemovalHistory();
+  const history = options.ignoreBackgroundRemovalHistory
+    ? EMPTY_BACKGROUND_REMOVAL_HISTORY
+    : await readBackgroundRemovalHistory().catch(() => EMPTY_BACKGROUND_REMOVAL_HISTORY);
   const attempts = backgroundRemovalAttempts(capabilities, history);
   const diagnostic: BackgroundRemovalDiagnostic = {
     id: uuid(),
@@ -346,9 +357,22 @@ async function processWithBackgroundRemoval(
     let retries = 0;
     while (true) {
       const attemptStartedAt = performance.now();
+      let stageStartedAt = attemptStartedAt;
+      let stage: ImageProgress['stage'] = 'Preparando imagen';
+      const stageDurationsMs: Partial<Record<ImageProgress['stage'], number>> = {};
+      const finishStage = () => {
+        const now = performance.now();
+        stageDurationsMs[stage] = (stageDurationsMs[stage] ?? 0) + Math.max(0, Math.round(now - stageStartedAt));
+        stageStartedAt = now;
+      };
+      const attemptOptions: SaveGarmentPhotoOptions = { ...options, onProgress: progress => {
+        if (progress.stage !== stage) { finishStage(); stage = progress.stage; }
+        report(options, progress);
+      } };
       try {
-        const processed = await runWorker(source, attempt, options);
-        diagnostic.attempts.push(diagnosticEntry(attempt, 'success', null, attemptStartedAt, retries));
+        const processed = await runWorker(source, attempt, attemptOptions);
+        finishStage();
+        diagnostic.attempts.push({ ...diagnosticEntry(attempt, 'success', null, attemptStartedAt, retries), stageDurationsMs });
         diagnostic.result = 'automatic';
         await rememberSuccessfulAttempt(attempt);
         await persistDiagnostic(diagnostic);
@@ -362,9 +386,8 @@ async function processWithBackgroundRemoval(
               'worker',
               'Preparando imagen',
             );
-        diagnostic.attempts.push(
-          diagnosticEntry(attempt, 'failure', workerError, attemptStartedAt, retries),
-        );
+        finishStage();
+        diagnostic.attempts.push({ ...diagnosticEntry(attempt, 'failure', workerError, attemptStartedAt, retries), stageDurationsMs });
 
         if (workerError.code === 'decode' && !normalizedOnMainThread) {
           try {
@@ -372,7 +395,8 @@ async function processWithBackgroundRemoval(
             normalizedOnMainThread = true;
             await releasePreviousWorker();
             continue;
-          } catch {
+          } catch (normalizationError) {
+            if (normalizationError instanceof DOMException && normalizationError.name === 'AbortError') throw normalizationError;
             const message = format === 'heif'
               ? 'Este navegador no pudo leer la foto HEIC/HEIF. Conviértela a JPEG o PNG antes de cargarla.'
               : 'El navegador no pudo decodificar esta imagen. Guárdala nuevamente como JPEG o PNG e inténtalo otra vez.';
@@ -397,6 +421,7 @@ async function processWithBackgroundRemoval(
         if (
           workerError.code === 'memory' ||
           workerError.code === 'inference' ||
+          workerError.code === 'session' ||
           workerError.code === 'worker'
         ) {
           await rememberFailedAttempt(attempt);

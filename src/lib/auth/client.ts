@@ -14,6 +14,8 @@ import {
   registerSchema,
   resetPasswordSchema,
   sessionResponseSchema,
+  googleInvitationStartSchema,
+  googleInvitationStartResponseSchema,
 } from '@/lib/domain/validation';
 import { setLocalProfile, clearLocalProfile } from '@/lib/local/kv';
 import { maybeSync } from '@/lib/local/sync-engine';
@@ -36,7 +38,23 @@ export class AuthError extends Error {
   }
 }
 
-async function handleAuthResponse(response: Response): Promise<LocalProfile> {
+export async function startGoogleInvitation(invitationToken: string): Promise<string> {
+  const body = googleInvitationStartSchema.parse({ invitationToken });
+  const response = await fetch('/api/auth/google/start', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+    body: JSON.stringify(body),
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    const parsed = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
+    throw new AuthError(parsed.success ? parsed.data.error : 'No se pudo iniciar el acceso con Google', response.status);
+  }
+  return googleInvitationStartResponseSchema.parse(await response.json()).authorizationUrl;
+}
+
+async function handleAuthResponse(response: Response, expectedUserId?: string): Promise<LocalProfile> {
   if (!response.ok) {
     const parsed = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
     throw new AuthError(
@@ -45,6 +63,11 @@ async function handleAuthResponse(response: Response): Promise<LocalProfile> {
     );
   }
   const data = authResponseSchema.parse(await response.json());
+  if (expectedUserId && data.profile.userId !== expectedUserId) {
+    // La nueva cookie no debe quedar activa para otra cuenta durante recuperación.
+    await endRemoteSession().catch(() => undefined);
+    throw new AuthError('Inicia sesión con la misma cuenta de este dispositivo. Tus datos locales se conservaron.', 409);
+  }
   const profile: LocalProfile = {
     userId: data.profile.userId,
     email: data.profile.email,
@@ -73,17 +96,24 @@ export async function register(input: {
   return handleAuthResponse(response);
 }
 
-export async function login(input: { email: string; password: string }): Promise<LocalProfile> {
+export async function login(input: { email: string; password: string; turnstileToken?: string }, expectedUserId?: string): Promise<LocalProfile> {
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     throw new AuthError(parsed.error.issues[0]?.message ?? 'Datos de acceso inválidos', 400);
   }
   const response = await postJSON('/api/auth/login', parsed.data);
-  return handleAuthResponse(response);
+  return handleAuthResponse(response, expectedUserId);
 }
 
-export async function requestPasswordRecovery(email: string): Promise<void> {
-  const parsed = forgotPasswordSchema.safeParse({ email });
+/** Revoca únicamente la sesión remota. No toca perfil, imágenes ni outbox local. */
+export async function endRemoteSession(): Promise<void> {
+  const response = await postJSON('/api/auth/logout', {});
+  if (!response.ok) throw new AuthError('No se pudo cerrar la sesión remota. Vuelve a intentarlo con conexión.', response.status);
+  operationSuccessResponseSchema.parse(await response.json());
+}
+
+export async function requestPasswordRecovery(email: string, turnstileToken?: string): Promise<void> {
+  const parsed = forgotPasswordSchema.safeParse({ email, turnstileToken });
   if (!parsed.success) {
     throw new AuthError(parsed.error.issues[0]?.message ?? 'Correo inválido', 400);
   }
@@ -108,13 +138,9 @@ export async function resetPassword(input: { token: string; newPassword: string 
   operationSuccessResponseSchema.parse(await response.json());
 }
 
-export async function logout(): Promise<void> {
-  await postJSON('/api/auth/logout', {})
-    .then(async (response) => {
-      if (response.ok) operationSuccessResponseSchema.parse(await response.json());
-      else apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
-    })
-    .catch(() => undefined);
+export async function logout(options?: { requireRemote?: boolean }): Promise<void> {
+  if (options?.requireRemote) await endRemoteSession();
+  else await endRemoteSession().catch(() => undefined);
   // Los datos locales y la outbox se conservan (regla offline-first).
   await clearLocalProfile();
 }

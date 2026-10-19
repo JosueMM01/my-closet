@@ -1,80 +1,85 @@
 # Arquitectura de My Closet
 
-```
-                      MY CLOSET
-                          │
-                   Next.js 16 PWA (App Router)
-                          │
-            ┌─────────────┴──────────────┐
-            │                            │
-       UI (React 19)              API routes (nodejs)
-       'use client'                src/app/api/**
-            │                            │
-       IndexedDB (Dexie)           Auth · OAuth · Recovery · Admin · Sync · Images
-       offline-first                    │
-       outbox                           │
-       sync engine               Drizzle ORM
-       local images                     │
-            │                    ┌───────┴────────┐
-            │                    │                │
-            │              SQLite (dev)    PostgreSQL (staging/prod)
-            │              better-sqlite3   Neon + postgres.js
-            │                    │                │
-            └──── imágenes ──────┴── LocalImageStorage / CloudinaryImageStorage
-```
+My Closet es una PWA con Next.js App Router. La experiencia del armario usa
+IndexedDB como fuente de lectura y conserva las escrituras offline mediante
+una outbox. Las API del servidor validan identidad, permisos y datos antes
+de persistir en PostgreSQL o SQLite.
 
 ## Capas
 
 | Capa | Ruta | Responsabilidad |
 |---|---|---|
-| Dominio | `src/lib/domain/` | Tipos, validación Zod, conflictos, fechas, ids y ranking puro de sugerencias. `favorite` es parte versionada de `Garment`. |
-| Base local | `src/lib/local/` | Dexie (IndexedDB), repositorios con outbox, sync engine, KV por usuario, queries de UI y caché administrativa. |
-| Imágenes cliente | `src/lib/images/` | Validación, Web Worker (EXIF→resize→WebP), cache de object URLs. |
-| Auth cliente | `src/lib/auth/`, `src/lib/account/`, `src/lib/admin/` | login, alta por invitación, recuperación, perfil local sin secretos y administración. |
-| Servidor | `src/server/` | env validado, Drizzle, sesiones, bootstrap admin, rate limit, OAuth Google, recuperación, mail e ImageStorage. |
-| API | `src/app/api/` | auth/OAuth, perfil, administración, sync, images y share público. |
-| UI | `src/app/(app)/`, `src/app/(auth)/`, `src/app/share/` | Páginas y componentes. La UI lee IndexedDB, nunca la red. |
+| Dominio | `src/lib/domain/` | Tipos, Zod, fechas, identificadores, conflictos y sugerencias puras |
+| Almacenamiento local | `src/lib/local/` | Dexie, repositorios, outbox, sincronización y caché por usuario |
+| Imágenes cliente | `src/lib/images/` | Validación, orientación, tamaño, WebP y eliminación de fondo en worker |
+| Identidad cliente | `src/lib/auth/`, `src/lib/account/`, `src/lib/admin/` | Acceso, invitaciones, recuperación, perfil local y administración |
+| Servidor | `src/server/` | Configuración, Drizzle, sesiones, OAuth, correo, límites y almacenamiento de imágenes |
+| API | `src/app/api/` | Boundaries de autenticación, perfil, administración, sync, imágenes y enlaces públicos |
+| Interfaz | `src/app/(app)/`, `src/app/(auth)/`, `src/app/share/` | Páginas, componentes y shell offline |
 
-## Flujo de escritura (offline-first)
+## Escrituras y sincronización
 
-```
-acción usuario → repositorio local (transacción Dexie)
-  1. persiste entidad {version+1, updatedAt=now, syncStatus:'pending'}
-  2. encola operación en outbox (upsert|delete + snapshot)
-→ useLiveQuery actualiza la UI al instante
-→ maybeSync() (debounce) → runSync():
-     push outbox por lotes → POST /api/sync/push
-     subir imágenes pendientes → local: POST /api/images
-                                → cloud: firma + Cloudinary + POST /api/images/finalize
-     pull incremental (entidades + metadatos de imágenes) → GET /api/sync/pull?since=…
-```
+1. La acción se valida y el repositorio ejecuta una transacción Dexie: guarda
+   la entidad versionada y su operación en la outbox.
+2. `useLiveQuery` refleja el resultado local sin esperar una petición.
+3. El motor envía lotes a `POST /api/sync/push` y sincroniza imágenes pendientes.
+4. En modo local, las imágenes van a `POST /api/images`. Con Cloudinary,
+   el navegador obtiene la firma, sube directamente y finaliza por API.
+5. El pull incremental obtiene cambios y metadatos para actualizar IndexedDB.
 
-## Flujo de lectura
+Los disparadores incluyen cambios locales, recuperación de conectividad y
+apertura o reanudación de la aplicación. Los conflictos se resuelven por entidad
+con last-writer-wins; no hay CRDT ni fusión por campo. Los tombstones permiten
+propagar borrados.
 
-La UI **solo** lee IndexedDB (`useLiveQuery`). El servidor se consulta
-únicamente desde el sync engine y en el chequeo periódico de sesión.
-Las operaciones administrativas son la excepción deliberada: se hacen online
-contra `/api/admin/*`; IndexedDB solo conserva su último read model y no es
-una fuente de autorización.
+## Lectura y sesión
 
-## Sugerencias locales de conjuntos
+La UI privada del armario lee IndexedDB; el motor de sync consulta el servidor.
+La comprobación de sesión y las operaciones de identidad y administración
+requieren red. La caché administrativa conserva un read model, nunca autoridad
+para decidir permisos.
 
-`recommendOutfits()` es una función pura y determinista: recibe prendas,
-conjuntos y calendario leídos de IndexedDB, más una semilla de variación y el
-contexto manual validado con Zod. Puntúa favoritas, compatibilidad básica de
-colores, pares que coocurren en conjuntos guardados y penaliza prendas marcadas
-como usadas recientemente. Ocasión, temperatura, lluvia y estilo determinan la
-receta y categorías opcionales; devuelve hasta tres opciones con explicaciones
-breves en español.
+La sesión remota usa cookies HttpOnly. No se guardan tokens de sesión en
+localStorage, sessionStorage ni IndexedDB. Una sesión remota expirada exige
+reautenticación y preserva la identidad local y la outbox. El trabajo offline
+permanece ligado al origen del navegador y al usuario correspondiente.
 
-El contexto se guarda por usuario en `kv` bajo `recommendations:context:*`. No
-se sincroniza ni contiene secretos. El motor no llama APIs, no usa IA ni analiza
-fotos; `/outfits/suggestions` está en el shell offline.
+## Imágenes y sugerencias
 
-## Diferencias de dialecto SQLite/PostgreSQL
+El navegador realiza todo el procesamiento de imágenes. Los workers preservan
+la foto original y permiten recuperación ante fallos. Los modelos se cargan
+bajo demanda; la cámara y la galería comparten el flujo de captura.
 
-SQLite usa `integer` booleano y `blob` para imágenes; PostgreSQL
-usa `boolean`/`timestamp` en tablas de sistema y `text` para campos de sync.
-Los diez conjuntos de tablas tienen declaraciones en ambos dialectos. Neon usa
-postgres.js, una migración base Drizzle y repositorios con el mismo contrato;
-las migraciones usan URL directa y el runtime una URL pooled.
+LocalImageStorage cubre pruebas aisladas. Cloudinary recibe las subidas directas
+del navegador en los entornos autorizados; Preview tiene un prefijo separado
+para imágenes nuevas. La privacidad de recursos históricos y el garbage
+collection siguen sujetos a las puertas de la fase 5B.
+
+`recommendOutfits()` es pura y determinista. Lee prendas, conjuntos y calendario
+locales, usa una semilla y contexto manual validado, y devuelve hasta tres
+sugerencias explicadas. El contexto vive en KV por usuario y no se sincroniza.
+
+## Servidor y límites
+
+- Zod valida los boundaries de formularios, cliente, API y sincronización.
+- Drizzle comparte contratos entre SQLite y PostgreSQL; el runtime de Neon usa
+  conexiones pooled y las migraciones usan conexión directa.
+- Los límites compartidos se guardan en `rate_limit_buckets`; las rutas protegidas
+  fallan de forma cerrada si su almacenamiento no está disponible.
+- Turnstile es opcional y valida en servidor el token, la acción y el hostname.
+  Sus claves se separan por entorno y los tokens solo permanecen en memoria.
+- Los permisos se comprueban en servidor. Invitaciones ADMIN vigentes reservan
+  plaza y comparten protección transaccional con promociones y reactivaciones.
+
+## Recuperación y compatibilidad
+
+Los respaldos de PostgreSQL se cifran con age antes de subir a Drive. La política
+conserva dos generaciones y verifica las restauraciones en una rama temporal,
+con guardas que rechazan el endpoint de producción como destino.
+
+El respaldo de base no incluye binarios remotos ni borradores del navegador.
+SQLite y PostgreSQL mantienen esquemas equivalentes para los contratos comunes,
+con tipos propios de cada dialecto. Las migraciones aditivas permiten conservar
+el despliegue anterior mientras se valida una entrega.
+
+Tecnologías y entornos: [STACK.md](STACK.md). Pendientes: [PHASES.md](PHASES.md).

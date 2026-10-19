@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDB } from '@/lib/local/db';
 import { backgroundRemovalAttempts, type BackgroundRemovalCapabilities } from '@/lib/images/background-removal';
 import {
@@ -23,8 +23,26 @@ const CAPABILITIES: BackgroundRemovalCapabilities = {
 beforeEach(async () => {
   await getDB().kv.clear();
 });
+afterEach(() => vi.useRealTimers());
 
 describe('memoria adaptativa de eliminación de fondo', () => {
+  it('levanta vetos tras 24 horas sin perder una ruta exitosa', async () => {
+    vi.setSystemTime(new Date('2026-10-08T12:00:00Z'));
+    await recordBackgroundRemovalSuccess(FP16);
+    const small = { ...FP16, model: 'isnet_quint8' } as const;
+    await recordBackgroundRemovalFailure(small);
+    await recordBackgroundRemovalFailure(small);
+    expect((await readBackgroundRemovalHistory()).failures['cpu:isnet_quint8']).toBe(2);
+    vi.setSystemTime(new Date('2026-10-09T12:00:01Z'));
+    expect(await readBackgroundRemovalHistory()).toMatchObject({ preferred: FP16, failures: {} });
+  });
+
+  it('migra vetos heredados manteniendo preferencias y fotos', async () => {
+    await getDB().kv.put({ key: 'background-removal:strategy:adaptive-v1', value: {
+      preferred: FP16, failures: { 'cpu:isnet_quint8': 2 },
+    } });
+    expect(await readBackgroundRemovalHistory()).toMatchObject({ preferred: FP16, failures: {} });
+  });
   it('recuerda una ruta exitosa y la retira después de dos fallos', async () => {
     await recordBackgroundRemovalSuccess(FP16);
     expect(await readBackgroundRemovalHistory()).toMatchObject({

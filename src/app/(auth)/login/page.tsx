@@ -3,12 +3,14 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { AuthError, fetchAuthProviders, login } from '@/lib/auth/client';
+import { AuthError, endRemoteSession, fetchAuthProviders, login } from '@/lib/auth/client';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
+import { sessionResponseSchema } from '@/lib/domain/validation';
+import { TurnstileChallenge } from '@/components/turnstile-challenge';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,6 +20,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [challenge, setChallenge] = useState<{ enabled: boolean; siteKey: string | null } | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string>();
+  const [challengeAttempt, setChallengeAttempt] = useState(0);
   const hasGoogleFailure = useRef(false);
 
   function safeReturnPath(): string {
@@ -28,6 +33,7 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
     const url = new URL(window.location.href);
     const googleError = googleFailureMessage(url.searchParams.get('google'));
     if (googleError) {
@@ -35,16 +41,34 @@ export default function LoginPage() {
       url.searchParams.delete('google');
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
-    if (!loading && profile && !hasGoogleFailure.current) router.replace(safeReturnPath());
+    if (!loading && profile && !hasGoogleFailure.current) {
+      if (url.searchParams.get('reauth') !== '1') router.replace(safeReturnPath());
+      else void fetch('/api/auth/session', { cache: 'no-store' }).then(async (response) => {
+        if (!response.ok) return;
+        const parsed = sessionResponseSchema.safeParse(await response.json());
+        if (cancelled || !parsed.success || !parsed.data.authenticated) return;
+        if (parsed.data.profile.userId === profile.userId) router.replace(safeReturnPath());
+        else {
+          // También cubre el retorno OAuth: no dejar una cookie ajena activa.
+          const revoked = await endRemoteSession().then(() => true).catch(() => false);
+          if (!cancelled) setError(revoked
+            ? 'La sesión pertenece a otra cuenta y fue cerrada. Inicia sesión con la cuenta de este dispositivo.'
+            : 'La sesión pertenece a otra cuenta y no pudo cerrarse. Revisa la conexión y vuelve a iniciar sesión; tus datos locales se conservaron.');
+        }
+      }).catch(() => undefined);
+    }
     void fetchAuthProviders()
       .then((providers) => {
         if (googleError) setError(googleError);
         setGoogleEnabled(providers.google);
+        setChallenge(providers.turnstile ?? { enabled: false, siteKey: null });
       })
       .catch(() => {
         if (googleError) setError(googleError);
+        else setError('No se pudo cargar la protección de acceso. Revisa la conexión y recarga la página.');
         setGoogleEnabled(false);
       });
+    return () => { cancelled = true; };
   }, [loading, profile, router]);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -52,13 +76,16 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login({ email, password });
+      const recovering = new URL(window.location.href).searchParams.get('reauth') === '1';
+      await login({ email, password, turnstileToken: challengeToken }, recovering ? profile?.userId : undefined);
       await refreshProfile(); // sincroniza el contexto de sesión con IndexedDB
       router.replace(safeReturnPath());
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'No se pudo iniciar sesión');
     } finally {
       setSubmitting(false);
+      setChallengeToken(undefined);
+      setChallengeAttempt(value => value + 1);
     }
   }
 
@@ -147,7 +174,11 @@ export default function LoginPage() {
             )}
             
             <div className="pt-2 flex flex-col gap-3">
-              <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}>
+              {challenge?.enabled && challenge.siteKey ? <TurnstileChallenge key={challengeAttempt}
+                siteKey={challenge.siteKey} action="login" onToken={setChallengeToken} /> : null}
+              {challenge?.enabled && !challenge.siteKey ? <p role="alert" className="text-sm text-danger">La verificación de seguridad no está configurada.</p> : null}
+              <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}
+                disabled={!challenge || (challenge.enabled && !challengeToken)}>
                 Entrar
               </Button>
             </div>
@@ -166,7 +197,7 @@ export default function LoginPage() {
                     // OAuth requiere una navegación completa fuera de la aplicación.
                     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                     window.location.href =
-                      `/api/auth/google/start?intent=login&returnTo=${encodeURIComponent(safeReturnPath())}`;
+                      `/api/auth/google/start?intent=login&returnTo=${encodeURIComponent(new URL(window.location.href).searchParams.get('reauth') === '1' ? `/login?reauth=1&next=${encodeURIComponent(safeReturnPath())}` : safeReturnPath())}`;
                   }}
                   className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 text-[15px] font-medium text-[#1F1F1F] transition-colors hover:bg-gray-50"
                 >

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Browser bundles embedded in Playwright traces are generated, not sources.
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 

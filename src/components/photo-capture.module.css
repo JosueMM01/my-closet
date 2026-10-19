@@ -1,0 +1,88 @@
+.dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: #141214;
+  color: #fff;
+}
+
+.dialog[open] { display: flex; flex-direction: column; }
+.dialog::backdrop { background: rgb(0 0 0 / 80%); }
+
+.header {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  background: linear-gradient(rgb(0 0 0 / 75%), transparent);
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
+}
+
+.eyebrow { color: #d9abbc; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.2em; }
+.title { margin: 0.125rem 0 0; font-size: 1rem; font-weight: 600; }
+.close {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.viewfinder { position: absolute; inset: 0; overflow: hidden; background: #000; }
+/* cameraFrame saves exactly this visible, centered crop, without distortion. */
+.video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.footer {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  background: linear-gradient(transparent, rgb(0 0 0 / 85%) 30%);
+  flex-shrink: 0;
+  padding: 0.75rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+.status { margin: 0 0 0.75rem; color: #e6dde1; text-align: center; font-size: 0.75rem; line-height: 1.4; }
+.status[role='alert'] { color: #ffbcc6; }
+.controls { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.75rem; }
+.gallery { min-height: 2.75rem; border: 0; border-radius: 0.75rem; padding: 0.5rem; background: transparent; color: #fff; font-size: 0.8125rem; cursor: pointer; }
+.retrySlot { display: flex; justify-content: flex-end; }
+.shutter {
+  display: grid;
+  width: 4.5rem;
+  height: 4.5rem;
+  place-items: center;
+  border: 4px solid #141214;
+  border-radius: 50%;
+  outline: 2px solid #f8e9ee;
+  background: #f8e9ee;
+  color: #6d2845;
+  cursor: pointer;
+}
+.shutter:active:not(:disabled) { background: #d9abbc; }
+.shutter:disabled { opacity: 0.4; cursor: not-allowed; }
+.close:focus-visible, .gallery:focus-visible, .shutter:focus-visible { outline: 3px solid #d9abbc; outline-offset: 4px; }
+
+@media (min-width: 768px) and (min-height: 600px) {
+  .dialog { width: min(52rem, calc(100% - 3rem)); height: calc(100dvh - 3rem); margin: auto; border: 1px solid #42353b; border-radius: 1.5rem; }
+}
+
+@media (max-height: 500px) {
+  .header { padding-block: max(0.25rem, env(safe-area-inset-top)); }
+  .footer { padding-top: 0.375rem; padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+  .status { margin-bottom: 0.375rem; }
+  .shutter { width: 3rem; height: 3rem; }
+}

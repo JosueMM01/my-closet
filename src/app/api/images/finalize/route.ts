@@ -1,5 +1,6 @@
 import { cloudinaryFinalizeRequestSchema } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit } from '@/server/auth/rate-limit';
 import {
   finalizeDirectCloudinaryUpload,
   ImageOwnershipError,
@@ -14,6 +15,8 @@ export async function POST(request: Request) {
 
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  const limited = await guardRateLimit(`image-finalize:${user.userId}`, 120);
+  if (limited) return limited;
   const parsed = cloudinaryFinalizeRequestSchema.safeParse(
     await request.json().catch(() => null),
   );

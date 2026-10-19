@@ -21,6 +21,7 @@ import { queueProcessedImage } from '@/lib/local/sync-engine';
 import { useImageUrl } from './garment-photo';
 import { CameraIcon, CheckIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
 import { ImageEditor, type ImageEditorUpdate } from './image-editor';
+import { PhotoCapture } from './photo-capture';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
 
 interface FormState {
@@ -55,6 +56,7 @@ export function GarmentForm({
   const [photo, setPhoto] = useState<ImageRecord | null>(null);
   const [originalPhoto, setOriginalPhoto] = useState<Blob | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
   const [removeBackground, setRemoveBackground] = useState(true);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -80,11 +82,18 @@ export function GarmentForm({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function choosePhoto() {
+    if (!photoBusy) setCaptureOpen(true);
+  }
+
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    await processPhoto(file);
+  }
 
+  async function processPhoto(file: File, retryAutomatic = false) {
     processingControllerRef.current?.abort();
     setEditorOpen(false);
     const controller = new AbortController();
@@ -96,7 +105,8 @@ export function GarmentForm({
     setPhotoProgress({ stage: 'Preparando imagen', current: null, total: null });
     try {
       const record = await saveGarmentPhoto(userId, file, {
-        removeBackground,
+        removeBackground: retryAutomatic || removeBackground,
+        ignoreBackgroundRemovalHistory: retryAutomatic,
         queueForSync: false,
         signal: controller.signal,
         onProgress: setPhotoProgress,
@@ -224,10 +234,10 @@ export function GarmentForm({
         <div className="relative">
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={choosePhoto}
             disabled={photoBusy}
             data-testid="photo-upload"
-            className="relative flex h-80 w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait"
+            className={`relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#F3EFEA] transition-colors hover:bg-border/30 disabled:cursor-wait ${hasPhoto ? 'min-h-80' : 'h-80'}`}
             aria-label={hasPhoto ? 'Cambiar foto de la prenda' : 'Subir foto de la prenda'}
           >
             {hasPhoto ? (
@@ -237,7 +247,7 @@ export function GarmentForm({
                   <img
                     src={existingPhotoUrl}
                     alt="Vista previa de la prenda"
-                    className="absolute inset-0 h-full w-full object-contain p-4"
+                    className="block max-h-[70dvh] w-full object-contain p-4"
                     data-testid="photo-preview"
                   />
                 ) : null}
@@ -250,7 +260,7 @@ export function GarmentForm({
             ) : (
               <span className="flex flex-col items-center justify-center text-text-secondary">
                 <CameraIcon size={40} className="mb-3 opacity-50" />
-                <span className="text-[15px] font-semibold">Tomar una foto o subirla</span>
+                <span className="text-[15px] font-semibold">Elegir foto de la prenda</span>
                 <span className="mt-1 text-xs text-text-muted">JPEG, PNG, WebP, HEIC o AVIF</span>
               </span>
             )}
@@ -300,12 +310,18 @@ export function GarmentForm({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif"
+          accept="image/*"
           className="hidden"
           onChange={handleFile}
           aria-label="Subir foto de la prenda"
         />
       </div>
+
+      {captureOpen ? <PhotoCapture
+        onClose={() => setCaptureOpen(false)}
+        onGallery={() => { setCaptureOpen(false); fileInputRef.current?.click(); }}
+        onPhoto={file => { setCaptureOpen(false); void processPhoto(file); }}
+      /> : null}
 
       {editorOpen && photo?.blob && originalPhoto && removeBackground ? (
         <ImageEditor
@@ -473,6 +489,13 @@ export function GarmentForm({
       {photoWarning ? (
         <div role="status" className="space-y-2 rounded-xl bg-warning/10 p-3 text-sm text-text-secondary">
           <p>{photoWarning}</p>
+          {originalPhoto ? (
+            <button type="button" disabled={photoBusy}
+              className="font-semibold text-primary underline underline-offset-2"
+              onClick={() => void processPhoto(new File([originalPhoto], 'foto-original', { type: originalPhoto.type }), true)}>
+              Reintentar eliminación automática
+            </button>
+          ) : null}
           {photoDiagnostic ? (
             <button
               type="button"

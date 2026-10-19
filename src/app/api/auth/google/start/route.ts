@@ -1,11 +1,12 @@
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { googleInvitationStartSchema } from '@/lib/domain/validation';
+import { googleInvitationStartSchema, googleInvitationStartResponseSchema } from '@/lib/domain/validation';
 import { buildGoogleAuthorizationUrl, createGoogleOAuthValues } from '@/server/auth/google';
 import { setGoogleFlowCookies } from '@/server/auth/google-flow';
 import { getSessionUser } from '@/server/auth/session';
+import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
 import { getGoogleAuthConfig } from '@/server/env';
-import { jsonError, requireSameOrigin } from '@/server/http';
+import { jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import { inspectInvitationToken } from '@/server/repositories/invitations-repository';
 
 export const runtime = 'nodejs';
@@ -37,6 +38,8 @@ export async function GET(request: Request): Promise<Response> {
   }
   const config = getGoogleAuthConfig();
   if (!config) return jsonError(404, 'Acceso con Google no disponible');
+  const limited = await guardRateLimit(`oauth-start:${requestRateLimitIdentity(request)}`, 30);
+  if (limited) return limited;
 
   const requiresSession = query.data.intent === 'link' || query.data.intent === 'photo';
   const principal = requiresSession ? await getSessionUser() : null;
@@ -57,12 +60,15 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+  const limited = await guardRateLimit(`oauth-start:${requestRateLimitIdentity(request)}`, 30);
+  if (limited) return limited;
   const config = getGoogleAuthConfig();
   if (!config) return jsonError(404, 'Acceso con Google no disponible');
-  const formData = await request.formData().catch(() => null);
-  const parsed = googleInvitationStartSchema.safeParse(
-    formData ? Object.fromEntries(formData) : null,
-  );
+  if (!request.headers.get('content-type')?.startsWith('application/json') ||
+      request.headers.get('x-requested-with') !== 'my-closet') {
+    return jsonError(400, 'Solicitud de invitación no válida');
+  }
+  const parsed = googleInvitationStartSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError(400, 'Invitación no válida');
   try {
     await inspectInvitationToken(parsed.data.invitationToken);
@@ -75,5 +81,9 @@ export async function POST(request: Request): Promise<Response> {
     intent: 'invite',
     invitationToken: parsed.data.invitationToken,
   });
-  return oauthRedirect(config, values);
+  // Navegación posterior del cliente: no seguir un POST de formulario a Google
+  // bajo form-action 'self'. El token permanece en el cuerpo y cookie HttpOnly.
+  return jsonOk(googleInvitationStartResponseSchema.parse({
+    authorizationUrl: buildGoogleAuthorizationUrl({ config, ...values }).toString(),
+  }));
 }

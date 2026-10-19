@@ -78,6 +78,7 @@ const failureMessageSchema = z
       'resource-integrity',
       'memory',
       'inference',
+      'session',
     ]),
     stage: imageProgressStageSchema,
     error: z.string().min(1).max(500),

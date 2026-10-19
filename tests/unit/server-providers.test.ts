@@ -1,12 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
   getDatabaseDialect,
+  getCloudinaryFolder,
   isCloudinaryEnabled,
   isGoogleEnabled,
   parseServerEnv,
 } from '@/server/env';
 
 describe('configuracion de proveedores externos', () => {
+  it('separa nuevas imágenes Preview de Production aunque el usuario tenga el mismo id', () => {
+    expect(getCloudinaryFolder('same-user', parseServerEnv({ VERCEL_ENV: 'production' })))
+      .toBe('my-closet/same-user');
+    expect(getCloudinaryFolder('same-user', parseServerEnv({ VERCEL_ENV: 'preview' })))
+      .toBe('my-closet-preview/same-user');
+    expect(getCloudinaryFolder('same-user', parseServerEnv({ CLOUDINARY_FOLDER_PREFIX: 'my-closet-staging' })))
+      .toBe('my-closet-staging/same-user');
+  });
+
+  it('rechaza configurar Preview con la carpeta de producción o rutas arbitrarias', () => {
+    expect(() => parseServerEnv({ VERCEL_ENV: 'preview', CLOUDINARY_FOLDER_PREFIX: 'my-closet' })).toThrow();
+    expect(() => parseServerEnv({ VERCEL_ENV: 'production', CLOUDINARY_FOLDER_PREFIX: 'my-closet-preview' })).toThrow();
+    expect(() => parseServerEnv({ CLOUDINARY_FOLDER_PREFIX: '../my-closet' })).toThrow();
+  });
+
   it('usa solamente proveedores locales por defecto', () => {
     const env = parseServerEnv({});
 
