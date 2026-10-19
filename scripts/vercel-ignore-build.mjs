@@ -12,6 +12,8 @@ export function isNonApplicationPath(file) {
 export function canSkipBuild(previousSha, currentSha, files) {
   const sha = /^[a-f0-9]{40}$/i;
   return sha.test(previousSha ?? '') && sha.test(currentSha ?? '')
+    // Redeploying the same commit may apply new environment variables.
+    && previousSha.toLowerCase() !== currentSha.toLowerCase()
     && files.every(isNonApplicationPath);
 }
 
