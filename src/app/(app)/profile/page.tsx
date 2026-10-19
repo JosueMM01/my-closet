@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ApiClientError } from '@/lib/api/client';
-import { changeEmail, changePassword, updateProfile } from '@/lib/account/client';
+import { changeEmail, confirmEmailChange, changePassword, updateProfile } from '@/lib/account/client';
 import { AuthError, endRemoteSession, logout } from '@/lib/auth/client';
 import {
   ImageProcessingError,
@@ -45,6 +45,8 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [newEmail, setNewEmail] = useState(profile?.email ?? '');
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [emailToken, setEmailToken] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -115,15 +117,32 @@ export default function ProfilePage() {
     event.preventDefault();
     begin('email');
     try {
-      const updated = await changeEmail({
+      const requested = await changeEmail({
         currentPassword: currentPasswordForEmail,
         newEmail,
       });
       setCurrentPasswordForEmail('');
-      setNewEmail(updated.email);
-      await finishProfileChange('Correo actualizado y sesión renovada.');
+      setPendingEmail(requested.email);
+      setEmailToken('');
+      setStatus(`Código enviado a ${requested.email}. Tu correo actual no ha cambiado.`);
     } catch (caught) {
       setError(readableError(caught, 'No se pudo actualizar el correo'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmNewEmail(event: React.FormEvent) {
+    event.preventDefault();
+    begin('email-confirm');
+    try {
+      const updated = await confirmEmailChange(emailToken.trim());
+      setNewEmail(updated.email);
+      setPendingEmail(null);
+      setEmailToken('');
+      await finishProfileChange('Correo verificado y actualizado. Las otras sesiones se cerraron.');
+    } catch (caught) {
+      setError(readableError(caught, 'No se pudo verificar el correo'));
     } finally {
       setBusy(null);
     }
@@ -334,7 +353,7 @@ export default function ProfilePage() {
           <form onSubmit={saveEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>
             <h3 className="font-heading text-base">Cambiar correo</h3>
             <p className="mt-1 text-xs leading-relaxed text-text-secondary">
-              Verificamos tu identidad con la contraseña actual, pero todavía no verificamos que seas la persona propietaria del nuevo buzón de correo.
+              Confirma tu contraseña y después copia el código que enviaremos al nuevo buzón. Tu correo actual se conserva hasta verificarlo.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field label="Correo nuevo">
@@ -358,9 +377,25 @@ export default function ProfilePage() {
                 />
               </Field>
             </div>
-            <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'email'} disabled={!online}>
-              Cambiar correo
+            <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'email'} disabled={!online || busy !== null}>
+              Enviar código de verificación
             </Button>
+          </form>
+          <form onSubmit={confirmNewEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>
+              <h3 className="font-heading text-base">Verificar nuevo correo</h3>
+              <p className="mt-1 text-sm text-text-secondary">
+                {pendingEmail ? `Copia el código enviado a ${pendingEmail}.` : 'Si ya solicitaste el cambio, copia el código recibido en el nuevo buzón.'}
+                {' '}Vence en 15 minutos; solo el último código es válido.
+              </p>
+              <div className="mt-3">
+                <Field label="Código de verificación" htmlFor="email-verification-token">
+                  <TextInput id="email-verification-token" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false}
+                    value={emailToken} onChange={event => setEmailToken(event.target.value)} maxLength={43} required />
+                </Field>
+              </div>
+              <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null}>
+                Confirmar nuevo correo
+              </Button>
           </form>
         </div>
 

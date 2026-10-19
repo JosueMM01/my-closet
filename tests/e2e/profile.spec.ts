@@ -3,13 +3,14 @@ import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
 
 test.describe('Perfil', () => {
-  test('actualiza nombre, contraseña y correo renovando la sesión', async ({ page }) => {
+  test('actualiza nombre y contraseña, y conserva el correo hasta verificar el nuevo', async ({ page }) => {
     await registerAndLogin(page, 'Perfil Inicial');
     await page.goto('/profile');
     await waitForHydration(page);
 
     await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Perfil Inicial');
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(/@test\.local$/);
+    const originalEmail = await page.getByLabel('Correo nuevo').inputValue();
 
     const nameForm = page.locator('form').filter({ hasText: 'Nombre visible' });
     await nameForm.getByLabel('Nombre', { exact: true }).fill('Perfil Nuevo');
@@ -27,11 +28,14 @@ test.describe('Perfil', () => {
     const emailForm = page.locator('form').filter({ hasText: 'Cambiar correo' });
     await emailForm.getByLabel('Correo nuevo').fill(email);
     await emailForm.getByLabel('Contraseña actual').fill('contrasena-nueva');
-    await emailForm.getByRole('button', { name: 'Cambiar correo' }).click();
-    await expect(page.getByText('Correo actualizado y sesión renovada.')).toBeVisible();
+    await emailForm.getByRole('button', { name: 'Enviar código de verificación' }).click();
+    await expect(page.getByText(`Código enviado a ${email}. Tu correo actual no ha cambiado.`)).toBeVisible();
+    await page.getByLabel('Código de verificación', { exact: true }).fill('A'.repeat(43));
+    await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
+    await expect(page.getByText('El código no es válido o ha vencido. Solicita uno nuevo.')).toBeVisible();
 
     await page.getByTestId('logout').click();
-    await page.getByLabel('Correo electrónico').fill(email);
+    await page.getByLabel('Correo electrónico').fill(originalEmail);
     await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-nueva');
     await page.getByRole('button', { name: 'Entrar' }).click();
     await expect(page.getByTestId('home-greeting')).toContainText('Hola, Perfil');

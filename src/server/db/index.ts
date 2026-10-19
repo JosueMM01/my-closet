@@ -190,6 +190,14 @@ function ensureSqliteSchema(
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_expiry_idx ON password_reset_tokens(expires_at)`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS email_change_tokens (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    new_email TEXT NOT NULL,
+    original_email TEXT NOT NULL,
+    credential_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`);
   db.run(sql`CREATE TABLE IF NOT EXISTS account_invitations (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,

@@ -18,7 +18,7 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 4A — Respaldos y recuperación | Copia cifrada, retención de dos generaciones y restauración aislada verificadas en Actions | Confirmar continuidad programada y alertas de copia atrasada |
 | 4B — Publicación OAuth | Páginas de presentación, privacidad y términos publicadas; cliente de respaldos en producción; renovación comprobada | Mantener comprobaciones de renovación, permisos y alertas |
 | 5A — Invitaciones y cupo ADMIN | Reservas transaccionales integradas: activos más invitaciones ADMIN vigentes no superan dos | Completar la aceptación manual de los flujos relevantes |
-| 5B — Seguridad e identidad | Recuperación de sesión, límites compartidos y guardas integrados; migraciones de producción aplicadas | Verificación del nuevo correo, revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
+| 5B — Seguridad e identidad | Recuperación de sesión, límites compartidos y guardas publicados; verificación del nuevo correo implementada en rama separada | Validar CI/PostgreSQL y entrega SMTP del nuevo flujo, ensayar su migración antes de publicarla; revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
 | 5C — Baja de cuentas | Pendiente | Reautenticación, confirmación, revocación de sesiones y borrado durable con referencias compartidas y respaldos |
 | 6 — Rendimiento y compatibilidad | Cámara móvil y recuperación del pipeline integradas | Validación física en iPhone y mediciones de tiempo, memoria y calidad |
 | 7 — Experiencia y documentación | Documentación pública reducida a fases, arquitectura y stack | Coherencia de mensajes, avisos y revisión de experiencia; Web Push se evalúa aparte |
@@ -28,6 +28,10 @@ Los respaldos de PostgreSQL no incluyen binarios Cloudinary ni borradores
 IndexedDB. No declarar recuperación completa de imágenes por restaurar la base.
 Turnstile tiene claves separadas para Production y Preview; producción permanece
 desactivada hasta comprobar el flujo real del dominio canónico.
+
+El nuevo cambio de correo conserva la dirección actual hasta confirmar un código
+de un solo uso. Su migración `0004` está generada, no aplicada a producción;
+este avance no cierra 5B ni inicia la eliminación de cuentas de 5C.
 
 ## Orden de entrega
 
