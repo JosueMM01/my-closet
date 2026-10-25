@@ -6,6 +6,12 @@ const previous = 'a'.repeat(40);
 const current = 'b'.repeat(40);
 
 describe('control conservador de builds Vercel', () => {
+  it('construye al redesplegar el mismo commit para aplicar cambios de entorno', () => {
+    expect(canSkipBuild(previous, previous, [])).toBe(false);
+    expect(canSkipBuild(previous, previous.toUpperCase(), [])).toBe(false);
+    const git = vi.fn().mockReturnValueOnce('').mockReturnValueOnce('').mockReturnValueOnce('');
+    expect(ignoredBuildExitCode({ VERCEL_GIT_PREVIOUS_SHA: previous, VERCEL_GIT_COMMIT_SHA: previous }, git)).toBe(1);
+  });
   it('solo omite documentación y el respaldo independiente de la web', () => {
     expect(canSkipBuild(previous, current, ['docs/BACKUPS.md', 'scripts/backups/policy.mts',
       '.github/workflows/database-backup.yml', 'tests/unit/backup-drive.test.ts', 'AGENTS.md'])).toBe(true);

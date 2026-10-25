@@ -1,9 +1,10 @@
-import { emailChangeResponseSchema, emailChangeSchema } from '@/lib/domain/validation';
+import { emailChangeRequestedResponseSchema, emailChangeSchema } from '@/lib/domain/validation';
 import { verifyPassword } from '@/server/auth/password';
 import { guardRateLimit } from '@/server/auth/rate-limit';
-import { getSessionUser, rotateAllSessions } from '@/server/auth/session';
+import { getSessionUser } from '@/server/auth/session';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
-import { AccountError, findUserById, updateEmail } from '@/server/repositories/users-repository';
+import { AccountError, findUserById } from '@/server/repositories/users-repository';
+import { requestEmailChange } from '@/server/services/email-change-service';
 
 export const runtime = 'nodejs';
 
@@ -22,10 +23,10 @@ export async function POST(request: Request) {
     return jsonError(403, 'La contraseña actual es incorrecta');
   }
   try {
-    const updated = await updateEmail(user.id, parsed.data.newEmail);
-    if (!updated) return unauthorized();
-    await rotateAllSessions(user.id);
-    return jsonOk(emailChangeResponseSchema.parse({ email: updated.email }));
+    if (parsed.data.newEmail === user.email) return jsonError(400, 'Indica un correo diferente al actual');
+    const sent = await requestEmailChange(user, parsed.data.newEmail);
+    if (!sent) return jsonError(503, 'No se pudo enviar la verificación. Tu correo actual no ha cambiado.');
+    return jsonOk(emailChangeRequestedResponseSchema.parse({ pending: true, email: parsed.data.newEmail }));
   } catch (error) {
     if (error instanceof AccountError && error.code === 'EMAIL_EXISTS') {
       return jsonError(409, error.message);

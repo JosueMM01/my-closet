@@ -9,7 +9,7 @@ import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
-import { sessionResponseSchema } from '@/lib/domain/validation';
+import { loginSchema, sessionResponseSchema } from '@/lib/domain/validation';
 import { TurnstileChallenge } from '@/components/turnstile-challenge';
 
 export default function LoginPage() {
@@ -24,6 +24,8 @@ export default function LoginPage() {
   const [challengeToken, setChallengeToken] = useState<string>();
   const [challengeAttempt, setChallengeAttempt] = useState(0);
   const hasGoogleFailure = useRef(false);
+  const canSubmit = !submitting && loginSchema.safeParse({ email, password }).success &&
+    challenge !== null && (!challenge.enabled || Boolean(challengeToken));
 
   function safeReturnPath(): string {
     const requested = new URL(window.location.href).searchParams.get('next');
@@ -73,6 +75,7 @@ export default function LoginPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    if (!canSubmit) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -178,7 +181,7 @@ export default function LoginPage() {
                 siteKey={challenge.siteKey} action="login" onToken={setChallengeToken} /> : null}
               {challenge?.enabled && !challenge.siteKey ? <p role="alert" className="text-sm text-danger">La verificación de seguridad no está configurada.</p> : null}
               <Button type="submit" size="lg" className="w-full font-medium text-[15px]" loading={submitting}
-                disabled={!challenge || (challenge.enabled && !challengeToken)}>
+                disabled={!canSubmit}>
                 Entrar
               </Button>
             </div>

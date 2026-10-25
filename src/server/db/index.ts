@@ -190,6 +190,21 @@ function ensureSqliteSchema(
   )`);
   db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_expiry_idx ON password_reset_tokens(expires_at)`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS email_change_tokens (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    new_email TEXT NOT NULL,
+    original_email TEXT NOT NULL,
+    credential_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL
+  )`);
+  const emailChangeColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(email_change_tokens)').all().map((column) => column.name),
+  );
+  if (!emailChangeColumns.has('attempts')) {
+    raw.exec('ALTER TABLE email_change_tokens ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+  }
   db.run(sql`CREATE TABLE IF NOT EXISTS account_invitations (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,
