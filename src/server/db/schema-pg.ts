@@ -109,6 +109,16 @@ export const passwordResetTokens = pgTable(
   ],
 );
 
+export const emailChangeTokens = pgTable('email_change_tokens', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  newEmail: text('new_email').notNull(),
+  originalEmail: text('original_email').notNull(),
+  credentialHash: text('credential_hash').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
 export const accountInvitations = pgTable(
   'account_invitations',
   {

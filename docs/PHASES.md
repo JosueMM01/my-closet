@@ -1,6 +1,6 @@
 # Fases de My Closet
 
-Actualización: 2026-10-18. Este archivo conserva el plan público del proyecto.
+Actualización: 2026-10-25. Este archivo conserva el plan público del proyecto.
 La implementación, la integración, la publicación y la validación en uso son
 estados distintos; aprobar CI no cierra por sí solo una fase.
 
@@ -18,8 +18,8 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 4A — Respaldos y recuperación | Copia cifrada, retención de dos generaciones y restauración aislada verificadas en Actions | Confirmar continuidad programada y alertas de copia atrasada |
 | 4B — Publicación OAuth | Páginas de presentación, privacidad y términos publicadas; cliente de respaldos en producción; renovación comprobada | Mantener comprobaciones de renovación, permisos y alertas |
 | 5A — Invitaciones y cupo ADMIN | Reservas transaccionales integradas: activos más invitaciones ADMIN vigentes no superan dos | Completar la aceptación manual de los flujos relevantes |
-| 5B — Seguridad e identidad | Recuperación de sesión, límites compartidos y guardas integrados; migraciones de producción aplicadas | Verificación del nuevo correo, revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
-| 5C — Baja de cuentas | Pendiente | Reautenticación, confirmación, revocación de sesiones y borrado durable con referencias compartidas y respaldos |
+| 5B — Seguridad e identidad | Verificación del nuevo correo en Preview aislado; PostgreSQL, ensayo idempotente de migración y flujo de confirmación alojado comprobados | Completar CI del último commit y recepción SMTP real; aceptación manual; revisión de permisos y privacidad de imágenes; activar y validar Turnstile real |
+| 5C — Baja de cuentas | Diseño iniciado; sin endpoint ni borrado habilitado | Reautenticación, confirmación, protección del último administrador, revocación y borrado durable con referencias compartidas y respaldos |
 | 6 — Rendimiento y compatibilidad | Cámara móvil y recuperación del pipeline integradas | Validación física en iPhone y mediciones de tiempo, memoria y calidad |
 | 7 — Experiencia y documentación | Documentación pública reducida a fases, arquitectura y stack | Coherencia de mensajes, avisos y revisión de experiencia; Web Push se evalúa aparte |
 | 8 — Avatar experimental | Opcional | Prototipo local medido y decisión de viabilidad |
@@ -28,6 +28,27 @@ Los respaldos de PostgreSQL no incluyen binarios Cloudinary ni borradores
 IndexedDB. No declarar recuperación completa de imágenes por restaurar la base.
 Turnstile tiene claves separadas para Production y Preview; producción permanece
 desactivada hasta comprobar el flujo real del dominio canónico.
+
+El nuevo cambio de correo conserva la dirección actual hasta confirmar un código
+de seis dígitos juntos en el correo y seis casillas de entrada con pegado completo, válido durante diez minutos
+y anulado tras cinco intentos fallidos. Las migraciones `0004` y `0005`
+se ensayaron con el migrador en una copia aislada y se aplicaron a staging,
+incluida su idempotencia; no se han aplicado a producción.
+Este avance no cierra 5B ni habilita la baja de cuentas.
+El alias del Preview de correo está autorizado en el widget Turnstile de Preview.
+La bandera se habilitó solo en esa rama y se verificó el acceso con un token real;
+su rechazo al reutilizarlo sigue pendiente antes de afirmar funcionamiento completo.
+Google sigue desactivado en esa rama, cuyo callback no está registrado, pero está
+habilitado en el Preview de `develop`. No se modifica la
+configuración de producción ni se confunde CI con validación de un desafío real.
+
+Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,
+registrar limpieza Cloudinary durable antes de perder sus claves y proteger al
+último administrador. Exigir conexión, reautenticación y confirmación ELIMINAR.
+Los dispositivos offline y los respaldos históricos no se borran de inmediato;
+la reconexión y la restauración deben impedir reintroducir cuentas eliminadas.
+Las pruebas de limpieza no deben borrar recursos de producción referenciados
+por una copia de su base: deben utilizar exclusivamente assets sintéticos.
 
 ## Orden de entrega
 

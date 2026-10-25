@@ -2,6 +2,8 @@ import type { LocalProfile } from '@/lib/domain/types';
 import {
   accountProfileSchema,
   emailChangeResponseSchema,
+  emailChangeRequestedResponseSchema,
+  emailChangeConfirmSchema,
   emailChangeSchema,
   operationSuccessResponseSchema,
   passwordChangeSchema,
@@ -58,11 +60,18 @@ export async function changePassword(input: {
 export async function changeEmail(input: {
   currentPassword: string;
   newEmail: string;
-}): Promise<LocalProfile> {
+}): Promise<typeof emailChangeRequestedResponseSchema._output> {
   const body = parseClientInput(emailChangeSchema, input, 'Datos de correo inválidos');
-  await requestJSON('/api/profile/email', emailChangeResponseSchema, {
+  return requestJSON('/api/profile/email', emailChangeRequestedResponseSchema, {
     method: 'POST',
     ...jsonBody(body),
+  });
+}
+
+export async function confirmEmailChange(code: string): Promise<LocalProfile> {
+  const body = parseClientInput(emailChangeConfirmSchema, { code }, 'El código debe tener 6 dígitos');
+  await requestJSON('/api/profile/email/confirm', emailChangeResponseSchema, {
+    method: 'POST', ...jsonBody(body),
   });
   return fetchProfile();
 }

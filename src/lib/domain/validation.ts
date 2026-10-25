@@ -226,6 +226,8 @@ export const googlePictureAvailabilitySchema = z.object({
 export const apiErrorResponseSchema = z.object({ error: z.string().min(1) });
 export const operationSuccessResponseSchema = z.object({ ok: z.literal(true) });
 export const emailChangeResponseSchema = z.object({ email: accountEmailSchema });
+export const emailChangeRequestedResponseSchema = z.object({ pending: z.literal(true), email: accountEmailSchema });
+export const emailChangeConfirmSchema = z.object({ code: z.string().regex(/^\d{6}$/, 'El código debe tener 6 dígitos') });
 
 export const profileUpdateSchema = z
   .object({

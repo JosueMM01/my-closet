@@ -12,7 +12,6 @@ import {
   findUserById,
   registerAccount,
   registerInvitedGoogleAccount,
-  updateEmail,
   updatePasswordHash,
   updateProfile,
 } from '@/server/repositories/users-repository';
@@ -341,13 +340,11 @@ describe('invitaciones de cuenta', () => {
 });
 
 describe('cambios de credenciales', () => {
-  it('actualiza contraseña y normaliza el nuevo correo', async () => {
+  it('actualiza la contraseña', async () => {
     const user = await register('original@example.test');
     const nextHash = await hashPassword('nueva-contrasena');
     await updatePasswordHash(user.id, nextHash);
-    const changed = await updateEmail(user.id, ' NUEVO@Example.Test ');
 
-    expect(changed?.email).toBe('nuevo@example.test');
     expect(await verifyPassword('nueva-contrasena', (await findUserById(user.id))?.passwordHash ?? '')).toBe(true);
     expect(await verifyPassword('contrasena-segura', nextHash)).toBe(false);
   });

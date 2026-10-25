@@ -1,5 +1,38 @@
 import { expect, test } from '@playwright/test';
 
+test('login no envía campos vacíos o correo inválido, incluso al pulsar Enter', async ({ page }) => {
+  await page.route('**/api/auth/providers', route => route.fulfill({ json: {
+    credentials: true, google: false, publicRegistration: false, invitationRegistration: true,
+    turnstile: { enabled: false, siteKey: null },
+  } }));
+  const requests: unknown[] = [];
+  await page.route('**/api/auth/login', route => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ status: 401, json: { error: 'Correo o contraseña incorrectos' } });
+  });
+  await page.goto('/login');
+  const submit = page.getByRole('button', { name: 'Entrar', exact: true });
+  const email = page.getByLabel('Correo electrónico');
+  const password = page.getByLabel('Contraseña', { exact: true });
+  await expect(submit).toBeDisabled();
+  await email.fill('sin-arroba');
+  await password.fill('password-de-prueba');
+  await password.press('Enter');
+  await expect(submit).toBeDisabled();
+  expect(requests).toHaveLength(0);
+  await email.fill('test@example.test');
+  await expect(submit).toBeEnabled();
+  await password.fill('');
+  await expect(submit).toBeDisabled();
+  await password.fill('password-de-prueba');
+  await email.fill('');
+  await expect(submit).toBeDisabled();
+  await email.fill('test@example.test');
+  await submit.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'incorrectos' })).toBeVisible();
+  expect(requests).toHaveLength(1);
+});
+
 test('login exige verificación, envía token en memoria y renueva tras credenciales incorrectas', async ({ page }) => {
   await page.route('**/api/auth/providers', route => route.fulfill({ json: {
     credentials: true, google: false, publicRegistration: false, invitationRegistration: true,
