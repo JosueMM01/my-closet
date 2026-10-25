@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { createEmailChangeCodeEmail, createEmailChangedNoticeEmail, formatEmailChangeCode } from '@/server/mail/email-change-email';
 
 describe('correo de verificación de My Closet', () => {
-  it('muestra seis dígitos con guiones en HTML y texto, conservando ceros iniciales', () => {
+  it('muestra seis dígitos juntos en HTML y texto, conservando ceros iniciales', () => {
     const message = createEmailChangeCodeEmail({ newEmail: 'test@example.test', code: '012345', validMinutes: 10 });
     expect(message.to).toBe('test@example.test');
-    expect(message.text).toContain('\n0-1-2-3-4-5\n');
-    expect(message.html).toContain('0-1-2-3-4-5');
+    expect(message.text).toContain('\n012345\n');
+    expect(message.html).toContain('012345');
+    expect(message.html).not.toContain('0-1-2-3-4-5');
     expect(message.html).toContain('10 minutos');
     expect(message.html).toContain('5 intentos fallidos');
     expect(message.html).toContain('role="presentation"');

@@ -52,17 +52,44 @@ test.describe('Perfil', () => {
     await emailForm.getByRole('button', { name: 'Enviar código de verificación' }).click();
     await expect(page.getByText(`Código enviado a ${email}. Tu correo actual no ha cambiado.`)).toBeVisible();
     seedEmailConfirmation(originalEmail, email, '482913');
-    const codeInput = page.getByLabel('Código de verificación', { exact: true });
+    const codeInput = page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true });
+    const confirm = page.getByRole('button', { name: 'Confirmar nuevo correo' });
+    const digits = page.getByRole('group', { name: 'Código de verificación', exact: true }).getByRole('textbox');
+    await expect(digits).toHaveCount(6);
+    await codeInput.pressSequentially('012345');
+    for (const [index, digit] of [...'012345'].entries()) await expect(digits.nth(index)).toHaveValue(digit);
+    await expect(confirm).toBeEnabled();
+    await digits.nth(3).press('Backspace');
+    await expect(digits.nth(3)).toBeEmpty();
+    await expect(digits.nth(4)).toHaveValue('4');
+    await expect(confirm).toBeDisabled();
+    await digits.nth(3).fill('3');
+    await expect(confirm).toBeEnabled();
+    // Sustituye el código completo antes de probar la normalización parcial.
+    await codeInput.fill('');
+    for (let index = 1; index < 6; index++) await digits.nth(index).fill('');
     await codeInput.fill('12a3');
-    await expect(codeInput).toHaveValue('123');
-    await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
-    await expect(page.getByText('El código debe tener 6 dígitos')).toBeVisible();
+    await expect(digits.nth(0)).toHaveValue('1');
+    await expect(digits.nth(2)).toHaveValue('3');
+    await expect(digits.nth(3)).toBeFocused();
+    await expect(confirm).toBeDisabled();
+    await digits.nth(3).press('Backspace');
+    await expect(digits.nth(2)).toBeEmpty();
+    await expect(digits.nth(2)).toBeFocused();
+    await digits.nth(2).press('ArrowLeft');
+    await expect(digits.nth(1)).toBeFocused();
     await codeInput.fill('000000');
-    await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
     await expect(page.getByText('El código no es válido, venció o superó los intentos. Solicita uno nuevo.')).toBeVisible();
-    await codeInput.fill('482 913');
-    await expect(codeInput).toHaveValue('482913');
-    await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
+    // Pegar el código completo desde una casilla intermedia también reemplaza las seis.
+    await digits.nth(4).evaluate(element => {
+      const data = new DataTransfer();
+      data.setData('text', '482-913');
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+    });
+    for (const [index, digit] of [...'482913'].entries()) await expect(digits.nth(index)).toHaveValue(digit);
+    await confirm.click();
     await expect(page.getByText('Correo verificado y actualizado. Las otras sesiones se cerraron.')).toBeVisible();
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(email);
 

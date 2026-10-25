@@ -101,7 +101,7 @@ function capturedEmailToken(): string {
   const message = readCapturedMessagesForTests().filter(candidate =>
     candidate.subject.includes('Confirma tu nuevo correo'),
   ).at(-1);
-  const code = message?.text.match(/\n(\d(?:-\d){5})\n/)?.[1]?.replaceAll('-', '');
+  const code = message?.text.match(/\n(\d{6})\n/)?.[1];
   if (!code) throw new Error('Falta código de verificación de prueba');
   return code;
 }

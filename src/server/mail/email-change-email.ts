@@ -17,7 +17,7 @@ export function maskEmail(email: string): string {
 
 export function formatEmailChangeCode(code: string): string {
   if (!/^\d{6}$/.test(code)) throw new Error('El código debe tener 6 dígitos');
-  return code.split('').join('-');
+  return code;
 }
 
 export function createEmailChangeCodeEmail(input: {

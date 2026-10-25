@@ -30,14 +30,16 @@ Turnstile tiene claves separadas para Production y Preview; producción permanec
 desactivada hasta comprobar el flujo real del dominio canónico.
 
 El nuevo cambio de correo conserva la dirección actual hasta confirmar un código
-de seis dígitos, mostrado con guiones en el correo, válido durante diez minutos
+de seis dígitos juntos en el correo y seis casillas de entrada con pegado completo, válido durante diez minutos
 y anulado tras cinco intentos fallidos. Las migraciones `0004` y `0005`
-se ensayaron con el migrador en una copia aislada, incluida su idempotencia; no se han
-aplicado a producción. Este avance no cierra 5B ni habilita la baja de cuentas.
+se ensayaron con el migrador en una copia aislada y se aplicaron a staging,
+incluida su idempotencia; no se han aplicado a producción.
+Este avance no cierra 5B ni habilita la baja de cuentas.
 El alias del Preview de correo está autorizado en el widget Turnstile de Preview.
-La bandera se habilitó solo en esa rama: aún debe comprobarse un token real y su
-rechazo al reutilizarlo antes de afirmar funcionamiento completo. Google sigue
-desactivado en esa rama, cuyo callback no está registrado. No se modifica la
+La bandera se habilitó solo en esa rama y se verificó el acceso con un token real;
+su rechazo al reutilizarlo sigue pendiente antes de afirmar funcionamiento completo.
+Google sigue desactivado en esa rama, cuyo callback no está registrado, pero está
+habilitado en el Preview de `develop`. No se modifica la
 configuración de producción ni se confunde CI con validación de un desafío real.
 
 Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,

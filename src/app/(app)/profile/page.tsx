@@ -21,6 +21,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileGoogle } from '@/components/profile-google';
 import { ShareIcon } from '@/components/icons';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
+import { VerificationCodeInput } from '@/components/verification-code-input';
 
 function readableError(error: unknown, fallback: string): string {
   if (
@@ -388,21 +389,9 @@ export default function ProfilePage() {
               {' '}Vence en 10 minutos; solo el último código es válido y tras 5 intentos fallidos debes pedir otro.
             </p>
             <div className="mt-3">
-              <Field label="Código de verificación" htmlFor="email-verification-code">
-                <TextInput
-                  id="email-verification-code"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="123456"
-                  value={emailCode}
-                  // Acepta pegado con espacios o guiones y conserva solo los 6 digitos.
-                  onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  required
-                />
-              </Field>
+              <VerificationCodeInput value={emailCode} onChange={setEmailCode} disabled={!online || busy !== null} />
             </div>
-            <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null}>
+            <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null || !/^\d{6}$/.test(emailCode)}>
               Confirmar nuevo correo
             </Button>
           </form>
