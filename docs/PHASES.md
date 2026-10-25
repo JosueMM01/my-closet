@@ -1,6 +1,6 @@
 # Fases de My Closet
 
-Actualización: 2026-10-18. Este archivo conserva el plan público del proyecto.
+Actualización: 2026-10-25. Este archivo conserva el plan público del proyecto.
 La implementación, la integración, la publicación y la validación en uso son
 estados distintos; aprobar CI no cierra por sí solo una fase.
 
@@ -30,11 +30,15 @@ Turnstile tiene claves separadas para Production y Preview; producción permanec
 desactivada hasta comprobar el flujo real del dominio canónico.
 
 El nuevo cambio de correo conserva la dirección actual hasta confirmar un código
-de un solo uso. Su migración `0004` se ensayó en una copia aislada y no se ha
+de seis dígitos, mostrado con guiones en el correo, válido durante diez minutos
+y anulado tras cinco intentos fallidos. Las migraciones `0004` y `0005`
+se ensayaron con el migrador en una copia aislada, incluida su idempotencia; no se han
 aplicado a producción. Este avance no cierra 5B ni habilita la baja de cuentas.
-El Preview de correo desactiva Google y Turnstile solo en su rama, cuyos alias
-no están registrados en esos proveedores; no demuestra la validación de OAuth
-ni del desafío real y no modifica la configuración de producción.
+El alias del Preview de correo está autorizado en el widget Turnstile de Preview.
+La bandera se habilitó solo en esa rama: aún debe comprobarse un token real y su
+rechazo al reutilizarlo antes de afirmar funcionamiento completo. Google sigue
+desactivado en esa rama, cuyo callback no está registrado. No se modifica la
+configuración de producción ni se confunde CI con validación de un desafío real.
 
 Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,
 registrar limpieza Cloudinary durable antes de perder sus claves y proteger al

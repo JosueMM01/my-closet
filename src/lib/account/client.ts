@@ -68,8 +68,8 @@ export async function changeEmail(input: {
   });
 }
 
-export async function confirmEmailChange(token: string): Promise<LocalProfile> {
-  const body = parseClientInput(emailChangeConfirmSchema, { token }, 'Código de verificación inválido');
+export async function confirmEmailChange(code: string): Promise<LocalProfile> {
+  const body = parseClientInput(emailChangeConfirmSchema, { code }, 'El código debe tener 6 dígitos');
   await requestJSON('/api/profile/email/confirm', emailChangeResponseSchema, {
     method: 'POST', ...jsonBody(body),
   });

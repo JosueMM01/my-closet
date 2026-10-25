@@ -1,20 +1,24 @@
 import path from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
 
-function seedEmailConfirmation(email: string, newEmail: string): string {
+// Debe coincidir con AUTH_SECRET del servidor E2E en playwright.config.ts.
+const E2E_AUTH_SECRET = 'e2e-local-only-auth-secret';
+
+function seedEmailConfirmation(email: string, newEmail: string, code: string): void {
   // El correo capturado vive en el proceso Next. Sembrar un codigo sintetico
   // evita exponer un endpoint de pruebas o enviar correo real desde E2E.
   const db = new Database(path.resolve('data/my-closet-e2e.db'), { fileMustExist: true });
-  const token = randomBytes(32).toString('base64url');
   try {
-    const changed = db.prepare(`UPDATE email_change_tokens SET token_hash = ?
-      WHERE user_id = (SELECT id FROM users WHERE email = ?) AND new_email = ?`)
-      .run(createHash('sha256').update(token).digest('hex'), email, newEmail);
+    const user = db.prepare<[string], { id: string }>('SELECT id FROM users WHERE email = ?').get(email);
+    expect(user).toBeTruthy();
+    const tokenHash = createHmac('sha256', E2E_AUTH_SECRET)
+      .update(JSON.stringify(['email-change', user?.id, code])).digest('hex');
+    const changed = db.prepare(`UPDATE email_change_tokens SET token_hash = ?, attempts = 0
+      WHERE user_id = ? AND new_email = ?`).run(tokenHash, user?.id, newEmail);
     expect(changed.changes).toBe(1);
-    return token;
   } finally { db.close(); }
 }
 
@@ -47,11 +51,17 @@ test.describe('Perfil', () => {
     await emailForm.getByLabel('Contraseña actual').fill('contrasena-nueva');
     await emailForm.getByRole('button', { name: 'Enviar código de verificación' }).click();
     await expect(page.getByText(`Código enviado a ${email}. Tu correo actual no ha cambiado.`)).toBeVisible();
-    await page.getByLabel('Código de verificación', { exact: true }).fill('A'.repeat(43));
+    seedEmailConfirmation(originalEmail, email, '482913');
+    const codeInput = page.getByLabel('Código de verificación', { exact: true });
+    await codeInput.fill('12a3');
+    await expect(codeInput).toHaveValue('123');
     await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
-    await expect(page.getByText('El código no es válido o ha vencido. Solicita uno nuevo.')).toBeVisible();
-    const token = seedEmailConfirmation(originalEmail, email);
-    await page.getByLabel('Código de verificación', { exact: true }).fill(token);
+    await expect(page.getByText('El código debe tener 6 dígitos')).toBeVisible();
+    await codeInput.fill('000000');
+    await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
+    await expect(page.getByText('El código no es válido, venció o superó los intentos. Solicita uno nuevo.')).toBeVisible();
+    await codeInput.fill('482 913');
+    await expect(codeInput).toHaveValue('482913');
     await page.getByRole('button', { name: 'Confirmar nuevo correo' }).click();
     await expect(page.getByText('Correo verificado y actualizado. Las otras sesiones se cerraron.')).toBeVisible();
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(email);

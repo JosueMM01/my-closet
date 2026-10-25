@@ -115,6 +115,7 @@ export const emailChangeTokens = pgTable('email_change_tokens', {
   originalEmail: text('original_email').notNull(),
   credentialHash: text('credential_hash').notNull(),
   tokenHash: text('token_hash').notNull(),
+  attempts: integer('attempts').notNull().default(0),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
 

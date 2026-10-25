@@ -6,7 +6,7 @@ import { getEnv } from '@/server/env';
 import { rateLimit } from '@/server/auth/rate-limit';
 import { createHmac } from 'node:crypto';
 import { getAuthSecret } from '@/server/env';
-import { consumeEmailChangeToken, hashEmailChangeToken, replaceEmailChangeToken } from '@/server/repositories/email-change-repository';
+import { consumeEmailChangeToken, hashEmailChangeCode, replaceEmailChangeToken, type ConfirmedEmailChange } from '@/server/repositories/email-change-repository';
 import {
   createUser,
   findUserByEmail,
@@ -39,21 +39,21 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
     const user = await createUser({ email: `email-${uuid()}@example.test`, displayName: 'Correo', passwordHash: 'scrypt:test-contract' });
     cleanupUserIds.push(user.id);
     const target = `verified-${uuid()}@example.test`;
-    const token = 'P'.repeat(43);
+    const token = '482913';
     const db = await getServerDB();
     if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
     await db.postgres.insert(pgSchema.sessions).values({ id: uuid(), userId: user.id, expiresAt: new Date(Date.now() + 60_000) });
     await db.postgres.insert(pgSchema.passwordResetTokens).values({ id: uuid(), userId: user.id, tokenHash: uuid(), expiresAt: new Date(Date.now() + 60_000) });
-    await replaceEmailChangeToken(user, target, hashEmailChangeToken(token), new Date(Date.now() + 60_000));
+    await replaceEmailChangeToken(user, target, hashEmailChangeCode(user.id, token), new Date(Date.now() + 60_000));
     const second = await createServerDB({ ...getEnv(), BOOTSTRAP_ADMIN_EMAIL: undefined, BOOTSTRAP_ADMIN_PASSWORD: undefined });
     if (second.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
-    let results: (string | null)[];
+    let results: (ConfirmedEmailChange | null)[];
     try {
       results = await Promise.all([
         consumeEmailChangeToken(user.id, token), consumeEmailChangeToken(user.id, token, new Date(), second),
       ]);
     } finally { await second.raw.end({ timeout: 5 }); }
-    expect(results.filter(Boolean)).toEqual([target]);
+    expect(results.filter(Boolean).map(result => result?.newEmail)).toEqual([target]);
     expect(await findUserByEmail(target)).toMatchObject({ id: user.id });
     expect(await db.postgres.select().from(pgSchema.sessions).where(eq(pgSchema.sessions.userId, user.id))).toEqual([]);
     expect(await db.postgres.select().from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, user.id))).toEqual([]);

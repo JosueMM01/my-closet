@@ -45,9 +45,9 @@ import { POST as resetPassword } from '@/app/api/auth/reset-password/route';
 import { GET as session } from '@/app/api/auth/session/route';
 import { POST as changeEmail } from '@/app/api/profile/email/route';
 import { POST as confirmEmail } from '@/app/api/profile/email/confirm/route';
-import { consumeEmailChangeToken } from '@/server/repositories/email-change-repository';
+import { consumeEmailChangeToken, EMAIL_CHANGE_MAX_ATTEMPTS, hashEmailChangeCode } from '@/server/repositories/email-change-repository';
 import { requestEmailChange } from '@/server/services/email-change-service';
-import { findUserById, updateEmail, updatePasswordHash } from '@/server/repositories/users-repository';
+import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
 import { POST as changePassword } from '@/app/api/profile/password/route';
 
 const BOOTSTRAP_EMAIL = 'api-bootstrap@example.test';
@@ -101,9 +101,9 @@ function capturedEmailToken(): string {
   const message = readCapturedMessagesForTests().filter(candidate =>
     candidate.subject.includes('Confirma tu nuevo correo'),
   ).at(-1);
-  const token = message?.text.match(/\n([A-Za-z0-9_-]{43})\n/)?.[1];
-  if (!token) throw new Error('Falta código de verificación de prueba');
-  return token;
+  const code = message?.text.match(/\n(\d(?:-\d){5})\n/)?.[1]?.replaceAll('-', '');
+  if (!code) throw new Error('Falta código de verificación de prueba');
+  return code;
 }
 
 beforeEach(async () => {
@@ -223,9 +223,14 @@ describe('API de cuentas y perfil', () => {
     expect(beforeConfirmation.authenticated && beforeConfirmation.profile.email).toBe(profile.email);
     const previousCookie = new Map(cookieState);
     const token = capturedEmailToken();
-    const confirmed = await confirmEmail(jsonRequest('/api/profile/email/confirm', { token }));
+    expect(token).toMatch(/^\d{6}$/);
+    const confirmed = await confirmEmail(jsonRequest('/api/profile/email/confirm', { code: token }));
     expect(confirmed.status).toBe(200);
     expect(await confirmed.json()).toEqual({ email: 'nuevo-perfil@example.test' });
+    const notice = readCapturedMessagesForTests().filter(candidate => candidate.subject.includes('cuenta de My Closet cambió')).at(-1);
+    expect(notice?.to).toBe(profile.email);
+    expect(notice?.text).toContain('n***@example.test');
+    expect(notice?.text).not.toContain('nuevo-perfil');
     const current = sessionResponseSchema.parse(await (await session()).json());
     expect(current.authenticated && current.profile.email).toBe('nuevo-perfil@example.test');
     expect(await consumeEmailChangeToken(profile.userId, token)).toBeNull();
@@ -260,16 +265,34 @@ describe('API de cuentas y perfil', () => {
     expect(await first.text()).not.toContain(firstToken);
     const db = await getServerDB();
     if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
-    expect(JSON.stringify(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all())).not.toContain(firstToken);
+    const [stored] = db.sqlite.select().from(sqliteSchema.emailChangeTokens).all();
+    expect(stored?.tokenHash).toBe(hashEmailChangeCode(owner.userId, firstToken));
+    expect(stored?.tokenHash).not.toContain(firstToken);
+    expect(stored?.credentialHash).not.toContain('scrypt');
+    expect(new Date(stored?.expiresAt ?? 0).getTime() - Date.now()).toBeLessThanOrEqual(10 * 60_000);
     await changeEmail(jsonRequest('/api/profile/email', {
       currentPassword: 'contrasena-segura', newEmail: 'second-pending@example.test',
     }));
     const secondToken = capturedEmailToken();
-    expect(await consumeEmailChangeToken(owner.userId, firstToken)).toBeNull();
+    if (firstToken !== secondToken) expect(await consumeEmailChangeToken(owner.userId, firstToken)).toBeNull();
     const other = await registerUser('other-pending@example.test', 'Otra cuenta');
-    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { token: secondToken }))).status).toBe(400);
+    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { code: secondToken }))).status).toBe(400);
     expect((await findUserById(other.userId))?.email).toBe(other.email);
-    expect(await consumeEmailChangeToken(owner.userId, secondToken)).toBe('second-pending@example.test');
+    expect((await consumeEmailChangeToken(owner.userId, secondToken))?.newEmail).toBe('second-pending@example.test');
+  });
+
+  it('invalida el código tras el máximo de intentos fallidos', async () => {
+    const profile = await registerUser('attempts-email@example.test', 'Intentos');
+    await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: 'attempts-next@example.test',
+    }));
+    const code = capturedEmailToken();
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (let attempt = 0; attempt < EMAIL_CHANGE_MAX_ATTEMPTS; attempt += 1) {
+      expect(await consumeEmailChangeToken(profile.userId, wrong)).toBeNull();
+    }
+    expect(await consumeEmailChangeToken(profile.userId, code)).toBeNull();
+    expect((await findUserById(profile.userId))?.email).toBe(profile.email);
   });
 
   it('rechaza caducidad y cambios posteriores de credenciales sin cambiar el correo', async () => {
@@ -278,7 +301,7 @@ describe('API de cuentas y perfil', () => {
       currentPassword: 'contrasena-segura', newEmail: 'expiry-next@example.test',
     }));
     const token = capturedEmailToken();
-    expect(await consumeEmailChangeToken(profile.userId, token, new Date(Date.now() + 16 * 60_000))).toBeNull();
+    expect(await consumeEmailChangeToken(profile.userId, token, new Date(Date.now() + 11 * 60_000))).toBeNull();
     await updatePasswordHash(profile.userId, 'scrypt:changed-after-request');
     expect(await consumeEmailChangeToken(profile.userId, token)).toBeNull();
     expect((await findUserById(profile.userId))?.email).toBe(profile.email);
@@ -294,34 +317,40 @@ describe('API de cuentas y perfil', () => {
     await expect(consumeEmailChangeToken(owner.userId, token)).rejects.toMatchObject({ code: 'EMAIL_EXISTS' });
     expect((await findUserById(owner.userId))?.email).toBe(owner.email);
     expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(true);
-    await updateEmail(other.userId, 'conflict-free@example.test');
-    expect(await consumeEmailChangeToken(owner.userId, token)).toBe('conflict-target@example.test');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
+    const { eq } = await import('drizzle-orm');
+    db.sqlite.update(sqliteSchema.users).set({ email: 'conflict-free@example.test' }).where(eq(sqliteSchema.users.id, other.userId)).run();
+    expect((await consumeEmailChangeToken(owner.userId, token))?.newEmail).toBe('conflict-target@example.test');
   });
 
-  it('si falla la entrega o está deshabilitada no cambia la cuenta y elimina el código pendiente', async () => {
+  it('si falla la entrega o está deshabilitada no cambia la cuenta y conserva la solicitud anterior', async () => {
     const profile = await registerUser('mail-failure@example.test', 'Entrega');
     const user = await findUserById(profile.userId);
     if (!user) throw new Error('Falta cuenta');
+    expect(await requestEmailChange(user, 'kept@example.test')).toBe(true);
+    const keptCode = capturedEmailToken();
     expect(await requestEmailChange(user, 'disabled@example.test', { kind: 'disabled', send: async () => 'disabled' })).toBe(false);
     expect(await requestEmailChange(user, 'failure@example.test', { kind: 'smtp', send: async () => { throw new Error('synthetic'); } })).toBe(false);
     const db = await getServerDB();
     if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
-    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all()).toHaveLength(0);
+    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all().map(row => row.newEmail)).toEqual(['kept@example.test']);
     expect((await findUserById(user.id))?.email).toBe(user.email);
+    expect((await consumeEmailChangeToken(user.id, keptCode))?.newEmail).toBe('kept@example.test');
   });
 
   it('requiere sesión, origen propio y códigos válidos; limita confirmaciones fallidas', async () => {
-    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { token: 'A'.repeat(43) }))).status).toBe(401);
+    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { code: '000000' }))).status).toBe(401);
     const user = await registerUser('confirm-guards@example.test', 'Guardas');
-    const crossOrigin = jsonRequest('/api/profile/email/confirm', { token: 'A'.repeat(43) });
+    const crossOrigin = jsonRequest('/api/profile/email/confirm', { code: '000000' });
     crossOrigin.headers.set('origin', 'https://other.example.test');
     expect((await confirmEmail(crossOrigin)).status).toBe(403);
-    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { token: 'bad' }))).status).toBe(400);
+    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { code: 'bad' }))).status).toBe(400);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(Math.floor(Date.now() / 60_000) * 60_000 + 1000));
     try {
       const responses = await Promise.all(Array.from({ length: 6 }, () =>
-        confirmEmail(jsonRequest('/api/profile/email/confirm', { token: 'A'.repeat(43) })),
+        confirmEmail(jsonRequest('/api/profile/email/confirm', { code: '000000' })),
       ));
       expect(responses.some(response => response.status === 429)).toBe(true);
       expect((await findUserById(user.userId))?.email).toBe(user.email);
@@ -342,7 +371,7 @@ describe('API de cuentas y perfil', () => {
     db.sqlite.update(sqliteSchema.users).set({ status: 'DISABLED' }).where(eq(sqliteSchema.users.id, user.userId)).run();
     expect(await consumeEmailChangeToken(user.userId, token)).toBeNull();
     db.sqlite.update(sqliteSchema.users).set({ status: 'ACTIVE' }).where(eq(sqliteSchema.users.id, user.userId)).run();
-    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { token }))).status).toBe(200);
+    expect((await confirmEmail(jsonRequest('/api/profile/email/confirm', { code: token }))).status).toBe(200);
     const recovery = await resetPassword(jsonRequest('/api/auth/reset-password', { token: resetToken, newPassword: 'otro-password-seguro' }));
     expect(recovery.status).toBe(400);
   });

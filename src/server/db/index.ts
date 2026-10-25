@@ -196,8 +196,15 @@ function ensureSqliteSchema(
     original_email TEXT NOT NULL,
     credential_hash TEXT NOT NULL,
     token_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
     expires_at TEXT NOT NULL
   )`);
+  const emailChangeColumns = new Set(
+    raw.prepare<[], { name: string }>('PRAGMA table_info(email_change_tokens)').all().map((column) => column.name),
+  );
+  if (!emailChangeColumns.has('attempts')) {
+    raw.exec('ALTER TABLE email_change_tokens ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+  }
   db.run(sql`CREATE TABLE IF NOT EXISTS account_invitations (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,

@@ -2,8 +2,8 @@ import { emailChangeConfirmSchema, emailChangeResponseSchema } from '@/lib/domai
 import { createSession, getSessionUser } from '@/server/auth/session';
 import { guardRateLimit } from '@/server/auth/rate-limit';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
-import { consumeEmailChangeToken } from '@/server/repositories/email-change-repository';
 import { AccountError } from '@/server/repositories/users-repository';
+import { confirmEmailChange } from '@/server/services/email-change-service';
 
 export const runtime = 'nodejs';
 
@@ -17,8 +17,8 @@ export async function POST(request: Request) {
   const parsed = emailChangeConfirmSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return invalidBody('Código de verificación inválido');
   try {
-    const email = await consumeEmailChangeToken(principal.userId, parsed.data.token);
-    if (!email) return jsonError(400, 'El código no es válido o ha vencido. Solicita uno nuevo.');
+    const email = await confirmEmailChange(principal.userId, parsed.data.code);
+    if (!email) return jsonError(400, 'El código no es válido, venció o superó los intentos. Solicita uno nuevo.');
     // Las sesiones anteriores ya se revocaron dentro de la transaccion.
     await createSession(principal.userId);
     return jsonOk(emailChangeResponseSchema.parse({ email }));

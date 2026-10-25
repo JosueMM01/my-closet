@@ -46,7 +46,7 @@ export default function ProfilePage() {
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [newEmail, setNewEmail] = useState(profile?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
-  const [emailToken, setEmailToken] = useState('');
+  const [emailCode, setEmailCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -123,7 +123,7 @@ export default function ProfilePage() {
       });
       setCurrentPasswordForEmail('');
       setPendingEmail(requested.email);
-      setEmailToken('');
+      setEmailCode('');
       setStatus(`Código enviado a ${requested.email}. Tu correo actual no ha cambiado.`);
     } catch (caught) {
       setError(readableError(caught, 'No se pudo actualizar el correo'));
@@ -136,10 +136,10 @@ export default function ProfilePage() {
     event.preventDefault();
     begin('email-confirm');
     try {
-      const updated = await confirmEmailChange(emailToken.trim());
+      const updated = await confirmEmailChange(emailCode);
       setNewEmail(updated.email);
       setPendingEmail(null);
-      setEmailToken('');
+      setEmailCode('');
       await finishProfileChange('Correo verificado y actualizado. Las otras sesiones se cerraron.');
     } catch (caught) {
       setError(readableError(caught, 'No se pudo verificar el correo'));
@@ -382,20 +382,29 @@ export default function ProfilePage() {
             </Button>
           </form>
           <form onSubmit={confirmNewEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>
-              <h3 className="font-heading text-base">Verificar nuevo correo</h3>
-              <p className="mt-1 text-sm text-text-secondary">
-                {pendingEmail ? `Copia el código enviado a ${pendingEmail}.` : 'Si ya solicitaste el cambio, copia el código recibido en el nuevo buzón.'}
-                {' '}Vence en 15 minutos; solo el último código es válido.
-              </p>
-              <div className="mt-3">
-                <Field label="Código de verificación" htmlFor="email-verification-token">
-                  <TextInput id="email-verification-token" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false}
-                    value={emailToken} onChange={event => setEmailToken(event.target.value)} maxLength={43} required />
-                </Field>
-              </div>
-              <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null}>
-                Confirmar nuevo correo
-              </Button>
+            <h3 className="font-heading text-base">Verificar nuevo correo</h3>
+            <p className="mt-1 text-sm text-text-secondary">
+              {pendingEmail ? `Escribe el código de 6 dígitos enviado a ${pendingEmail}.` : 'Si ya solicitaste el cambio, escribe el código de 6 dígitos recibido en el nuevo buzón.'}
+              {' '}Vence en 10 minutos; solo el último código es válido y tras 5 intentos fallidos debes pedir otro.
+            </p>
+            <div className="mt-3">
+              <Field label="Código de verificación" htmlFor="email-verification-code">
+                <TextInput
+                  id="email-verification-code"
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="123456"
+                  value={emailCode}
+                  // Acepta pegado con espacios o guiones y conserva solo los 6 digitos.
+                  onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                />
+              </Field>
+            </div>
+            <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null}>
+              Confirmar nuevo correo
+            </Button>
           </form>
         </div>
 

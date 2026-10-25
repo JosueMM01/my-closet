@@ -44,12 +44,15 @@ localStorage, sessionStorage ni IndexedDB. Una sesión remota expirada exige
 reautenticación y preserva la identidad local y la outbox. El trabajo offline
 permanece ligado al origen del navegador y al usuario correspondiente.
 
-El cambio de correo exige contraseña actual y un código enviado al nuevo buzón,
-con caducidad de 15 minutos y hash SHA-256 en el servidor. La confirmación está
-ligada a la cuenta, correo y credenciales originales; solo la última solicitud
-es válida. Una transacción cambia el correo e invalida el código, las sesiones
-y los enlaces de recuperación anteriores; después se emite una sesión nueva.
-Si el correo está deshabilitado o falla la entrega, no se cambia la dirección.
+El cambio de correo exige contraseña actual y un código numérico de 6 dígitos
+enviado al nuevo buzón, con caducidad de 10 minutos y HMAC-SHA256 con el secreto
+del servidor. Cinco intentos fallidos invalidan el código. La confirmación está
+ligada a la cuenta, correo y huella de las credenciales originales; solo la
+última solicitud es válida. Una transacción cambia el correo e invalida el
+código, las sesiones y los enlaces de recuperación anteriores; después se emite
+una sesión nueva y se avisa al correo anterior con la dirección nueva enmascarada.
+Si el correo está deshabilitado o falla la entrega, no se cambia la dirección ni
+se reemplaza la solicitud vigente.
 El código solo vive en memoria en la UI; no se añade a IndexedDB ni a URLs.
 
 ## Imágenes y sugerencias
