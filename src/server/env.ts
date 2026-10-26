@@ -35,10 +35,11 @@ const explicitBoolean = z
   .default('false')
   .transform((value) => value === 'true');
 
-const optionalExplicitBoolean = z
-  .enum(['true', 'false'])
-  .optional()
-  .transform((value) => (value === undefined ? undefined : value === 'true'));
+const optionalExplicitBoolean = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.enum(['true', 'false']).optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
+);
 
 export const serverEnvSchema = z
   .object({

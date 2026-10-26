@@ -48,6 +48,12 @@ beforeEach(() => {
 });
 
 describe('límite de correo', () => {
+  it('acepta SMTP opcional vacío en Preview sin heredar transporte ni relajar booleanos inválidos', () => {
+    const empty = { NODE_ENV: 'production', EMAIL_PROVIDER: 'capture', AUTH_SECRET: 'synthetic-preview-auth-secret',
+      EMAIL_FROM: '', SMTP_HOST: '', SMTP_PORT: '', SMTP_SECURE: '', SMTP_USER: '', SMTP_PASSWORD: '' };
+    expect(parseServerEnv(empty).SMTP_SECURE).toBeUndefined();
+    expect(() => parseServerEnv({ ...empty, SMTP_SECURE: 'invalid' })).toThrow();
+  });
   it('disabled no captura ni carga un transporte SMTP', async () => {
     const provider = createMailProvider(parseServerEnv({ NODE_ENV: 'test' }));
 
