@@ -115,7 +115,7 @@ de adivinar ni revocación de URLs ya conocidas. La fase 6 debe aclarar esta pol
 en la experiencia y comprobar la matriz de permisos de datos y compartidos; no
 introducir entrega privada ni cambios de coste sin una decisión nueva.
 
-Antes de habilitar 5C, resolver las referencias de invitaciones y copias ajenas,
+Antes de habilitar 5C en producción, resolver las referencias de invitaciones y copias ajenas,
 registrar limpieza Cloudinary durable antes de perder sus claves y proteger al
 último administrador. Exigir conexión, reautenticación y confirmación final explícita,
 sin sustituir la autenticación por escribir una palabra.
@@ -142,15 +142,25 @@ vacía `closet_5c_preview`, en una rama Neon de pruebas y con un rol nuevos.
 No se aplicó a staging ni producción. Pasaron los 14 contratos PostgreSQL previos
 y cinco nuevos de baja: ADMIN concurrentes, escrituras tardías, referencias
 compartidas, guardas de imágenes y consumo de la prueba Google simulada.
-Esto no sustituye el ensayo con Google real ni la validación del modal en Preview.
+El Preview aislado de `feat/secure-account-lifecycle` tiene la baja habilitada y
+Turnstile configurado con su hostname autorizado; el servidor rechaza con 403
+los intentos sin token o con token inválido. El ensayo real de registro por
+invitación y baja con contraseña pasó en Chromium de escritorio y emulación móvil:
+foco inicial en Cancelar, Escape y foco devuelto, confirmación deshabilitada hasta
+completar los requisitos, contraseña incorrecta rechazada sin borrar, respuesta
+202 con contraseña correcta, anonimización, revocación de dos sesiones por cuenta,
+rechazo de la sesión anterior por la API y limpieza del perfil de IndexedDB.
+Se usaron solo cuentas sintéticas, sin correo real ni borrados Cloudinary.
+Esto no sustituye Google real, un iPhone físico ni la validación positiva de
+Turnstile en este hostname; el registro por invitación no usa ese desafío.
 
 Antes de activar, cubrir también las subidas firmadas aún no finalizadas y assets
 huérfanos: una firma ya emitida puede sobrevivir a la sesión de la aplicación.
 Definir un registro mínimo de bajas independiente de la base restaurada y el
 procedimiento de reconciliación y revocación antes de recuperar un respaldo antiguo.
-Validar Google real y el modal en móvil/escritorio, incluida pérdida de conexión
-después de confirmar el servidor. Estas son condiciones de cierre, no tareas omitibles.
-No se habilitan bajas ni se ejecutan borrados de cuentas o imágenes reales durante
+Validar Google real y la pérdida de conexión después de confirmar el servidor.
+Estas son condiciones de cierre, no tareas omitibles.
+No se habilitan bajas en producción ni se ejecutan borrados de cuentas o imágenes reales durante
 esta preparación. Tampoco se promete borrado inmediato de respaldos, cachés CDN
 ni de dispositivos offline; el origen actual se limpia tras recargar, antes del sync.
 
