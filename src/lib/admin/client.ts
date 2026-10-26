@@ -29,7 +29,6 @@ export async function refreshAdminInvitations(): Promise<AdminInvitationCache[]>
 export async function createAdminInvitation(input: {
   email: string;
   role: UserRole;
-  expiresAt: string;
 }) {
   const body = parseClientInput(invitationCreateSchema, input, 'Datos de invitación inválidos');
   const created = await requestJSON(

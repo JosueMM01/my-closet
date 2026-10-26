@@ -220,6 +220,16 @@ describe('correo de recuperación', () => {
 });
 
 describe('servicio de invitaciones', () => {
+  it('fija siete días desde el servidor aunque un cliente antiguo mande otra fecha', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-25T12:00:00.000Z'));
+    try {
+      const create = vi.fn(async () => ({ invitation, token: 'd'.repeat(43) }));
+      const legacyInput = { actorId: invitation.createdBy, email: invitation.email, role: invitation.role, expiresAt: '2099-01-01T00:00:00.000Z' };
+      await createAndDeliverInvitation(legacyInput, { env: parseServerEnv({ NODE_ENV: 'test' }), create });
+      expect(create).toHaveBeenCalledWith({ ...legacyInput, expiresAt: '2026-11-01T12:00:00.000Z' });
+    } finally { vi.useRealTimers(); }
+  });
   it('expone el token por separado solo cuando el correo está disabled', async () => {
     const env = parseServerEnv({ NODE_ENV: 'test' });
     const create = vi.fn(async () => ({ invitation, token: 'a'.repeat(43) }));
@@ -229,7 +239,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -249,7 +258,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -274,7 +282,6 @@ describe('servicio de invitaciones', () => {
           actorId: invitation.createdBy,
           email: invitation.email,
           role: invitation.role,
-          expiresAt: invitation.expiresAt,
         },
         { env, create, revoke, mailProvider },
       ),

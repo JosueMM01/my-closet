@@ -219,6 +219,19 @@ export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
   z.object({ linked: z.literal(true), providerEmail: accountEmailSchema }),
 ]);
 
+export const accountDeletionInputSchema = z.object({
+  acknowledge: z.literal(true),
+  currentPassword: z.string().min(1).max(128).optional(),
+}).strict();
+
+export const accountDeletionStatusSchema = z.object({
+  enabled: z.boolean(),
+  googleAvailable: z.boolean(),
+  reauthenticated: z.boolean(),
+});
+
+export const accountDeletionResponseSchema = z.object({ ok: z.literal(true), cleanupPending: z.boolean() });
+
 export const googlePictureAvailabilitySchema = z.object({
   available: z.boolean(),
 });
@@ -252,7 +265,6 @@ export const emailChangeSchema = z.object({
 export const invitationCreateSchema = z.object({
   email: accountEmailSchema,
   role: userRoleSchema,
-  expiresAt: isoDateTime,
 });
 
 export const invitationResponseSchema = z.object({

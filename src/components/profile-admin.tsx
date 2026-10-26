@@ -97,7 +97,6 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
       const created = await createAdminInvitation({
         email,
         role,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
       });
       setInviteUrl(created.inviteUrl);
       setEmail('');
