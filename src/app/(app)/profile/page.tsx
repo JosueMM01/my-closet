@@ -19,6 +19,7 @@ import { useSession, useSync } from '@/components/providers';
 import { ProfileAdmin } from '@/components/profile-admin';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileGoogle } from '@/components/profile-google';
+import { ProfileAccountDeletion } from '@/components/profile-account-deletion';
 import { ShareIcon } from '@/components/icons';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { VerificationCodeInput } from '@/components/verification-code-input';
@@ -441,6 +442,8 @@ export default function ProfilePage() {
           </Link>
         </section>
       </div>
+
+      <ProfileAccountDeletion userId={userId} online={online} remoteExpired={remoteExpired} />
 
       <Button variant="secondary" className="w-full" onClick={handleLogout} data-testid="logout">
         Cerrar sesión

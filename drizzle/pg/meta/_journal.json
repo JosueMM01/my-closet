@@ -43,6 +43,13 @@
       "when": 1792951907987,
       "tag": "0005_email_change_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792972733355,
+      "tag": "0006_account_deletion",
+      "breakpoints": true
     }
   ]
 }

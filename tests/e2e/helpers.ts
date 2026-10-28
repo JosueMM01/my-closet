@@ -39,6 +39,11 @@ export function grantAdminAccess(email: string): void {
   const database = new Database(path.resolve('data/my-closet-e2e.db'));
   try {
     database.transaction(() => {
+      // A failed/retried E2E must not leave a synthetic ADMIN reservation for
+      // another test. This connection is exclusively the local E2E database.
+      database.prepare(`UPDATE account_invitations SET revoked_at = ?
+        WHERE role = 'ADMIN' AND email LIKE '%@test.local'
+          AND accepted_at IS NULL AND revoked_at IS NULL`).run(new Date().toISOString());
       const current = database
         .prepare<[string], { id: string; role: string; status: string; admin_slot: number | null }>(
           'SELECT id, role, status, admin_slot FROM users WHERE email = ?',

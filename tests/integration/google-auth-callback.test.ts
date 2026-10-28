@@ -41,6 +41,9 @@ import {
 import { GET as getGooglePicture } from '@/app/api/profile/google/picture/route';
 import { googleLinkStatusResponseSchema } from '@/lib/domain/validation';
 import { GOOGLE_FLOW_COOKIES } from '@/server/auth/google-flow';
+import { DELETION_PROOF_COOKIE } from '@/server/auth/account-deletion';
+import { hashPassword } from '@/server/auth/password';
+import { GET as deletionStatus, DELETE as deleteSelf } from '@/app/api/profile/deletion/route';
 
 function setFlow(intent: 'login' | 'link', userId?: string): void {
   cookieState.set(GOOGLE_FLOW_COOKIES.state, 'state-value-with-at-least-thirty-two-bytes');
@@ -69,10 +72,71 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await closeServerDB();
 });
 
 describe('callback de Google', () => {
+  it('la baja con contraseña exige confirmación, origen propio y contraseña correcta', async () => {
+    vi.stubEnv('ACCOUNT_DELETION_ENABLED', 'true');
+    const user = await createUser({ email: 'delete-password@example.test', displayName: 'Sintético', passwordHash: await hashPassword('synthetic-valid-password') });
+    await createSession(user.id);
+    const request = (body: unknown, origin?: string) => new Request('http://localhost/api/profile/deletion', {
+      method: 'DELETE', headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet', ...(origin ? { origin } : {}) }, body: JSON.stringify(body),
+    });
+    expect((await deleteSelf(request({ acknowledge: false, currentPassword: 'synthetic-valid-password' }))).status).toBe(400);
+    expect((await deleteSelf(request({ acknowledge: true, currentPassword: 'synthetic-valid-password' }, 'https://foreign.example.test'))).status).toBe(403);
+    expect((await deleteSelf(request({ acknowledge: true, currentPassword: 'wrong-password' }))).status).toBe(403);
+    expect((await deleteSelf(request({ acknowledge: true, userId: 'other-user', currentPassword: 'synthetic-valid-password' }))).status).toBe(400);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()?.status).toBe('ACTIVE');
+    expect((await deleteSelf(request({ acknowledge: true, currentPassword: 'synthetic-valid-password' }))).status).toBe(202);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()?.status).toBe('DISABLED');
+  });
+  it.each([undefined, Math.floor(Date.now() / 1000) - 3600])('no autoriza una baja con auth_time ausente o antiguo: %s', async authenticatedAt => {
+    vi.stubEnv('ACCOUNT_DELETION_ENABLED', 'true');
+    const user = await createUser({ email: 'delete-google@example.test', displayName: 'Sintético', passwordHash: 'google-only-unusable' });
+    await linkGoogleAccount({ userId: user.id, providerSubject: 'delete-google-subject', providerEmail: user.email });
+    await createSession(user.id);
+    await start(new Request('http://localhost/api/auth/google/start?intent=delete'));
+    getGoogleIdentityFromCode.mockResolvedValue({ subject: 'delete-google-subject', email: user.email, authenticatedAt });
+    const result = await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)));
+    expect(result.headers.get('location')).toContain('reauth-required');
+    expect(cookieState.has(DELETION_PROOF_COOKIE)).toBe(false);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()?.status).toBe('ACTIVE');
+  });
+  it('confirma Google sin borrar en el callback; exige un DELETE explícito y consume la prueba', async () => {
+    vi.stubEnv('ACCOUNT_DELETION_ENABLED', 'true');
+    const user = await createUser({ email: 'delete-google@example.test', displayName: 'Sintético', passwordHash: 'google-only-unusable' });
+    await linkGoogleAccount({ userId: user.id, providerSubject: 'delete-google-subject', providerEmail: user.email });
+    await createSession(user.id);
+    const started = await start(new Request('http://localhost/api/auth/google/start?intent=delete'));
+    const authorization = new URL(started.headers.get('location')!);
+    expect(authorization.searchParams.get('max_age')).toBe('0');
+    expect(JSON.parse(authorization.searchParams.get('claims')!)).toEqual({ id_token: { auth_time: { essential: true } } });
+    getGoogleIdentityFromCode.mockResolvedValue({ subject: 'delete-google-subject', email: user.email, authenticatedAt: Math.floor(Date.now() / 1000) });
+    const result = await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)));
+    expect(result.headers.get('location')).toBe('http://localhost/profile#delete-account');
+    expect(cookieState.has(DELETION_PROOF_COOKIE)).toBe(true);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()?.status).toBe('ACTIVE');
+    expect(await (await deletionStatus()).json()).toMatchObject({ enabled: true, reauthenticated: true });
+    const deleted = await deleteSelf(new Request('http://localhost/api/profile/deletion', {
+      method: 'DELETE', headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' }, body: JSON.stringify({ acknowledge: true }),
+    }));
+    expect(deleted.status).toBe(202);
+    expect(cookieState.has(DELETION_PROOF_COOKIE)).toBe(false);
+    expect(cookieState.has('mc_session')).toBe(false);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()?.status).toBe('DISABLED');
+  });
+  it('rechaza otra identidad de Google aunque el correo y auth_time coincidan', async () => {
+    vi.stubEnv('ACCOUNT_DELETION_ENABLED', 'true');
+    const user = await createUser({ email: 'delete-google@example.test', displayName: 'Sintético', passwordHash: 'google-only-unusable' });
+    await linkGoogleAccount({ userId: user.id, providerSubject: 'expected-subject', providerEmail: user.email });
+    await createSession(user.id);
+    await start(new Request('http://localhost/api/auth/google/start?intent=delete'));
+    getGoogleIdentityFromCode.mockResolvedValue({ subject: 'different-subject', email: user.email, authenticatedAt: Math.floor(Date.now() / 1000) });
+    expect((await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)))).headers.get('location')).toContain('reauth-required');
+    expect(cookieState.has(DELETION_PROOF_COOKIE)).toBe(false);
+  });
   it('rechaza formularios, JSON malformado y orígenes ajenos antes de crear cookies', async () => {
     const form = new FormData();
     form.set('invitationToken', 't'.repeat(43));

@@ -17,7 +17,7 @@ export const GOOGLE_FLOW_COOKIES = {
 } as const;
 
 export const GOOGLE_PICTURE_COOKIE = 'mc_google_picture';
-export type GoogleFlowIntent = 'login' | 'link' | 'invite' | 'photo';
+export type GoogleFlowIntent = 'login' | 'link' | 'invite' | 'photo' | 'delete';
 
 function googleCookieOptions(maxAge: number) {
   return {
