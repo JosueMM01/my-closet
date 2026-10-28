@@ -166,13 +166,20 @@ test.describe('Administración', () => {
     await page.goto('/profile');
     await waitForHydration(page);
     await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeEnabled();
+    await page.clock.install();
+    const beforeCreate = Date.now();
     const created = await page.request.post('/api/admin/invitations', {
       headers: { origin: new URL(page.url()).origin },
       data: { email: uniqueEmail('admin-caduca'), role: 'ADMIN', expiresAt: new Date(Date.now() + 5_000).toISOString() },
     });
     expect(created.status()).toBe(201);
+    const { invitation } = await created.json();
+    const expiresAt = Date.parse(invitation.expiresAt);
+    expect(expiresAt).toBeGreaterThanOrEqual(beforeCreate + 7 * 24 * 60 * 60 * 1_000);
+    expect(expiresAt).toBeLessThan(Date.now() + 7 * 24 * 60 * 60 * 1_000 + 5_000);
     await page.getByRole('button', { name: 'Actualizar datos' }).click();
     await expect(page.getByText('1/2 admins activos · 1 plaza reservada')).toBeVisible();
+    await page.clock.fastForward(7 * 24 * 60 * 60 * 1_000 + 10_000);
     await expect(page.getByText('1/2 admins activos · 0 plazas reservadas')).toBeVisible();
     await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
   });
