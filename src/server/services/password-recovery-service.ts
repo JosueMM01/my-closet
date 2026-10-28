@@ -24,6 +24,8 @@ interface PasswordRecoveryDependencies {
   replaceToken?: typeof replacePasswordResetToken;
   generateToken?: () => string;
   now?: () => Date;
+  expectedUserId?: string;
+  expectedPasswordHash?: string;
 }
 
 export async function requestPasswordReset(
@@ -33,6 +35,9 @@ export async function requestPasswordReset(
   const findUser = dependencies.findUser ?? findUserByEmail;
   const user = await findUser(email);
   if (!user || user.status !== 'ACTIVE') return;
+  if (dependencies.expectedUserId && (user.id !== dependencies.expectedUserId || user.passwordHash !== dependencies.expectedPasswordHash)) {
+    throw new Error('La cuenta cambió durante la solicitud');
+  }
 
   const env = dependencies.env ?? getEnv();
   const provider = dependencies.mailProvider ?? createMailProvider(env);
@@ -44,6 +49,7 @@ export async function requestPasswordReset(
     tokenHash: hashPasswordResetToken(token),
     expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MS).toISOString(),
     createdAt: now.toISOString(),
+    ...(dependencies.expectedUserId ? { expectedEmail: user.email, expectedPasswordHash: dependencies.expectedPasswordHash } : {}),
   });
 
   const message = createPasswordResetEmail({

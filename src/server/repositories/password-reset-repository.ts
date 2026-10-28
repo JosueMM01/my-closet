@@ -12,10 +12,19 @@ export async function replacePasswordResetToken(input: {
   tokenHash: string;
   expiresAt: string;
   createdAt: string;
+  expectedEmail?: string;
+  expectedPasswordHash?: string;
 }): Promise<void> {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     await db.postgres.transaction(async (tx) => {
+      if (input.expectedEmail !== undefined) {
+        const [user] = await tx.select({ email: pgSchema.users.email, passwordHash: pgSchema.users.passwordHash, status: pgSchema.users.status })
+          .from(pgSchema.users).where(eq(pgSchema.users.id, input.userId)).for('update');
+        if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+          throw new Error('La cuenta cambió durante la solicitud');
+        }
+      }
       await tx.delete(pgSchema.passwordResetTokens)
         .where(eq(pgSchema.passwordResetTokens.userId, input.userId));
       await tx.insert(pgSchema.passwordResetTokens).values({
@@ -30,11 +39,18 @@ export async function replacePasswordResetToken(input: {
   }
   const sqlite = db.sqlite;
   sqlite.transaction((tx) => {
+    if (input.expectedEmail !== undefined) {
+      const user = tx.select({ email: sqliteSchema.users.email, passwordHash: sqliteSchema.users.passwordHash, status: sqliteSchema.users.status })
+        .from(sqliteSchema.users).where(eq(sqliteSchema.users.id, input.userId)).get();
+      if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+        throw new Error('La cuenta cambió durante la solicitud');
+      }
+    }
     tx.delete(sqliteSchema.passwordResetTokens)
       .where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
       .run();
     tx.insert(sqliteSchema.passwordResetTokens)
-      .values({ id: uuid(), ...input })
+      .values({ id: uuid(), userId: input.userId, tokenHash: input.tokenHash, expiresAt: input.expiresAt, createdAt: input.createdAt })
       .run();
   });
 }

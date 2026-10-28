@@ -1,9 +1,10 @@
 import { operationSuccessResponseSchema, passwordChangeSchema } from '@/lib/domain/validation';
-import { hashPassword, verifyPassword } from '@/server/auth/password';
+import { verifyPassword } from '@/server/auth/password';
 import { guardRateLimit } from '@/server/auth/rate-limit';
-import { getSessionUser, rotateAllSessions } from '@/server/auth/session';
+import { getSessionUser } from '@/server/auth/session';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
-import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
+import { findUserById } from '@/server/repositories/users-repository';
+import { requestPasswordReset } from '@/server/services/password-recovery-service';
 
 export const runtime = 'nodejs';
 
@@ -21,8 +22,10 @@ export async function POST(request: Request) {
   if (!(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) {
     return jsonError(403, 'La contraseña actual es incorrecta');
   }
-  const updated = await updatePasswordHash(user.id, await hashPassword(parsed.data.newPassword));
-  if (!updated) return unauthorized();
-  await rotateAllSessions(user.id);
+  try {
+    await requestPasswordReset(user.email, { expectedUserId: user.id, expectedPasswordHash: user.passwordHash });
+  } catch {
+    return jsonError(503, 'No se pudo completar la solicitud. Intenta de nuevo.');
+  }
   return jsonOk(operationSuccessResponseSchema.parse({ ok: true }));
 }

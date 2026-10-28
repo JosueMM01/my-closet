@@ -67,7 +67,7 @@ export default function ResetPasswordPage() {
           <section className="card-surface p-6 text-center" role="status">
             <p className="text-sm text-text-secondary">Tu contraseña se actualizó correctamente.</p>
             <Link
-              href="/login"
+              href="/login?reauth=1"
               className="mt-4 inline-flex min-h-11 items-center font-semibold text-primary hover:text-primary-hover"
             >
               Iniciar sesión

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
@@ -22,6 +22,17 @@ function seedEmailConfirmation(email: string, newEmail: string, code: string): v
   } finally { db.close(); }
 }
 
+function seedPasswordReset(email: string): string {
+  const token = randomBytes(32).toString('base64url');
+  const db = new Database(path.resolve('data/my-closet-e2e.db'), { fileMustExist: true });
+  try {
+    const changed = db.prepare(`UPDATE password_reset_tokens SET token_hash = ? WHERE user_id = (SELECT id FROM users WHERE email = ?)`)
+      .run(createHash('sha256').update(token).digest('hex'), email);
+    expect(changed.changes).toBe(1);
+  } finally { db.close(); }
+  return token;
+}
+
 test.describe('Perfil', () => {
   test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page }) => {
     test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La siembra de correo usa exclusivamente SQLite E2E local');
@@ -39,11 +50,23 @@ test.describe('Perfil', () => {
     await expect(page.getByText('Nombre actualizado.')).toBeVisible();
 
     const passwordForm = page.locator('form').filter({ hasText: 'Cambiar contraseña' });
+    await expect(passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' })).toBeDisabled();
     await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
-    await passwordForm.getByLabel(/^Nueva contraseña/).fill('contrasena-nueva');
-    await passwordForm.getByLabel('Repite la nueva contraseña').fill('contrasena-nueva');
-    await passwordForm.getByRole('button', { name: 'Cambiar contraseña' }).click();
-    await expect(page.getByText('Contraseña actualizada y sesión renovada.')).toBeVisible();
+    await passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' }).click();
+    await expect(page.getByText(/recibirás un enlace para cambiar tu contraseña/)).toBeVisible();
+    const resetToken = seedPasswordReset(originalEmail);
+    await page.goto(`/reset-password#token=${resetToken}`);
+    await page.getByLabel(/^Nueva contraseña/).fill('contrasena-nueva');
+    await page.getByLabel('Repite la contraseña').fill('contrasena-nueva');
+    await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
+    await expect(page.getByText('Tu contraseña se actualizó correctamente.')).toBeVisible();
+    await page.getByRole('link', { name: 'Iniciar sesión' }).click();
+    await page.getByLabel('Correo electrónico').fill(originalEmail);
+    await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-nueva');
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    await expect(page.getByTestId('home-greeting')).toContainText('Hola, Perfil');
+    await page.goto('/profile');
+    await waitForHydration(page);
 
     const email = `perfil.nuevo.${Date.now()}@test.local`;
     const emailForm = page.locator('form').filter({ hasText: 'Cambiar correo' });

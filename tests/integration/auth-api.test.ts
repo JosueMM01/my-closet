@@ -14,6 +14,7 @@ import {
 } from '@/server/mail/testing';
 import { updateUserForAdmin } from '@/server/repositories/admin-users-repository';
 import { findUserByEmail } from '@/server/repositories/users-repository';
+import { replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 
 const cookieState = vi.hoisted(() => new Map<string, string>());
 
@@ -158,7 +159,7 @@ describe('API de cuentas y perfil', () => {
     expect(readCapturedMessagesForTests().filter(message => message.subject.includes('Recupera'))).toHaveLength(1);
   });
   it.each([
-    { route: '/api/profile/password', handler: changePassword, extra: { newPassword: 'nueva-contrasena-segura' } },
+    { route: '/api/profile/password', handler: changePassword, extra: {} },
     { route: '/api/profile/email', handler: changeEmail, extra: { newEmail: 'destino@example.test' } },
   ])('limita comprobaciones de contraseña en $route sin modificar la cuenta', async ({ route, handler, extra }) => {
     const profile = await registerUser('limited-profile@example.test', 'Perfil');
@@ -192,24 +193,59 @@ describe('API de cuentas y perfil', () => {
     expect(activeSession.authenticated).toBe(true);
   });
 
-  it('valida contraseña actual, rota sesión y cambia correo sin perder acceso', async () => {
+  it('no emite un enlace autenticado si el correo o la contraseña cambiaron durante la solicitud', async () => {
+    const profile = await registerUser('race-profile@example.test', 'Perfil');
+    const original = await findUserByEmail(profile.email);
+    if (!original) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    db.raw.prepare('UPDATE users SET email = ? WHERE id = ?').run('race-new@example.test', profile.userId);
+    const now = new Date();
+    await expect(replacePasswordResetToken({
+      userId: profile.userId, tokenHash: 'synthetic-hash', createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      expectedEmail: profile.email, expectedPasswordHash: original.passwordHash,
+    })).rejects.toThrow('La cuenta cambió durante la solicitud');
+    expect(db.raw.prepare('SELECT count(*) AS count FROM password_reset_tokens WHERE user_id = ?').get(profile.userId))
+      .toEqual({ count: 0 });
+  });
+
+  it('exige correo para cambiar contraseña y luego permite verificar el cambio de correo', async () => {
     const profile = await registerUser('perfil@example.test', 'Perfil');
     const wrong = await changePassword(
       jsonRequest('/api/profile/password', {
         currentPassword: 'incorrecta',
-        newPassword: 'nueva-contrasena',
       }),
     );
     expect(wrong.status).toBe(403);
+    expect(readCapturedMessagesForTests()).toHaveLength(0);
+
+    const legacy = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: 'contrasena-segura', newPassword: 'nueva-contrasena',
+    }));
+    expect(legacy.status).toBe(400);
 
     const passwordResponse = await changePassword(
       jsonRequest('/api/profile/password', {
         currentPassword: 'contrasena-segura',
-        newPassword: 'nueva-contrasena',
       }),
     );
     expect(passwordResponse.status).toBe(200);
     expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(true);
+    const beforeReset = await findUserByEmail(profile.email);
+    expect(beforeReset && await verifyPassword('contrasena-segura', beforeReset.passwordHash)).toBe(true);
+    const resetToken = capturedResetToken();
+    const changed = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token: resetToken, newPassword: 'nueva-contrasena',
+    }));
+    expect(changed.status).toBe(200);
+    expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(false);
+    expect((await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token: resetToken, newPassword: 'otra-contrasena',
+    }))).status).toBe(400);
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: profile.email, password: 'nueva-contrasena',
+    }))).status).toBe(200);
 
     const emailResponse = await changeEmail(
       jsonRequest('/api/profile/email', {

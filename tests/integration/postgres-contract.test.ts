@@ -25,6 +25,7 @@ import {
   upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { getImageStorage } from '@/server/images/storage';
+import { replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 import {
   acceptWardrobeInvitation,
   inspectWardrobeInvitation,
@@ -35,6 +36,18 @@ const describePostgres = enabled ? describe : describe.skip;
 const cleanupUserIds: string[] = [];
 
 describePostgres('contrato de repositorios PostgreSQL', () => {
+  it('rechaza solicitudes de contraseña con credenciales o correo cambiados', async () => {
+    const user = await createUser({ email: `password-${uuid()}@example.test`, displayName: 'Prueba', passwordHash: 'synthetic-password-hash' });
+    cleanupUserIds.push(user.id);
+    const db = await getServerDB();
+    if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
+    await db.postgres.update(pgSchema.users).set({ email: `changed-${uuid()}@example.test` }).where(eq(pgSchema.users.id, user.id));
+    const input = { userId: user.id, tokenHash: uuid(), createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), expectedEmail: user.email, expectedPasswordHash: user.passwordHash };
+    await expect(replacePasswordResetToken(input)).rejects.toThrow('La cuenta cambió durante la solicitud');
+    const tokens = await db.postgres.select().from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, user.id));
+    expect(tokens).toHaveLength(0);
+  });
   it('confirma correo una sola vez ante peticiones concurrentes y revoca recuperaciones y sesiones', async () => {
     const user = await createUser({ email: `email-${uuid()}@example.test`, displayName: 'Correo', passwordHash: 'scrypt:test-contract' });
     cleanupUserIds.push(user.id);

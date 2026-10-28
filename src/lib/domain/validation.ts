@@ -254,8 +254,7 @@ export const profileUpdateSchema = z
 
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
-  newPassword: accountPasswordSchema,
-});
+}).strict();
 
 export const emailChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
