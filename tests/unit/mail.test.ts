@@ -48,6 +48,12 @@ beforeEach(() => {
 });
 
 describe('límite de correo', () => {
+  it('acepta SMTP opcional vacío en Preview sin heredar transporte ni relajar booleanos inválidos', () => {
+    const empty = { NODE_ENV: 'production', EMAIL_PROVIDER: 'capture', AUTH_SECRET: 'synthetic-preview-auth-secret',
+      EMAIL_FROM: '', SMTP_HOST: '', SMTP_PORT: '', SMTP_SECURE: '', SMTP_USER: '', SMTP_PASSWORD: '' };
+    expect(parseServerEnv(empty).SMTP_SECURE).toBeUndefined();
+    expect(() => parseServerEnv({ ...empty, SMTP_SECURE: 'invalid' })).toThrow();
+  });
   it('disabled no captura ni carga un transporte SMTP', async () => {
     const provider = createMailProvider(parseServerEnv({ NODE_ENV: 'test' }));
 
@@ -220,6 +226,16 @@ describe('correo de recuperación', () => {
 });
 
 describe('servicio de invitaciones', () => {
+  it('fija siete días desde el servidor aunque un cliente antiguo mande otra fecha', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-25T12:00:00.000Z'));
+    try {
+      const create = vi.fn(async () => ({ invitation, token: 'd'.repeat(43) }));
+      const legacyInput = { actorId: invitation.createdBy, email: invitation.email, role: invitation.role, expiresAt: '2099-01-01T00:00:00.000Z' };
+      await createAndDeliverInvitation(legacyInput, { env: parseServerEnv({ NODE_ENV: 'test' }), create });
+      expect(create).toHaveBeenCalledWith({ ...legacyInput, expiresAt: '2026-11-01T12:00:00.000Z' });
+    } finally { vi.useRealTimers(); }
+  });
   it('expone el token por separado solo cuando el correo está disabled', async () => {
     const env = parseServerEnv({ NODE_ENV: 'test' });
     const create = vi.fn(async () => ({ invitation, token: 'a'.repeat(43) }));
@@ -229,7 +245,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -249,7 +264,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -274,7 +288,6 @@ describe('servicio de invitaciones', () => {
           actorId: invitation.createdBy,
           email: invitation.email,
           role: invitation.role,
-          expiresAt: invitation.expiresAt,
         },
         { env, create, revoke, mailProvider },
       ),

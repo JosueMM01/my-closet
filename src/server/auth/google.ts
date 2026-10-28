@@ -28,11 +28,13 @@ const googleIdentitySchema = z.object({
   email_verified: z.literal(true),
   nonce: z.string().min(32).max(128),
   exp: z.number().int().positive(),
+  auth_time: z.number().int().positive().optional(),
   name: z.string().trim().min(1).max(200).optional(),
   picture: z.url().max(2_048).optional(),
 });
 
 export interface GoogleIdentity {
+  authenticatedAt?: number;
   subject: string;
   email: string;
   displayName: string | null;
@@ -69,6 +71,7 @@ export function createGoogleOAuthValues(): {
 }
 
 export function buildGoogleAuthorizationUrl(input: {
+  reauthenticate?: boolean;
   config: GoogleAuthConfig;
   state: string;
   challenge: string;
@@ -86,6 +89,10 @@ export function buildGoogleAuthorizationUrl(input: {
     code_challenge_method: 'S256',
     prompt: 'select_account',
   }).toString();
+  if (input.reauthenticate) {
+    url.searchParams.set('max_age', '0');
+    url.searchParams.set('claims', JSON.stringify({ id_token: { auth_time: { essential: true } } }));
+  }
   return url;
 }
 
@@ -134,6 +141,7 @@ export async function verifyGoogleIdToken(input: {
   }
   return {
     subject: identity.data.sub,
+    ...(identity.data.auth_time === undefined ? {} : { authenticatedAt: identity.data.auth_time }),
     email: identity.data.email.trim().toLowerCase(),
     displayName: identity.data.name ?? null,
     pictureUrl: identity.data.picture ?? null,

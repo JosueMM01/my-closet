@@ -50,6 +50,32 @@ export const rateLimitBuckets = pgTable('rate_limit_buckets', {
   expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
 }, table => [index('rate_limit_buckets_expiry_idx').on(table.expiresAt)]);
 
+// No FK to users: deletion/cleanup records must survive account anonymization.
+export const accountDeletions = pgTable('account_deletions', {
+  userId: text('user_id').primaryKey(),
+  deletedAt: text('deleted_at').notNull(),
+});
+
+export const accountDeletionProofs = pgTable('account_deletion_proofs', {
+  userId: text('user_id').primaryKey(),
+  tokenHash: text('token_hash').notNull(),
+  sessionHash: text('session_hash').notNull(),
+  credentialHash: text('credential_hash').notNull(),
+  googleSubject: text('google_subject').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
+
+export const imageDeletionJobs = pgTable('image_deletion_jobs', {
+  imageId: text('image_id').primaryKey(),
+  storageProvider: text('storage_provider').notNull(),
+  storageKey: text('storage_key'),
+  remoteUrl: text('remote_url'),
+  state: text('state').notNull().default('PENDING'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: text('next_attempt_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, table => [index('image_deletion_jobs_due_idx').on(table.state, table.nextAttemptAt)]);
+
 export const sessions = pgTable(
   'sessions',
   {

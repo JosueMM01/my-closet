@@ -6,6 +6,18 @@ offline-first** que funciona siempre, con o sin conexión.
 Inspirada funcionalmente en [Libre Closet](https://github.com/lazztech/libre-closet)
 (referencia de dominio), con arquitectura propia en Next.js App Router.
 
+## Capturas
+
+<p align="center">
+  <img src="public/readme/login.jpg" alt="Pantalla de acceso de My Closet, con correo, contraseña y Google" width="48%">
+  <img src="public/readme/home.jpg" alt="Inicio de My Closet con inspiración de prendas y resumen del armario" width="48%">
+</p>
+
+Capturas de la interfaz publicada. La vista de inicio omite el avatar y el
+saludo personal para no exponer información de la cuenta.
+
+## Arquitectura
+
 ```
 UI ──► IndexedDB (fuente primaria) ──► sync engine (outbox) ──► backend
                                                                         │

@@ -1,13 +1,5 @@
 import type { OutboundMailMessage } from './types';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
+import { escapeEmailHtml, transactionalEmailLayout } from './transactional-layout';
 
 /** Oculta la parte local para no exponer el correo nuevo completo al buzon anterior. */
 export function maskEmail(email: string): string {
@@ -77,14 +69,17 @@ export function createEmailChangedNoticeEmail(input: {
     '',
     'Si no hiciste este cambio, contacta de inmediato a la persona administradora de My Closet.',
   ].join('\n');
-  const html = `<!doctype html>
-<html lang="es">
-  <body>
-    <p>El correo de tu cuenta de My Closet se cambió a ${escapeHtml(masked)}.</p>
-    <p>Se cerraron las sesiones abiertas y los enlaces de recuperación anteriores.</p>
-    <p>Si no hiciste este cambio, contacta de inmediato a la persona administradora de My Closet.</p>
-  </body>
-</html>`;
+  const html = transactionalEmailLayout({
+    title: 'Tu correo se ha actualizado',
+    preheader: 'Confirmación de seguridad: el correo de tu cuenta cambió.',
+    contentHtml: `<p style="margin:0 0 20px">El cambio de correo de tu cuenta de My Closet se completó. Esta es una confirmación para tu dirección anterior.</p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 22px;background-color:#F6F1F2;border:1px solid #EAE3DE;border-radius:12px"><tr><td style="padding:18px 20px">
+        <p style="margin:0 0 6px;color:#7A4D57;font-size:10px;font-weight:bold;letter-spacing:2px">NUEVA DIRECCIÓN</p>
+        <p style="margin:0;color:#24201F;font-size:18px;font-weight:bold;word-break:break-word">${escapeEmailHtml(masked)}</p>
+      </td></tr></table>
+      <p style="margin:0 0 22px">Por seguridad, se cerraron las sesiones anteriores y se anularon los enlaces de recuperación previos.</p>
+      <p style="margin:0;padding-top:20px;border-top:1px solid #EAE3DE"><strong style="color:#7A4D57">¿No hiciste este cambio?</strong><br>Contacta de inmediato a la persona administradora de My Closet. No respondas con tu contraseña ni con códigos de verificación.</p>`,
+  });
 
   return { to: input.originalEmail, subject, text, html };
 }

@@ -35,10 +35,11 @@ const explicitBoolean = z
   .default('false')
   .transform((value) => value === 'true');
 
-const optionalExplicitBoolean = z
-  .enum(['true', 'false'])
-  .optional()
-  .transform((value) => (value === undefined ? undefined : value === 'true'));
+const optionalExplicitBoolean = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.enum(['true', 'false']).optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
+);
 
 export const serverEnvSchema = z
   .object({
@@ -53,6 +54,9 @@ export const serverEnvSchema = z
     VERCEL_ENV: z.enum(['production', 'preview', 'development']).optional(),
     GOOGLE_AUTH_ENABLED: explicitBoolean,
     PUBLIC_REGISTRATION_ENABLED: explicitBoolean,
+    ACCOUNT_DELETION_ENABLED: explicitBoolean,
+    ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: explicitBoolean,
+    ACCOUNT_DELETION_WORKER_SECRET: optionalHeaderSafeString,
     GOOGLE_CLIENT_ID: optionalEnvString,
     GOOGLE_CLIENT_SECRET: optionalEnvString,
     AUTH_SECRET: optionalEnvString,
