@@ -7,6 +7,25 @@ export function hashPasswordResetToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** Read-only check; consuming the token still revalidates it transactionally. */
+export async function isPasswordResetTokenValid(tokenHash: string, now: string): Promise<boolean> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const rows = await db.postgres.select({ id: pgSchema.passwordResetTokens.id })
+      .from(pgSchema.passwordResetTokens)
+      .innerJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.passwordResetTokens.userId))
+      .where(and(eq(pgSchema.passwordResetTokens.tokenHash, tokenHash), isNull(pgSchema.passwordResetTokens.usedAt),
+        gt(pgSchema.passwordResetTokens.expiresAt, new Date(now)), eq(pgSchema.users.status, 'ACTIVE'))).limit(1);
+    return rows.length > 0;
+  }
+  const row = db.sqlite.select({ id: sqliteSchema.passwordResetTokens.id })
+    .from(sqliteSchema.passwordResetTokens)
+    .innerJoin(sqliteSchema.users, eq(sqliteSchema.users.id, sqliteSchema.passwordResetTokens.userId))
+    .where(and(eq(sqliteSchema.passwordResetTokens.tokenHash, tokenHash), isNull(sqliteSchema.passwordResetTokens.usedAt),
+      gt(sqliteSchema.passwordResetTokens.expiresAt, now), eq(sqliteSchema.users.status, 'ACTIVE'))).get();
+  return !!row;
+}
+
 export async function replacePasswordResetToken(input: {
   userId: string;
   tokenHash: string;

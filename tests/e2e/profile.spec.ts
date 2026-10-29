@@ -34,7 +34,17 @@ function seedPasswordReset(email: string): string {
 }
 
 test.describe('Perfil', () => {
-  test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page }) => {
+  test('permite reintentar si falla la inspección del enlace de contraseña', async ({ page }) => {
+    await page.route('**/api/auth/reset-password/inspect', route => route.fulfill({ status: 503, json: { error: 'Temporal' } }));
+    await page.goto(`/reset-password#token=${'x'.repeat(43)}`);
+    await expect(page.getByText('No se pudo comprobar el enlace. Revisa tu conexión e inténtalo de nuevo.')).toBeVisible();
+    await expect(page.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await page.unroute('**/api/auth/reset-password/inspect');
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(page.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+  });
+
+  test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page, browser }) => {
     test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La siembra de correo usa exclusivamente SQLite E2E local');
     await registerAndLogin(page, 'Perfil Inicial');
     await page.goto('/profile');
@@ -60,6 +70,14 @@ test.describe('Perfil', () => {
     await page.getByLabel('Repite la contraseña').fill('contrasena-nueva');
     await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
     await expect(page.getByText('Tu contraseña se actualizó correctamente.')).toBeVisible();
+    const staleContext = await browser.newContext();
+    const stalePage = await staleContext.newPage();
+    await stalePage.goto(new URL(`/reset-password#token=${resetToken}`, page.url()).toString());
+    await expect(stalePage.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+    await expect(stalePage.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await expect(stalePage.getByRole('link', { name: 'Solicitar otro enlace' })).toBeVisible();
+    await expect(stalePage.getByRole('link', { name: 'Iniciar sesión' })).toBeVisible();
+    await staleContext.close();
     await page.getByRole('link', { name: 'Iniciar sesión' }).click();
     await page.getByLabel('Correo electrónico').fill(originalEmail);
     await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-nueva');

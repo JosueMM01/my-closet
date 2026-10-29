@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { AuthError, resetPassword } from '@/lib/auth/client';
+import { useEffect, useRef, useState } from 'react';
+import { AuthError, inspectPasswordResetToken, resetPassword } from '@/lib/auth/client';
 import { Button, Field, PasswordInput } from '@/components/ui';
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const [inspection, setInspection] = useState<'checking' | 'valid' | 'invalid' | 'unavailable'>('checking');
+  const [retry, setRetry] = useState(0);
+  const initialToken = useRef<string | null | undefined>(undefined);
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -15,16 +17,25 @@ export default function ResetPasswordPage() {
   const [complete, setComplete] = useState(false);
 
   useEffect(() => {
-    const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const fragmentToken = fragment.get('token');
+    if (initialToken.current === undefined) {
+      initialToken.current = new URLSearchParams(window.location.hash.slice(1)).get('token');
+    }
+    const fragmentToken = initialToken.current;
     if (window.location.hash) {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
-    queueMicrotask(() => {
-      setToken(fragmentToken);
-      setReady(true);
-    });
-  }, []);
+    const controller = new AbortController();
+    if (!fragmentToken) {
+      queueMicrotask(() => { if (!controller.signal.aborted) setInspection('invalid'); });
+    } else {
+      void inspectPasswordResetToken(fragmentToken, controller.signal).then(valid => {
+        if (controller.signal.aborted) return;
+        setToken(valid ? fragmentToken : null);
+        setInspection(valid ? 'valid' : 'invalid');
+      }).catch(() => { if (!controller.signal.aborted) setInspection('unavailable'); });
+    }
+    return () => controller.abort();
+  }, [retry]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -45,7 +56,12 @@ export default function ResetPasswordPage() {
       setConfirmation('');
       setComplete(true);
     } catch (caught) {
-      setError(caught instanceof AuthError ? caught.message : 'No se pudo cambiar la contraseña');
+      if (caught instanceof AuthError && caught.status === 400 && caught.message === 'El enlace no es válido o ha expirado') {
+        setToken(null);
+        setPassword('');
+        setConfirmation('');
+        setInspection('invalid');
+      } else setError(caught instanceof AuthError ? caught.message : 'No se pudo cambiar la contraseña');
     } finally {
       setSubmitting(false);
     }
@@ -55,14 +71,19 @@ export default function ResetPasswordPage() {
     <main className="flex min-h-dvh items-center justify-center bg-[#F3EFEA] px-6 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="font-heading text-3xl text-text-primary">Crea una contraseña nueva</h1>
-          <p className="mt-2 text-sm text-text-secondary">Usa al menos 8 caracteres.</p>
+          <h1 className="font-heading text-3xl text-text-primary">{inspection === 'invalid' ? 'Enlace no disponible' : 'Crea una contraseña nueva'}</h1>
+          {inspection === 'valid' && !complete ? <p className="mt-2 text-sm text-text-secondary">Usa al menos 8 caracteres.</p> : null}
         </div>
 
-        {!ready ? (
+        {inspection === 'checking' ? (
           <div className="card-surface p-6 text-center text-sm text-text-secondary" role="status">
             Comprobando enlace…
           </div>
+        ) : inspection === 'unavailable' ? (
+          <section className="card-surface p-6 text-center" role="alert">
+            <p className="text-sm text-danger">No se pudo comprobar el enlace. Revisa tu conexión e inténtalo de nuevo.</p>
+            <Button className="mt-4" onClick={() => { setInspection('checking'); setRetry(value => value + 1); }}>Reintentar</Button>
+          </section>
         ) : complete ? (
           <section className="card-surface p-6 text-center" role="status">
             <p className="text-sm text-text-secondary">Tu contraseña se actualizó correctamente.</p>
@@ -81,6 +102,9 @@ export default function ResetPasswordPage() {
               className="mt-4 inline-flex min-h-11 items-center font-semibold text-primary hover:text-primary-hover"
             >
               Solicitar otro enlace
+            </Link>
+            <Link href="/login?reauth=1" className="ml-4 inline-flex min-h-11 items-center font-semibold text-primary hover:text-primary-hover">
+              Iniciar sesión
             </Link>
           </section>
         ) : (

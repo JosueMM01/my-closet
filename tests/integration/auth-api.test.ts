@@ -43,6 +43,7 @@ import { POST as forgotPassword } from '@/app/api/auth/forgot-password/route';
 import { GET as providers } from '@/app/api/auth/providers/route';
 import { POST as register } from '@/app/api/auth/register/route';
 import { POST as resetPassword } from '@/app/api/auth/reset-password/route';
+import { POST as inspectResetPassword } from '@/app/api/auth/reset-password/inspect/route';
 import { GET as session } from '@/app/api/auth/session/route';
 import { POST as changeEmail } from '@/app/api/profile/email/route';
 import { POST as confirmEmail } from '@/app/api/profile/email/confirm/route';
@@ -235,10 +236,15 @@ describe('API de cuentas y perfil', () => {
     const beforeReset = await findUserByEmail(profile.email);
     expect(beforeReset && await verifyPassword('contrasena-segura', beforeReset.passwordHash)).toBe(true);
     const resetToken = capturedResetToken();
+    const inspected = await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: resetToken }));
+    expect(await inspected.json()).toEqual({ valid: true });
+    expect(inspected.headers.get('cache-control')).toBe('no-store');
     const changed = await resetPassword(jsonRequest('/api/auth/reset-password', {
       token: resetToken, newPassword: 'nueva-contrasena',
     }));
     expect(changed.status).toBe(200);
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: resetToken }))).json())
+      .toEqual({ valid: false });
     expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(false);
     expect((await resetPassword(jsonRequest('/api/auth/reset-password', {
       token: resetToken, newPassword: 'otra-contrasena',
@@ -547,6 +553,8 @@ describe('API de cuentas y perfil', () => {
     const expired = await resetPassword(
       jsonRequest('/api/auth/reset-password', { token, newPassword: 'nueva-contrasena' }),
     );
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token }))).json())
+      .toEqual({ valid: false });
     const unknown = await resetPassword(
       jsonRequest('/api/auth/reset-password', {
         token: 'x'.repeat(43),
