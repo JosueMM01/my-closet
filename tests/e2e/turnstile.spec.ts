@@ -8,13 +8,13 @@ test('Turnstile vuelve a montarse al navegar entre login y recuperación', async
   // Solo se simula el proveedor externo; no se envía un token a Cloudflare.
   await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', route => route.fulfill({
     contentType: 'application/javascript',
-    body: `window.turnstile = {
+    body: `setTimeout(() => { window.turnstile = {
       render(container, options) {
         const marker = document.createElement('span');
         marker.textContent = 'Widget de prueba: ' + options.action;
         container.append(marker); return options.action;
       }, remove() {}
-    };`,
+    }; }, 150);`,
   }));
   await page.goto('/login');
   await expect(page.getByText('Widget de prueba: login', { exact: true })).toHaveCount(1);
