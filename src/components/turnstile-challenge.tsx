@@ -21,6 +21,7 @@ export function TurnstileChallenge({ siteKey, action, onToken }: {
   const [failed, setFailed] = useState(false);
   useEffect(() => () => {
     if (widget.current !== null) (window as TurnstileWindow).turnstile?.remove(widget.current);
+    widget.current = null;
   }, []);
   function render() {
     const api = (window as TurnstileWindow).turnstile;
@@ -35,7 +36,7 @@ export function TurnstileChallenge({ siteKey, action, onToken }: {
   return <div aria-label="Verificación de seguridad">
     <div ref={container} />
     <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
-      onReady={render} onError={() => { setFailed(true); onToken(undefined); }} />
+      onLoad={render} onReady={render} onError={() => { setFailed(true); onToken(undefined); }} />
     {failed ? <p role="alert" className="text-sm text-danger">No se pudo cargar la verificación. Revisa la conexión y recarga la página.</p> : null}
   </div>;
 }
