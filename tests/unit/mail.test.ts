@@ -153,11 +153,18 @@ describe('correo de recuperación', () => {
   it('captura una URL con fragmento y entrega al repositorio solo el hash', async () => {
     const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
     const rawToken = 'r'.repeat(43);
-    const replaceToken = vi.fn(async () => undefined);
+    const events: string[] = [];
+    let deliveredMessage: OutboundMailMessage | undefined;
+    const replaceToken = vi.fn(async () => { events.push('persist'); });
 
     await requestPasswordReset('owner@example.test', {
       env,
       generateToken: () => rawToken,
+      getTokenState: async () => 'previous-token-state',
+      mailProvider: {
+        kind: 'smtp',
+        send: async (mail) => { events.push('send'); deliveredMessage = mail; return 'sent'; },
+      },
       replaceToken,
       findUser: async () => ({
         id: '11111111-1111-4111-8111-111111111111',
@@ -173,13 +180,17 @@ describe('correo de recuperación', () => {
     });
 
     expect(replaceToken).toHaveBeenCalledWith(
-      expect.objectContaining({ tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+      expect.objectContaining({
+        tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        expectedEmail: 'owner@example.test',
+        expectedPasswordHash: 'stored-hash',
+        expectedTokenState: 'previous-token-state',
+      }),
     );
+    expect(events).toEqual(['send', 'persist']);
     expect(JSON.stringify(replaceToken.mock.calls)).not.toContain(rawToken);
-    const captured = readCapturedMessagesForTests();
-    expect(captured).toHaveLength(1);
-    expect(captured[0]?.text).toContain(`/reset-password#token=${rawToken}`);
-    expect(captured[0]?.text).not.toContain('/reset-password?token=');
+    expect(deliveredMessage?.text).toContain(`/reset-password#token=${rawToken}`);
+    expect(deliveredMessage?.text).not.toContain('/reset-password?token=');
   });
 
   it('construye y escapa la plantilla española', () => {
@@ -194,7 +205,7 @@ describe('correo de recuperación', () => {
     expect(email.html).toContain('30 minutos');
   });
 
-  it('no propaga detalles cuando falla la entrega', async () => {
+  it('mantiene el token anterior si falla SMTP y no propaga detalles del proveedor', async () => {
     const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
     const mailProvider: MailProvider = {
       kind: 'smtp',
@@ -203,12 +214,14 @@ describe('correo de recuperación', () => {
       },
     };
 
+    const replaceToken = vi.fn(async () => undefined);
     await expect(
       requestPasswordReset('owner@example.test', {
         env,
         mailProvider,
         generateToken: () => 'f'.repeat(43),
-        replaceToken: async () => undefined,
+        getTokenState: async () => 'previous-token-state',
+        replaceToken,
         findUser: async () => ({
           id: '11111111-1111-4111-8111-111111111111',
           email: 'owner@example.test',
@@ -221,7 +234,8 @@ describe('correo de recuperación', () => {
           createdAt: '2029-01-01T00:00:00.000Z',
         }),
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('No se pudo enviar el correo de recuperación');
+    expect(replaceToken).not.toHaveBeenCalled();
   });
 });
 

@@ -6,6 +6,7 @@ import {
   sessionResponseSchema,
 } from '@/lib/domain/validation';
 import { closeServerDB, getServerDB, sqliteSchema } from '@/server/db';
+import { parseServerEnv } from '@/server/env';
 import { verifyPassword } from '@/server/auth/password';
 import { resetRateLimits } from '@/server/auth/rate-limit';
 import {
@@ -14,7 +15,7 @@ import {
 } from '@/server/mail/testing';
 import { updateUserForAdmin } from '@/server/repositories/admin-users-repository';
 import { findUserByEmail } from '@/server/repositories/users-repository';
-import { replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
+import { getPasswordResetTokenState, hashPasswordResetToken, replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 
 const cookieState = vi.hoisted(() => new Map<string, string>());
 
@@ -49,6 +50,7 @@ import { POST as changeEmail } from '@/app/api/profile/email/route';
 import { POST as confirmEmail } from '@/app/api/profile/email/confirm/route';
 import { consumeEmailChangeToken, EMAIL_CHANGE_MAX_ATTEMPTS, hashEmailChangeCode } from '@/server/repositories/email-change-repository';
 import { requestEmailChange } from '@/server/services/email-change-service';
+import * as passwordRecoveryService from '@/server/services/password-recovery-service';
 import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
 import { POST as changePassword } from '@/app/api/profile/password/route';
 
@@ -123,6 +125,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await closeServerDB();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -206,9 +209,57 @@ describe('API de cuentas y perfil', () => {
       userId: profile.userId, tokenHash: 'synthetic-hash', createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 60_000).toISOString(),
       expectedEmail: profile.email, expectedPasswordHash: original.passwordHash,
+      expectedTokenState: await getPasswordResetTokenState(profile.userId),
     })).rejects.toThrow('La cuenta cambió durante la solicitud');
     expect(db.raw.prepare('SELECT count(*) AS count FROM password_reset_tokens WHERE user_id = ?').get(profile.userId))
       .toEqual({ count: 0 });
+  });
+
+  it('preserva el enlace anterior si SMTP falla antes de activar uno nuevo', async () => {
+    const profile = await registerUser('smtp-failure@example.test', 'SMTP');
+    const user = await findUserByEmail(profile.email);
+    if (!user) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const previousToken = 'previous-reset-token';
+    const previousTokenHash = hashPasswordResetToken(previousToken);
+    const now = new Date('2026-11-01T12:00:00.000Z');
+    db.sqlite.insert(sqliteSchema.passwordResetTokens).values({
+      id: crypto.randomUUID(), userId: user.id, tokenHash: previousTokenHash,
+      expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), createdAt: now.toISOString(),
+    }).run();
+
+    await expect(passwordRecoveryService.requestPasswordReset(profile.email, {
+      env: parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' }),
+      mailProvider: { kind: 'smtp', send: async () => { throw new Error('private SMTP failure'); } },
+      findUser: async () => user,
+      generateToken: () => 'replacement-token',
+      now: () => now,
+    })).rejects.toThrow('No se pudo enviar el correo de recuperación');
+
+    expect(db.raw.prepare('SELECT token_hash FROM password_reset_tokens WHERE user_id = ?').get(user.id))
+      .toEqual({ token_hash: previousTokenHash });
+  });
+
+  it('rechaza un snapshot de recuperación concurrente sin pisar el token ganador', async () => {
+    const profile = await registerUser('concurrent-reset@example.test', 'Concurrencia');
+    const user = await findUserByEmail(profile.email);
+    if (!user) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const snapshot = await getPasswordResetTokenState(user.id);
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    const base = {
+      userId: user.id, createdAt, expiresAt, expectedEmail: user.email,
+      expectedPasswordHash: user.passwordHash, expectedTokenState: snapshot,
+    };
+
+    await replacePasswordResetToken({ ...base, tokenHash: hashPasswordResetToken('winner-token') });
+    await expect(replacePasswordResetToken({ ...base, tokenHash: hashPasswordResetToken('stale-token') }))
+      .rejects.toThrow('La solicitud de recuperación cambió durante el envío');
+    expect(db.raw.prepare('SELECT token_hash FROM password_reset_tokens WHERE user_id = ?').get(user.id))
+      .toEqual({ token_hash: hashPasswordResetToken('winner-token') });
   });
 
   it('exige correo para cambiar contraseña y luego permite verificar el cambio de correo', async () => {
@@ -473,6 +524,34 @@ describe('API de cuentas y perfil', () => {
     expect([active.status, missing.status, disabled.status]).toEqual([200, 200, 200]);
     expect(await active.text()).toBe(await missing.text());
     expect(await disabled.text()).toBe(JSON.stringify({ ok: true }));
+  });
+
+  it('mantiene la respuesta anti-enumeración cuando falla la entrega de recuperación', async () => {
+    const user = await registerUser('smtp-route-failure@example.test', 'SMTP');
+    vi.spyOn(passwordRecoveryService, 'requestPasswordReset').mockRejectedValue(new Error('private SMTP detail'));
+
+    const active = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: user.email }));
+    const missing = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: 'missing-smtp@example.test' }));
+
+    expect([active.status, missing.status]).toEqual([200, 200]);
+    const activeBody = await active.text();
+    expect(activeBody).toBe(await missing.text());
+    expect(activeBody).not.toContain('private SMTP detail');
+  });
+
+  it('presenta un error genérico en perfil cuando no se puede enviar el enlace', async () => {
+    const user = await registerUser('smtp-profile-failure@example.test', 'SMTP Perfil');
+    await login(jsonRequest('/api/auth/login', { email: user.email, password: 'contrasena-segura' }));
+    vi.spyOn(passwordRecoveryService, 'requestPasswordReset').mockRejectedValue(new Error('private SMTP detail'));
+
+    const response = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: 'contrasena-segura',
+    }));
+
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(body).toBe(JSON.stringify({ error: 'No se pudo completar la solicitud. Intenta de nuevo.' }));
+    expect(body).not.toContain('private SMTP detail');
   });
 
   it('mantiene la respuesta genérica al aplicar rate limit', async () => {

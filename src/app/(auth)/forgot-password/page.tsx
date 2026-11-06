@@ -54,6 +54,9 @@ export default function ForgotPasswordPage() {
         {sent ? (
           <section className="card-surface p-6 text-center" role="status">
             <p className="text-sm leading-relaxed text-text-secondary">{GENERIC_SUCCESS}</p>
+            <p className="mt-3 text-sm leading-relaxed text-text-secondary">
+              Si no recibes el correo, revisa la carpeta de spam y vuelve a intentarlo más tarde.
+            </p>
           </section>
         ) : (
           <form onSubmit={handleSubmit} className="card-surface space-y-4 p-6" noValidate>

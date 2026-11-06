@@ -10,6 +10,7 @@ import {
 } from '@/server/mail/password-reset-email';
 import {
   consumePasswordResetToken,
+  getPasswordResetTokenState,
   hashPasswordResetToken,
   replacePasswordResetToken,
 } from '@/server/repositories/password-reset-repository';
@@ -22,6 +23,7 @@ interface PasswordRecoveryDependencies {
   mailProvider?: MailProvider;
   findUser?: (email: string) => Promise<UserRecord | null>;
   replaceToken?: typeof replacePasswordResetToken;
+  getTokenState?: typeof getPasswordResetTokenState;
   generateToken?: () => string;
   now?: () => Date;
   expectedUserId?: string;
@@ -42,15 +44,10 @@ export async function requestPasswordReset(
   const env = dependencies.env ?? getEnv();
   const provider = dependencies.mailProvider ?? createMailProvider(env);
   const replaceToken = dependencies.replaceToken ?? replacePasswordResetToken;
+  const getTokenState = dependencies.getTokenState ?? getPasswordResetTokenState;
   const now = dependencies.now?.() ?? new Date();
   const token = dependencies.generateToken?.() ?? randomBytes(32).toString('base64url');
-  await replaceToken({
-    userId: user.id,
-    tokenHash: hashPasswordResetToken(token),
-    expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MS).toISOString(),
-    createdAt: now.toISOString(),
-    ...(dependencies.expectedUserId ? { expectedEmail: user.email, expectedPasswordHash: dependencies.expectedPasswordHash } : {}),
-  });
+  const expectedTokenState = await getTokenState(user.id);
 
   const message = createPasswordResetEmail({
     email: user.email,
@@ -59,8 +56,20 @@ export async function requestPasswordReset(
   try {
     await provider.send(message);
   } catch {
-    // La respuesta pública es deliberadamente idéntica para evitar enumeración.
+    throw new Error('No se pudo enviar el correo de recuperación');
   }
+
+  // Solo sustituye el enlace anterior cuando el proveedor aceptó el correo.
+  // La transacción rechaza snapshots obsoletos y cambios de cuenta/contraseña.
+  await replaceToken({
+    userId: user.id,
+    tokenHash: hashPasswordResetToken(token),
+    expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MS).toISOString(),
+    createdAt: now.toISOString(),
+    expectedEmail: user.email,
+    expectedPasswordHash: user.passwordHash,
+    expectedTokenState,
+  });
 }
 
 export async function resetPasswordWithToken(token: string, newPassword: string): Promise<boolean> {

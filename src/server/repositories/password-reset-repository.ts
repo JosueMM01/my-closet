@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
 import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
 
@@ -26,23 +26,52 @@ export async function isPasswordResetTokenValid(tokenHash: string, now: string):
   return !!row;
 }
 
+type PasswordResetTokenStateRow = { tokenHash: string; usedAt: Date | string | null };
+
+function serializePasswordResetTokenState(rows: PasswordResetTokenStateRow[]): string {
+  return JSON.stringify(rows.map((row) => ({
+    tokenHash: row.tokenHash,
+    usedAt: row.usedAt instanceof Date ? row.usedAt.toISOString() : row.usedAt,
+  })));
+}
+
+/** Snapshot used to avoid replacing a token changed while its email was in flight. */
+export async function getPasswordResetTokenState(userId: string): Promise<string> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const rows = await db.postgres.select({ tokenHash: pgSchema.passwordResetTokens.tokenHash, usedAt: pgSchema.passwordResetTokens.usedAt })
+      .from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, userId))
+      .orderBy(asc(pgSchema.passwordResetTokens.tokenHash));
+    return serializePasswordResetTokenState(rows);
+  }
+  const rows = db.sqlite.select({ tokenHash: sqliteSchema.passwordResetTokens.tokenHash, usedAt: sqliteSchema.passwordResetTokens.usedAt })
+    .from(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.userId, userId))
+    .orderBy(asc(sqliteSchema.passwordResetTokens.tokenHash)).all();
+  return serializePasswordResetTokenState(rows);
+}
+
 export async function replacePasswordResetToken(input: {
   userId: string;
   tokenHash: string;
   expiresAt: string;
   createdAt: string;
-  expectedEmail?: string;
-  expectedPasswordHash?: string;
+  expectedEmail: string;
+  expectedPasswordHash: string;
+  expectedTokenState: string;
 }): Promise<void> {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     await db.postgres.transaction(async (tx) => {
-      if (input.expectedEmail !== undefined) {
-        const [user] = await tx.select({ email: pgSchema.users.email, passwordHash: pgSchema.users.passwordHash, status: pgSchema.users.status })
-          .from(pgSchema.users).where(eq(pgSchema.users.id, input.userId)).for('update');
-        if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
-          throw new Error('La cuenta cambió durante la solicitud');
-        }
+      const [user] = await tx.select({ email: pgSchema.users.email, passwordHash: pgSchema.users.passwordHash, status: pgSchema.users.status })
+        .from(pgSchema.users).where(eq(pgSchema.users.id, input.userId)).for('update');
+      if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+        throw new Error('La cuenta cambió durante la solicitud');
+      }
+      const currentTokens = await tx.select({ tokenHash: pgSchema.passwordResetTokens.tokenHash, usedAt: pgSchema.passwordResetTokens.usedAt })
+        .from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, input.userId))
+        .orderBy(asc(pgSchema.passwordResetTokens.tokenHash));
+      if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
+        throw new Error('La solicitud de recuperación cambió durante el envío');
       }
       await tx.delete(pgSchema.passwordResetTokens)
         .where(eq(pgSchema.passwordResetTokens.userId, input.userId));
@@ -58,12 +87,16 @@ export async function replacePasswordResetToken(input: {
   }
   const sqlite = db.sqlite;
   sqlite.transaction((tx) => {
-    if (input.expectedEmail !== undefined) {
-      const user = tx.select({ email: sqliteSchema.users.email, passwordHash: sqliteSchema.users.passwordHash, status: sqliteSchema.users.status })
-        .from(sqliteSchema.users).where(eq(sqliteSchema.users.id, input.userId)).get();
-      if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
-        throw new Error('La cuenta cambió durante la solicitud');
-      }
+    const user = tx.select({ email: sqliteSchema.users.email, passwordHash: sqliteSchema.users.passwordHash, status: sqliteSchema.users.status })
+      .from(sqliteSchema.users).where(eq(sqliteSchema.users.id, input.userId)).get();
+    if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+      throw new Error('La cuenta cambió durante la solicitud');
+    }
+    const currentTokens = tx.select({ tokenHash: sqliteSchema.passwordResetTokens.tokenHash, usedAt: sqliteSchema.passwordResetTokens.usedAt })
+      .from(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
+      .orderBy(asc(sqliteSchema.passwordResetTokens.tokenHash)).all();
+    if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
+      throw new Error('La solicitud de recuperación cambió durante el envío');
     }
     tx.delete(sqliteSchema.passwordResetTokens)
       .where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
@@ -82,6 +115,19 @@ export async function consumePasswordResetToken(input: {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     return db.postgres.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ userId: pgSchema.passwordResetTokens.userId })
+        .from(pgSchema.passwordResetTokens)
+        .where(eq(pgSchema.passwordResetTokens.tokenHash, input.tokenHash))
+        .limit(1);
+      if (!candidate) return false;
+
+      // Keep lock order consistent with token replacement: account first, token second.
+      const [user] = await tx.select({ id: pgSchema.users.id }).from(pgSchema.users)
+        .where(and(eq(pgSchema.users.id, candidate.userId), eq(pgSchema.users.status, 'ACTIVE')))
+        .for('update');
+      if (!user) return false;
+
       const tokens = await tx
         .select({ userId: pgSchema.passwordResetTokens.userId })
         .from(pgSchema.passwordResetTokens)

@@ -25,7 +25,7 @@ import {
   upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { getImageStorage } from '@/server/images/storage';
-import { replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
+import { getPasswordResetTokenState, replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 import {
   acceptWardrobeInvitation,
   inspectWardrobeInvitation,
@@ -43,7 +43,8 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
     if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
     await db.postgres.update(pgSchema.users).set({ email: `changed-${uuid()}@example.test` }).where(eq(pgSchema.users.id, user.id));
     const input = { userId: user.id, tokenHash: uuid(), createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60_000).toISOString(), expectedEmail: user.email, expectedPasswordHash: user.passwordHash };
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), expectedEmail: user.email, expectedPasswordHash: user.passwordHash,
+      expectedTokenState: await getPasswordResetTokenState(user.id) };
     await expect(replacePasswordResetToken(input)).rejects.toThrow('La cuenta cambió durante la solicitud');
     const tokens = await db.postgres.select().from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, user.id));
     expect(tokens).toHaveLength(0);

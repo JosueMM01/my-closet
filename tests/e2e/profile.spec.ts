@@ -22,12 +22,13 @@ function seedEmailConfirmation(email: string, newEmail: string, code: string): v
   } finally { db.close(); }
 }
 
-function seedPasswordReset(email: string): string {
+function seedPasswordReset(email: string, expiresAt?: string): string {
   const token = randomBytes(32).toString('base64url');
   const db = new Database(path.resolve('data/my-closet-e2e.db'), { fileMustExist: true });
   try {
-    const changed = db.prepare(`UPDATE password_reset_tokens SET token_hash = ? WHERE user_id = (SELECT id FROM users WHERE email = ?)`)
-      .run(createHash('sha256').update(token).digest('hex'), email);
+    const changed = db.prepare(`UPDATE password_reset_tokens SET token_hash = ?, expires_at = COALESCE(?, expires_at)
+      WHERE user_id = (SELECT id FROM users WHERE email = ?)`)
+      .run(createHash('sha256').update(token).digest('hex'), expiresAt ?? null, email);
     expect(changed.changes).toBe(1);
   } finally { db.close(); }
   return token;
@@ -42,6 +43,28 @@ test.describe('Perfil', () => {
     await page.unroute('**/api/auth/reset-password/inspect');
     await page.getByRole('button', { name: 'Reintentar' }).click();
     await expect(page.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+  });
+
+  test('muestra la pantalla de enlace expirado sin ofrecer el formulario de contraseña', async ({ page }) => {
+    test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La siembra del token usa exclusivamente SQLite E2E local');
+    const email = await registerAndLogin(page, 'Enlace Expirado');
+    await page.goto('/profile');
+    await waitForHydration(page);
+
+    const passwordForm = page.locator('form').filter({ hasText: 'Cambiar contraseña' });
+    await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
+    await passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' }).click();
+    await expect(page.getByText(/recibirás un enlace para cambiar tu contraseña/)).toBeVisible();
+
+    const expiredToken = seedPasswordReset(email, new Date(Date.now() - 60_000).toISOString());
+    await page.goto(`/reset-password#token=${expiredToken}`);
+
+    await expect(page.getByRole('heading', { name: 'Enlace no disponible' })).toBeVisible();
+    await expect(page.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+    await expect(page.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await expect(page.getByLabel('Repite la contraseña')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Solicitar otro enlace' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Iniciar sesión' })).toBeVisible();
   });
 
   test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page, browser }) => {
