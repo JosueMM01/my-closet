@@ -568,8 +568,10 @@ describe('API de cuentas y perfil', () => {
     );
   });
 
-  it('guarda solo hash y permite un único reset concurrente que revoca sesiones', async () => {
+  it('guarda solo hash y permite un único reset concurrente que revoca sesiones y otros enlaces', async () => {
     const user = await registerUser('reset@example.test', 'Reset');
+    const registeredUser = await findUserByEmail(user.email);
+    if (!registeredUser) throw new Error('Cuenta de prueba no encontrada');
     await login(
       jsonRequest('/api/auth/login', {
         email: user.email,
@@ -583,6 +585,11 @@ describe('API de cuentas y perfil', () => {
     const token = capturedResetToken();
     const db = await getServerDB();
     if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const secondToken = 'o'.repeat(43);
+    db.sqlite.insert(sqliteSchema.passwordResetTokens).values({
+      id: crypto.randomUUID(), userId: registeredUser.id, tokenHash: hashPasswordResetToken(secondToken),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(), createdAt: new Date().toISOString(),
+    }).run();
     const stored = db.raw
       .prepare<[], { token_hash: string }>('SELECT token_hash FROM password_reset_tokens')
       .get();
@@ -601,9 +608,10 @@ describe('API de cuentas y perfil', () => {
     ]);
     expect(attempts.map((response) => response.status).sort()).toEqual([200, 400]);
     expect(db.raw.prepare('SELECT COUNT(*) AS count FROM sessions').get()).toEqual({ count: 0 });
-    expect(
-      db.raw.prepare('SELECT used_at FROM password_reset_tokens').get(),
-    ).toMatchObject({ used_at: expect.any(String) });
+    expect(db.raw.prepare('SELECT COUNT(*) AS count FROM password_reset_tokens WHERE user_id = ?').get(registeredUser.id))
+      .toEqual({ count: 0 });
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: secondToken }))).json())
+      .toEqual({ valid: false });
     expect(sessionResponseSchema.parse(await (await session()).json())).toEqual({ authenticated: false });
 
     const updated = await findUserByEmail(user.email);

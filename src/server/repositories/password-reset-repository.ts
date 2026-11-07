@@ -3,6 +3,8 @@ import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
 import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
 
+const MAX_ACTIVE_RESET_TOKENS_PER_USER = 3;
+
 export function hashPasswordResetToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -73,8 +75,13 @@ export async function replacePasswordResetToken(input: {
       if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
         throw new Error('La solicitud de recuperación cambió durante el envío');
       }
-      await tx.delete(pgSchema.passwordResetTokens)
-        .where(eq(pgSchema.passwordResetTokens.userId, input.userId));
+      const activeTokens = await tx.select({ id: pgSchema.passwordResetTokens.id })
+        .from(pgSchema.passwordResetTokens)
+        .where(and(eq(pgSchema.passwordResetTokens.userId, input.userId), isNull(pgSchema.passwordResetTokens.usedAt),
+          gt(pgSchema.passwordResetTokens.expiresAt, new Date(input.createdAt))));
+      if (activeTokens.length >= MAX_ACTIVE_RESET_TOKENS_PER_USER) {
+        throw new Error('Hay demasiados enlaces de recuperación activos');
+      }
       await tx.insert(pgSchema.passwordResetTokens).values({
         id: uuid(),
         userId: input.userId,
@@ -98,13 +105,27 @@ export async function replacePasswordResetToken(input: {
     if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
       throw new Error('La solicitud de recuperación cambió durante el envío');
     }
-    tx.delete(sqliteSchema.passwordResetTokens)
-      .where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
-      .run();
+    const activeTokens = tx.select({ id: sqliteSchema.passwordResetTokens.id })
+      .from(sqliteSchema.passwordResetTokens)
+      .where(and(eq(sqliteSchema.passwordResetTokens.userId, input.userId), isNull(sqliteSchema.passwordResetTokens.usedAt),
+        gt(sqliteSchema.passwordResetTokens.expiresAt, input.createdAt))).all();
+    if (activeTokens.length >= MAX_ACTIVE_RESET_TOKENS_PER_USER) {
+      throw new Error('Hay demasiados enlaces de recuperación activos');
+    }
     tx.insert(sqliteSchema.passwordResetTokens)
       .values({ id: uuid(), userId: input.userId, tokenHash: input.tokenHash, expiresAt: input.expiresAt, createdAt: input.createdAt })
       .run();
   });
+}
+
+/** Invalidates one failed-delivery token without touching existing usable links. */
+export async function invalidatePasswordResetToken(tokenHash: string): Promise<void> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    await db.postgres.delete(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.tokenHash, tokenHash));
+    return;
+  }
+  db.sqlite.delete(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.tokenHash, tokenHash)).run();
 }
 
 export async function consumePasswordResetToken(input: {
@@ -165,6 +186,7 @@ export async function consumePasswordResetToken(input: {
         .returning({ id: pgSchema.users.id });
       if (updated.length !== 1) throw new Error('No se pudo actualizar la cuenta activa');
       await tx.delete(pgSchema.sessions).where(eq(pgSchema.sessions.userId, token.userId));
+      await tx.delete(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, token.userId));
       return true;
     });
   }
@@ -211,6 +233,9 @@ export async function consumePasswordResetToken(input: {
     }
     tx.delete(sqliteSchema.sessions)
       .where(eq(sqliteSchema.sessions.userId, token.userId))
+      .run();
+    tx.delete(sqliteSchema.passwordResetTokens)
+      .where(eq(sqliteSchema.passwordResetTokens.userId, token.userId))
       .run();
     return true;
   });

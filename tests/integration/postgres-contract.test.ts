@@ -25,7 +25,7 @@ import {
   upsertWardrobeShare,
 } from '@/server/repositories/sync-repository';
 import { getImageStorage } from '@/server/images/storage';
-import { getPasswordResetTokenState, replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
+import { consumePasswordResetToken, getPasswordResetTokenState, hashPasswordResetToken, replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 import {
   acceptWardrobeInvitation,
   inspectWardrobeInvitation,
@@ -48,6 +48,28 @@ describePostgres('contrato de repositorios PostgreSQL', () => {
     await expect(replacePasswordResetToken(input)).rejects.toThrow('La cuenta cambió durante la solicitud');
     const tokens = await db.postgres.select().from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, user.id));
     expect(tokens).toHaveLength(0);
+  });
+  it('consume un solo enlace entre varios y revoca los enlaces y sesiones restantes', async () => {
+    const user = await createUser({ email: `reset-${uuid()}@example.test`, displayName: 'Reset', passwordHash: 'scrypt:test-contract' });
+    cleanupUserIds.push(user.id);
+    const db = await getServerDB();
+    if (db.dialect !== 'postgres') throw new Error('Se esperaba PostgreSQL');
+    const now = new Date();
+    const tokens = ['first-token', 'second-token'];
+    await db.postgres.insert(pgSchema.passwordResetTokens).values(tokens.map((token) => ({
+      id: uuid(), userId: user.id, tokenHash: hashPasswordResetToken(token),
+      expiresAt: new Date(now.getTime() + 60_000), createdAt: now,
+    })));
+    await db.postgres.insert(pgSchema.sessions).values({ id: uuid(), userId: user.id, expiresAt: new Date(now.getTime() + 60_000) });
+
+    const results = await Promise.all(tokens.map((token, index) => consumePasswordResetToken({
+      tokenHash: hashPasswordResetToken(token), passwordHash: `scrypt:reset-${index}`, now: now.toISOString(),
+    })));
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await db.postgres.select().from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, user.id)))
+      .toEqual([]);
+    expect(await db.postgres.select().from(pgSchema.sessions).where(eq(pgSchema.sessions.userId, user.id))).toEqual([]);
   });
   it('confirma correo una sola vez ante peticiones concurrentes y revoca recuperaciones y sesiones', async () => {
     const user = await createUser({ email: `email-${uuid()}@example.test`, displayName: 'Correo', passwordHash: 'scrypt:test-contract' });

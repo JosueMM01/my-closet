@@ -187,7 +187,7 @@ describe('correo de recuperación', () => {
         expectedTokenState: 'previous-token-state',
       }),
     );
-    expect(events).toEqual(['send', 'persist']);
+    expect(events).toEqual(['persist', 'send']);
     expect(JSON.stringify(replaceToken.mock.calls)).not.toContain(rawToken);
     expect(deliveredMessage?.text).toContain(`/reset-password#token=${rawToken}`);
     expect(deliveredMessage?.text).not.toContain('/reset-password?token=');
@@ -215,6 +215,7 @@ describe('correo de recuperación', () => {
     };
 
     const replaceToken = vi.fn(async () => undefined);
+    const invalidateToken = vi.fn(async () => undefined);
     await expect(
       requestPasswordReset('owner@example.test', {
         env,
@@ -222,6 +223,7 @@ describe('correo de recuperación', () => {
         generateToken: () => 'f'.repeat(43),
         getTokenState: async () => 'previous-token-state',
         replaceToken,
+        invalidateToken,
         findUser: async () => ({
           id: '11111111-1111-4111-8111-111111111111',
           email: 'owner@example.test',
@@ -235,7 +237,8 @@ describe('correo de recuperación', () => {
         }),
       }),
     ).rejects.toThrow('No se pudo enviar el correo de recuperación');
-    expect(replaceToken).not.toHaveBeenCalled();
+    expect(replaceToken).toHaveBeenCalledOnce();
+    expect(invalidateToken).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{64}$/));
   });
 });
 
