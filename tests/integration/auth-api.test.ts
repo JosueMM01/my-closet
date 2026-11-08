@@ -147,6 +147,13 @@ describe('API de cuentas y perfil', () => {
     const recovery = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: BOOTSTRAP_EMAIL }));
     expect(recovery.status).toBe(403);
     expect(readCapturedMessagesForTests()).toHaveLength(0);
+    fetcher.mockResolvedValue(Response.json({ success: false, action: 'recovery', hostname: 'localhost' }));
+    const invalidRecovery = await forgotPassword(jsonRequest('/api/auth/forgot-password', {
+      email: BOOTSTRAP_EMAIL,
+      turnstileToken: 'invalid-synthetic-token',
+    }));
+    expect(invalidRecovery.status).toBe(403);
+    expect(readCapturedMessagesForTests()).toHaveLength(0);
     fetcher.mockResolvedValue(Response.json({ success: true, action: 'login', hostname: 'localhost' }));
     const verified = await login(jsonRequest('/api/auth/login', {
       email: BOOTSTRAP_EMAIL, password: BOOTSTRAP_PASSWORD, turnstileToken: 'synthetic-token',
@@ -521,9 +528,10 @@ describe('API de cuentas y perfil', () => {
       jsonRequest('/api/auth/forgot-password', { email: user.email }),
     );
 
-    expect([active.status, missing.status, disabled.status]).toEqual([200, 200, 200]);
-    expect(await active.text()).toBe(await missing.text());
-    expect(await disabled.text()).toBe(JSON.stringify({ ok: true }));
+    const responses = [active, missing, disabled];
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200]);
+    const bodies = await Promise.all(responses.map(response => response.text()));
+    expect(new Set(bodies)).toEqual(new Set([JSON.stringify({ ok: true })]));
   });
 
   it('mantiene la respuesta anti-enumeración cuando falla la entrega de recuperación', async () => {
@@ -532,10 +540,15 @@ describe('API de cuentas y perfil', () => {
 
     const active = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: user.email }));
     const missing = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: 'missing-smtp@example.test' }));
+    const admin = await loginBootstrap();
+    await updateUserForAdmin({ actorId: admin.userId, userId: user.userId, status: 'DISABLED' });
+    const disabled = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: user.email }));
 
-    expect([active.status, missing.status]).toEqual([200, 200]);
-    const activeBody = await active.text();
-    expect(activeBody).toBe(await missing.text());
+    const responses = [active, missing, disabled];
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200]);
+    const bodies = await Promise.all(responses.map(response => response.text()));
+    expect(new Set(bodies)).toEqual(new Set([JSON.stringify({ ok: true })]));
+    const activeBody = bodies[0] ?? '';
     expect(activeBody).not.toContain('private SMTP detail');
   });
 

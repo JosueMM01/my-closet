@@ -166,6 +166,15 @@ ni de dispositivos offline; el origen actual se limpia tras recargar, antes del 
 
 ## Orden de entrega
 
+El cambio de contraseña por correo se validó en Preview con entrega real,
+uso único y caducidad comprobados por el propietario. Turnstile completó una
+solicitud sintética en Brave; repetir su token real sigue pendiente. La respuesta
+pública de recuperación es genérica y está limitada, pero sus tiempos pueden
+revelar si existe una cuenta porque el envío SMTP es síncrono. Antes de publicar
+el cambio en producción se debe desacoplar la entrega mediante una cola durable
+o documentar una aceptación específica del riesgo por el propietario; un CI
+aprobado no demuestra que ese canal temporal esté mitigado.
+
 1. Confirmar un respaldo recuperable y verificar el endpoint de producción.
 2. Ensayar las migraciones en una copia aislada antes de aplicarlas. Los pasos
    aditivos `0002` y `0003` ya se ensayaron y verificaron en producción.
