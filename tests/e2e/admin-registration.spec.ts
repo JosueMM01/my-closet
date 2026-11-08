@@ -41,6 +41,26 @@ test.describe('Registro por invitación', () => {
 test.describe('Administración', () => {
   test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La fixture admin usa SQLite E2E local.');
 
+  test('permite buscar cuentas y cambiar la paginación', async ({ page }) => {
+    const adminEmail = await registerAndLogin(page, 'Admin Páginas');
+    grantAdminAccess(adminEmail);
+    const prefix = `pagina${Date.now()}`;
+    for (let index = 0; index < 12; index++) createUserFixture(`${prefix}.${index}@test.local`, `Prueba ${index}`);
+    await page.goto('/profile');
+    await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
+    await page.getByLabel('Buscar cuenta').fill(prefix);
+    await expect(page.getByText('12 cuentas · Página 1 de 2')).toBeVisible();
+    await expect(page.getByTestId('admin-panel').getByRole('listitem')).toHaveCount(10);
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('12 cuentas · Página 2 de 2')).toBeVisible();
+    await expect(page.getByTestId('admin-panel').getByRole('listitem')).toHaveCount(2);
+    await page.getByLabel('Por página').selectOption('20');
+    await expect(page.getByText('12 cuentas · Página 1 de 1')).toBeVisible();
+    await page.getByLabel('Buscar cuenta').fill(`${prefix}.11@test.local`);
+    await expect(page.getByText('1 cuenta · Página 1 de 1')).toBeVisible();
+  });
+
   test('solo ADMIN ve el panel; crea, copia y usa una invitación', async ({ page, browser, context }) => {
     const adminEmail = await registerAndLogin(page, 'Admin Invitaciones');
     await page.goto('/profile');
@@ -50,16 +70,27 @@ test.describe('Administración', () => {
     grantAdminAccess(adminEmail);
     await page.reload();
     await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
     await expect(page.getByTestId('admin-panel')).toBeVisible();
+    if (process.env.PROFILE_CAPTURE === '1') {
+      await page.getByTestId('admin-panel').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: test.info().outputPath('panel-administrador.png') });
+      await page.getByRole('tab', { name: 'Seguridad', exact: true }).click();
+      await page.getByRole('button', { name: /Cambiar contraseña/ }).click();
+      await page.screenshot({ path: test.info().outputPath('perfil-modal.png') });
+      await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
+      await page.getByRole('tab', { name: 'Administración', exact: true }).click();
+    }
 
     await context.setOffline(true);
     await expect(page.getByText('Sin conexión: puedes consultar la caché')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Crear invitación de 7 días' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Crear invitación', exact: true })).toBeDisabled();
     await context.setOffline(false);
     await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeEnabled();
 
     const invitedEmail = uniqueEmail('invitada');
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
     await page.getByLabel('Correo de la persona invitada').fill(invitedEmail);
     await page.getByRole('button', { name: 'Crear invitación de 7 días' }).click();
     await expect(page.getByText('Invitación capturada para pruebas. Caduca en 7 días.')).toBeVisible();
@@ -98,6 +129,7 @@ test.describe('Administración', () => {
     grantAdminAccess(adminEmail);
     await page.goto('/profile');
     await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
     await expect(page.getByTestId('admin-panel')).toBeVisible();
 
     const secondEmail = uniqueEmail('admin-dos');
@@ -107,13 +139,16 @@ test.describe('Administración', () => {
 
     await page.getByRole('button', { name: 'Actualizar datos' }).click();
     await expect(page.getByText('Datos de administración actualizados.')).toBeVisible();
+    await page.getByLabel('Buscar cuenta').fill(secondEmail);
     const second = page.locator('li').filter({ hasText: secondEmail });
     await second.getByRole('button', { name: 'Hacer admin' }).click();
     await expect(page.getByText('2/2 admins activos')).toBeVisible();
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
     // Native options have their own disabled state; checking the owning select
     // would incorrectly require USER invitations to be disabled as well.
     await expect(page.getByRole('option', { name: 'Administrador (cupo completo)' })).toHaveJSProperty('disabled', true);
     await expect(page.getByText('Cupo completo: ya hay dos administradores activos. Solo puedes invitar como Usuario.')).toBeVisible();
+    await page.getByRole('dialog', { name: 'Crear invitación' }).getByRole('button', { name: 'Cerrar' }).click();
 
     // UI caching does not grant permission: a forged request is rejected by the server.
     const before = await page.request.get('/api/admin/invitations');
@@ -126,6 +161,7 @@ test.describe('Administración', () => {
     const after = await page.request.get('/api/admin/invitations');
     expect((await after.json()).invitations.length).toBe((await before.json()).invitations.length);
 
+    await page.getByLabel('Buscar cuenta').fill(thirdEmail);
     const third = page.locator('li').filter({ hasText: thirdEmail });
     await expect(third.getByRole('button', { name: 'Hacer admin' })).toBeDisabled();
   });
@@ -137,15 +173,20 @@ test.describe('Administración', () => {
     createUserFixture(userEmail, 'Usuario Reservas');
     await page.goto('/profile');
     await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
     const panel = page.getByTestId('admin-panel');
     const invitedEmail = uniqueEmail('admin-reservado');
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
     await page.getByLabel('Correo de la persona invitada').fill(invitedEmail);
     await page.getByLabel('Rol inicial').selectOption('ADMIN');
     await page.getByRole('button', { name: 'Crear invitación de 7 días' }).click();
     await expect(page.getByText('Invitación capturada para pruebas. Caduca en 7 días.')).toBeVisible();
     await expect(panel.getByText('1/2 admins activos · 1 plaza reservada')).toBeVisible();
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
     await expect(page.getByRole('option', { name: 'Administrador (plaza reservada)' })).toHaveJSProperty('disabled', true);
     await expect(panel.getByRole('status')).toContainText('Revoca una invitación ADMIN');
+    await page.getByRole('dialog', { name: 'Crear invitación' }).getByRole('button', { name: 'Cerrar' }).click();
+    await page.getByLabel('Buscar cuenta').fill(userEmail);
     const user = panel.getByRole('listitem').filter({ hasText: userEmail });
     await expect(user.getByRole('button', { name: 'Hacer admin' })).toBeDisabled();
     const rejected = await page.request.post('/api/admin/invitations', {
@@ -154,10 +195,12 @@ test.describe('Administración', () => {
     });
     expect(rejected.status()).toBe(409);
     expect((await rejected.json()).error).toContain('Revoca una invitación ADMIN');
+    await panel.getByText(/Invitaciones pendientes \(/).click();
     await panel.getByRole('listitem').filter({ hasText: invitedEmail }).getByRole('button', { name: 'Revocar invitación' }).click();
     await expect(panel.getByText('1/2 admins activos · 0 plazas reservadas')).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
     await expect(user.getByRole('button', { name: 'Hacer admin' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
+    await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
   });
 
   test('la reserva desaparece al caducar sin recargar el panel', async ({ page }) => {
@@ -165,6 +208,7 @@ test.describe('Administración', () => {
     grantAdminAccess(adminEmail);
     await page.goto('/profile');
     await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeEnabled();
     await page.clock.install();
     const beforeCreate = Date.now();
@@ -181,6 +225,7 @@ test.describe('Administración', () => {
     await expect(page.getByText('1/2 admins activos · 1 plaza reservada')).toBeVisible();
     await page.clock.fastForward(7 * 24 * 60 * 60 * 1_000 + 10_000);
     await expect(page.getByText('1/2 admins activos · 0 plazas reservadas')).toBeVisible();
+    await page.getByRole('button', { name: 'Crear invitación', exact: true }).click();
     await expect(page.getByRole('option', { name: 'Administrador', exact: true })).toHaveJSProperty('disabled', false);
   });
 });

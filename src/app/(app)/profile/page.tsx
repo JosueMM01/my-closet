@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ApiClientError } from '@/lib/api/client';
 import { changeEmail, confirmEmailChange, changePassword, updateProfile } from '@/lib/account/client';
@@ -20,7 +20,7 @@ import { ProfileAdmin } from '@/components/profile-admin';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileGoogle } from '@/components/profile-google';
 import { ProfileAccountDeletion } from '@/components/profile-account-deletion';
-import { ShareIcon } from '@/components/icons';
+import { PencilIcon, ShareIcon } from '@/components/icons';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { VerificationCodeInput } from '@/components/verification-code-input';
 
@@ -47,12 +47,14 @@ export default function ProfilePage() {
   const [newEmail, setNewEmail] = useState(profile?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
+  const [emailRequestVersion, setEmailRequestVersion] = useState(0);
   const [emailCode, setEmailCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [noticeAction, setNoticeAction] = useState<string | null>(null);
   const [photoStage, setPhotoStage] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState('profile');
 
   const counts = useLiveQuery(async () => {
     if (!profile) return null;
@@ -67,6 +69,10 @@ export default function ProfilePage() {
 
   if (!profile) return null;
   const userId = profile.userId;
+  const tabs = profile.role === 'ADMIN'
+    ? [{ id: 'profile', label: 'Perfil' }, { id: 'security', label: 'Seguridad' }, { id: 'admin', label: 'Administración' }]
+    : [{ id: 'profile', label: 'Perfil' }, { id: 'security', label: 'Seguridad' }];
+  const activeTab = tabs.some((tab) => tab.id === selectedTab) ? selectedTab : 'profile';
 
   function begin(action: string) {
     setBusy(action);
@@ -128,6 +134,7 @@ export default function ProfilePage() {
       setCurrentPasswordForEmail('');
       setPendingEmail(requested.email);
       setShowVerification(true);
+      setEmailRequestVersion((version) => version + 1);
       setEmailCode('');
       setStatus(`Código enviado a ${requested.email}. Tu correo actual no ha cambiado.`);
     } catch (caught) {
@@ -216,11 +223,18 @@ export default function ProfilePage() {
 
       <section className="card-surface p-5 sm:p-6" aria-labelledby="identity-title">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <ProfileAvatar
-            imageId={profile.profileImageId}
-            displayName={profile.displayName}
-            className="h-24 w-24"
-          />
+          <div className="relative w-fit shrink-0">
+            <ProfileAvatar
+              imageId={profile.profileImageId}
+              displayName={profile.displayName}
+              className="h-24 w-24"
+            />
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!online || busy !== null}
+              aria-label={profile.profileImageId ? 'Cambiar foto de perfil' : 'Añadir foto de perfil'}
+              className="absolute -bottom-1 -right-1 flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-primary text-white shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50">
+              <PencilIcon size={17} />
+            </button>
+          </div>
           <div className="min-w-0 flex-1">
             <h2 id="identity-title" className="truncate font-heading text-xl">{profile.displayName}</h2>
             <p className="truncate text-sm text-text-secondary">{profile.email}</p>
@@ -233,15 +247,6 @@ export default function ProfilePage() {
                 onChange={choosePhoto}
                 aria-label="Elegir foto de perfil"
               />
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => fileInputRef.current?.click()}
-                loading={busy === 'photo'}
-                disabled={!online}
-              >
-                {profile.profileImageId ? 'Cambiar foto' : 'Añadir foto'}
-              </Button>
               {profile.profileImageId ? (
                 <Button
                   type="button"
@@ -283,6 +288,29 @@ export default function ProfilePage() {
         </section>
       ) : null}
 
+      <div role="tablist" aria-label="Secciones del perfil" className="flex rounded-full bg-surface-alt p-1">
+        {tabs.map((tab, index) => (
+          <button key={tab.id} id={`profile-tab-${tab.id}`} type="button" role="tab"
+            aria-selected={activeTab === tab.id} aria-controls={`profile-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1}
+            onClick={() => setSelectedTab(tab.id)}
+            onKeyDown={(event) => {
+              const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
+                : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length
+                : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              const target = tabs[next];
+              if (!target) return;
+              setSelectedTab(target.id);
+              document.getElementById(`profile-tab-${target.id}`)?.focus();
+            }}
+            className={`min-h-11 min-w-0 flex-1 rounded-full px-2 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:text-sm ${activeTab === tab.id ? 'bg-white text-primary shadow-sm' : 'text-text-secondary hover:text-primary'}`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div id="profile-panel-security" role="tabpanel" aria-labelledby="profile-tab-security" hidden={activeTab !== 'security'} className="space-y-5">
       <section className="card-surface p-5 sm:p-6" aria-labelledby="connected-title">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -301,7 +329,6 @@ export default function ProfilePage() {
         <div className="mt-5 space-y-3">
           <ProfileDisclosure title="Nombre visible" description="Actualiza cómo te ven las demás personas.">
           <form onSubmit={saveName} className="px-4 pb-4" noValidate>
-            <h3 className="font-heading text-base">Nombre visible</h3>
             <div className="mt-3">
               <Field label="Nombre">
                 <TextInput
@@ -322,7 +349,6 @@ export default function ProfilePage() {
 
           <ProfileDisclosure title="Cambiar contraseña" description="Solicita un enlace seguro por correo.">
           <form onSubmit={savePassword} className="px-4 pb-4" noValidate>
-            <h3 className="font-heading text-base">Cambiar contraseña</h3>
             <p className="mt-1 text-xs leading-relaxed text-text-secondary">Confirma tu contraseña actual y recibirás un enlace en tu correo para elegir una nueva.</p>
             <div className="mt-3 space-y-3">
               <Field label="Contraseña actual" htmlFor="current-password-for-password">
@@ -346,9 +372,8 @@ export default function ProfilePage() {
           </form>
           </ProfileDisclosure>
 
-          <ProfileDisclosure title="Cambiar correo" description="Verifica tu nueva dirección antes de cambiarla.">
+          <ProfileDisclosure title="Cambiar correo" description="Verifica tu nueva dirección antes de cambiarla." closeSignal={emailRequestVersion}>
           <form onSubmit={saveEmail} className="px-4 pb-4" noValidate>
-            <h3 className="font-heading text-base">Cambiar correo</h3>
             <p className="mt-1 text-xs leading-relaxed text-text-secondary">
               Confirma tu contraseña y después copia el código que enviaremos al nuevo buzón. Tu correo actual se conserva hasta verificarlo.
             </p>
@@ -413,8 +438,14 @@ export default function ProfilePage() {
         onProfileChanged={refreshProfile}
       />
 
-      {profile.role === 'ADMIN' ? <ProfileAdmin profile={profile} /> : null}
+      <ProfileAccountDeletion userId={userId} online={online} remoteExpired={remoteExpired} />
+      </div>
 
+      {profile.role === 'ADMIN' ? <div id="profile-panel-admin" role="tabpanel" aria-labelledby="profile-tab-admin" hidden={activeTab !== 'admin'}>
+        <ProfileAdmin profile={profile} />
+      </div> : null}
+
+      <div id="profile-panel-profile" role="tabpanel" aria-labelledby="profile-tab-profile" hidden={activeTab !== 'profile'}>
       <div className="grid gap-5 md:grid-cols-2">
         <section className="card-surface p-5">
           <h2 className="font-heading text-base">Tus datos en este dispositivo</h2>
@@ -445,7 +476,7 @@ export default function ProfilePage() {
         </section>
       </div>
 
-      <ProfileAccountDeletion userId={userId} online={online} remoteExpired={remoteExpired} />
+      </div>
 
       <Button variant="secondary" className="w-full" onClick={handleLogout} data-testid="logout">
         Cerrar sesión
@@ -457,15 +488,33 @@ export default function ProfilePage() {
   );
 }
 
-function ProfileDisclosure({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function ProfileDisclosure({ title, description, children, closeSignal }: { title: string; description: string; children: React.ReactNode; closeSignal?: number }) {
+  const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = `profile-modal-${title === 'Nombre visible' ? 'name' : title === 'Cambiar contraseña' ? 'password' : 'email'}`;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (open && dialog && !dialog.open) dialog.showModal();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, [open]);
+  useEffect(() => {
+    if (closeSignal) dialogRef.current?.close();
+  }, [closeSignal]);
   return (
-    <details className="group rounded-2xl bg-surface-alt">
-      <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
+    <div className="rounded-2xl bg-surface-alt">
+      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" className="flex min-h-16 w-full items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
         <span><span className="block text-sm font-semibold text-text-primary">{title}</span><span className="mt-0.5 block text-xs text-text-secondary">{description}</span></span>
-        <span aria-hidden="true" className="text-xl text-primary transition-transform group-open:rotate-45">+</span>
-      </summary>
-      {children}
-    </details>
+        <span aria-hidden="true" className="text-xl text-primary">›</span>
+      </button>
+      {open ? <dialog ref={dialogRef} onClose={() => setOpen(false)} aria-labelledby={titleId}
+        className="m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-[1.5rem] border-0 bg-white p-0 text-text-primary shadow-xl backdrop:bg-black/40">
+        <div className="flex items-center justify-between gap-3 px-5 pt-5">
+          <h2 id={titleId} className="font-heading text-xl">{title}</h2>
+          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Cerrar" className="flex h-11 w-11 items-center justify-center rounded-full text-xl text-text-secondary hover:bg-surface-alt focus-visible:outline-2 focus-visible:outline-primary">×</button>
+        </div>
+        {children}
+      </dialog> : null}
+    </div>
   );
 }
 
