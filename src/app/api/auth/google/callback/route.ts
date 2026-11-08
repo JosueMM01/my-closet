@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { getGoogleIdentityFromCode } from '@/server/auth/google';
+import { getGoogleIdentityFromCode, isGoogleEmailAuthoritative } from '@/server/auth/google';
 import {
   clearGoogleFlowCookies,
   GOOGLE_FLOW_COOKIES,
@@ -20,9 +20,10 @@ import { findUserById } from '@/server/repositories/users-repository';
 import type { GoogleFailureReason } from '@/lib/auth/google-feedback';
 import {
   AuthAccountError,
-  findActiveUserByGoogleSubject,
   findGoogleAccountByUserId,
+  findUserByGoogleSubject,
   linkGoogleAccount,
+  linkGoogleAccountByEmail,
 } from '@/server/repositories/auth-accounts-repository';
 import {
   AccountError,
@@ -190,7 +191,29 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const user = await findActiveUserByGoogleSubject(identity.subject);
+    const subjectOwner = await findUserByGoogleSubject(identity.subject);
+    if (subjectOwner) {
+      // A subject already bound to a disabled account must never fall back to email matching.
+      if (subjectOwner.user.status !== 'ACTIVE') {
+        return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
+      }
+      await createSession(subjectOwner.user.id);
+      return redirectTo(
+        request,
+        returnTo?.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\')
+          ? returnTo
+          : '/',
+        config.appUrl,
+      );
+    }
+
+    if (!isGoogleEmailAuthoritative(identity)) {
+      return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
+    }
+    const user = await linkGoogleAccountByEmail({
+      providerSubject: identity.subject,
+      providerEmail: identity.email,
+    });
     if (!user) return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
     await createSession(user.id);
     return redirectTo(

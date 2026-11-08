@@ -27,6 +27,7 @@ export default function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [invitationToken, setInvitationToken] = useState<string | null>(null);
@@ -91,6 +92,10 @@ export default function RegisterPage() {
     setError(null);
     if (passwordWeak) {
       setError('La contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (invitation && password !== confirmation) {
+      setError('Las contraseñas no coinciden');
       return;
     }
     setSubmitting(true);
@@ -177,6 +182,7 @@ export default function RegisterPage() {
               <div className="rounded-2xl bg-primary-soft p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-primary">Invitación verificada</p>
                 <p className="mt-1 break-all text-sm font-semibold text-text-primary">{invitation.email}</p>
+                <p className="mt-1 text-xs text-text-secondary">Esta invitación es exclusivamente para este correo y no se puede cambiar. Si no te corresponde, ignórala o pide una nueva al administrador.</p>
                 <p className="mt-1 text-xs text-text-secondary">
                   Rol: {invitation.role === 'ADMIN' ? 'Administrador' : 'Usuario'}
                 </p>
@@ -245,6 +251,10 @@ export default function RegisterPage() {
                   minLength={8}
                 />
               </Field>
+              {invitation ? <Field label="Confirmar contraseña" htmlFor="register-password-confirmation">
+                <PasswordInput id="register-password-confirmation" name="passwordConfirmation" autoComplete="new-password"
+                  value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={8} />
+              </Field> : null}
               {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
               <Button type="submit" size="lg" className="w-full" loading={submitting}>
                 Crear cuenta

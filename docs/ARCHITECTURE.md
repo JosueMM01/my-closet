@@ -95,6 +95,28 @@ sugerencias explicadas. El contexto vive en KV por usuario y no se sincroniza.
 - Los permisos se comprueban en servidor. Invitaciones ADMIN vigentes reservan
   plaza y comparten protección transaccional con promociones y reactivaciones.
 
+## Acceso Google — simplificación local pendiente de publicación
+
+El registro invitado fija el destinatario: el formulario no permite editar su
+correo y Google debe acreditar exactamente el mismo. El alta con contraseña
+pide confirmación, sin OTP adicional. La invitación sigue siendo un enlace bearer:
+reenviarlo no permite elegir otro correo, pero sí puede permitir completar el
+alta del destinatario original. No se afirma que ese flujo pruebe por separado
+el control actual del buzón.
+
+El acceso Google conserva el vínculo por su identificador estable `sub`. Solo
+si aún no existe vínculo puede asociarse una cuenta activa con correo exacto,
+cuando Google sea autoridad del buzón (Gmail o Workspace acreditado por el token).
+Para cuentas Google con correo externo se exige una sesión propia autenticada
+antes de asociarlas. Nunca se crean cuentas, reemplazan vínculos ni cambian roles
+en el inicio de sesión ordinario. Las invitaciones mantienen su flujo separado.
+
+La app no ofrece desvincular Google y su API rechaza esa operación. No se debe
+confundir revocar el consentimiento en Google con borrar el vínculo local.
+Esta simplificación no identifica todavía si una contraseña fue elegida por el
+usuario: las cuentas creadas con Google almacenan una contraseña aleatoria
+desconocida, y pueden establecer una mediante recuperación por correo.
+
 ## Baja de cuentas — implementación local, no operativa
 
 `ACCOUNT_DELETION_ENABLED` y `ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED` son falsas
