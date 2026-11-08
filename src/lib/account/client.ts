@@ -47,14 +47,12 @@ export async function updateProfile(input: {
 
 export async function changePassword(input: {
   currentPassword: string;
-  newPassword: string;
-}): Promise<LocalProfile> {
+}): Promise<void> {
   const body = parseClientInput(passwordChangeSchema, input, 'Datos de contraseña inválidos');
   await requestJSON('/api/profile/password', operationSuccessResponseSchema, {
     method: 'POST',
     ...jsonBody(body),
   });
-  return fetchProfile();
 }
 
 export async function changeEmail(input: {

@@ -43,8 +43,6 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '');
   const [currentPasswordForPassword, setCurrentPasswordForPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [newEmail, setNewEmail] = useState(profile?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -94,22 +92,15 @@ export default function ProfilePage() {
 
   async function savePassword(event: React.FormEvent) {
     event.preventDefault();
-    if (newPassword !== confirmPassword) {
-      setError('Las contraseñas nuevas no coinciden');
-      return;
-    }
     begin('password');
     try {
       await changePassword({
         currentPassword: currentPasswordForPassword,
-        newPassword,
       });
       setCurrentPasswordForPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      await finishProfileChange('Contraseña actualizada y sesión renovada.');
+      setStatus('Si el correo está disponible, recibirás un enlace para cambiar tu contraseña. La contraseña actual sigue vigente hasta completar el proceso.');
     } catch (caught) {
-      setError(readableError(caught, 'No se pudo actualizar la contraseña'));
+      setError(readableError(caught, 'No se pudo solicitar el cambio de contraseña'));
     } finally {
       setBusy(null);
     }
@@ -313,6 +304,7 @@ export default function ProfilePage() {
 
           <form onSubmit={savePassword} className="rounded-2xl bg-surface-alt p-4" noValidate>
             <h3 className="font-heading text-base">Cambiar contraseña</h3>
+            <p className="mt-1 text-xs leading-relaxed text-text-secondary">Confirma tu contraseña actual y recibirás un enlace en tu correo para elegir una nueva.</p>
             <div className="mt-3 space-y-3">
               <Field label="Contraseña actual" htmlFor="current-password-for-password">
                 <PasswordInput
@@ -324,32 +316,13 @@ export default function ProfilePage() {
                   required
                 />
               </Field>
-              <Field label="Nueva contraseña" hint="Mínimo 8 caracteres" htmlFor="new-password">
-                <PasswordInput
-                  id="new-password"
-                  name="newPassword"
-                  autoComplete="new-password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  required
-                  minLength={8}
-                />
-              </Field>
-              <Field label="Repite la nueva contraseña" htmlFor="confirm-password">
-                <PasswordInput
-                  id="confirm-password"
-                  name="confirmPassword"
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  required
-                  minLength={8}
-                />
-              </Field>
             </div>
-            <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'password'} disabled={!online}>
-              Cambiar contraseña
+            <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'password'} disabled={!online || busy !== null || !currentPasswordForPassword}>
+              Solicitar cambio por correo
             </Button>
+            <p className="mt-3 text-xs text-text-secondary">¿No tienes contraseña porque entras con Google?{' '}
+              <Link href="/forgot-password" className="font-semibold text-primary underline">Solicita un enlace de recuperación</Link>.
+            </p>
           </form>
 
           <form onSubmit={saveEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>

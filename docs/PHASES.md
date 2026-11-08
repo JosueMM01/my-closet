@@ -20,7 +20,7 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 5A — Invitaciones y cupo ADMIN | Lista funcionalmente; aceptación del propietario y protección transaccional del cupo de dos ADMIN, incluidas reservas vigentes | Publicar el endurecimiento adicional: los siete días de vigencia ya se calculan en servidor en la rama actual, sin confiar en la fecha del cliente |
 | 5B — Seguridad e identidad | Lista en su alcance funcional, aceptado por el propietario: cambio de correo verificado y Turnstile operativos en producción | Las comprobaciones adicionales de permisos, política de imágenes y ensayo de reutilización real se siguen en 6, sin afirmar que ya se ejecutaron |
 | 5C — Baja de cuentas | Implementación local en proceso: API, modal, reautenticación, transacción y cola de limpieza; desactivada en producción | Validar PostgreSQL y concurrencia, Google real y UX; cubrir firmas de subida pendientes y assets huérfanos; completar registro de bajas independiente del respaldo, restauración y operación del worker antes de habilitar |
-| 6 — Experiencia y documentación | En proceso; estilos de avisos de correo y recuperación implementados y probados localmente; capturas reales preparadas en README; documentación pública curada | Revisar y publicar estas mejoras; simplificar el perfil y confirmar el cambio de contraseña por correo; completar matriz de permisos y revocación, claridad de la entrega pública de imágenes y ensayo adicional de reutilización de Turnstile; Web Push se evalúa aparte |
+| 6 — Experiencia y documentación | En proceso; estilos de correo, capturas y documentación integrados en develop; cambio de contraseña por enlace y entrega SMTP probados en Preview aislado, pendientes de integración | Validar el acceso con Google y la experiencia en develop; completar matriz de permisos y revocación, claridad de la entrega pública de imágenes y ensayo adicional de reutilización de Turnstile; Web Push se evalúa aparte |
 | 7 — Avatar experimental | Opcional; pendiente | Prototipo local medido y decisión de viabilidad |
 | 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas | Validación física en iPhone y mediciones de tiempo, memoria y calidad |
 
@@ -165,6 +165,15 @@ esta preparación. Tampoco se promete borrado inmediato de respaldos, cachés CD
 ni de dispositivos offline; el origen actual se limpia tras recargar, antes del sync.
 
 ## Orden de entrega
+
+El cambio de contraseña por correo se validó en Preview con entrega real,
+uso único y caducidad comprobados por el propietario. Turnstile completó una
+solicitud sintética en Brave; repetir su token real sigue pendiente. La respuesta
+pública de recuperación es genérica y está limitada, pero sus tiempos pueden
+revelar si existe una cuenta porque el envío SMTP es síncrono. Antes de publicar
+el cambio en producción se debe desacoplar la entrega mediante una cola durable
+o documentar una aceptación específica del riesgo por el propietario; un CI
+aprobado no demuestra que ese canal temporal esté mitigado.
 
 1. Confirmar un respaldo recuperable y verificar el endpoint de producción.
 2. Ensayar las migraciones en una copia aislada antes de aplicarlas. Los pasos

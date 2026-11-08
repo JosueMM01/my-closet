@@ -177,6 +177,9 @@ export const passwordResetTokenSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{43}$/, 'El enlace de recuperación no es válido');
 
+export const passwordResetInspectionSchema = z.object({ token: passwordResetTokenSchema }).strict();
+export const passwordResetInspectionResponseSchema = z.object({ valid: z.boolean() }).strict();
+
 export const resetPasswordSchema = z.object({
   token: passwordResetTokenSchema,
   newPassword: accountPasswordSchema,
@@ -254,8 +257,7 @@ export const profileUpdateSchema = z
 
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
-  newPassword: accountPasswordSchema,
-});
+}).strict();
 
 export const emailChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
