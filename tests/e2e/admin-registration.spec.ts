@@ -120,6 +120,9 @@ test.describe('Administración', () => {
     await expect(invitedPage.getByLabel('Correo electrónico')).toHaveCount(0);
     await invitedPage.getByLabel('Contraseña', { exact: true }).fill('contrasena-invitada');
     await invitedPage.getByRole('button', { name: 'Crear cuenta' }).click();
+    await expect(invitedPage.locator('form').getByRole('alert')).toHaveText('Las contraseñas no coinciden');
+    await invitedPage.getByLabel('Confirmar contraseña', { exact: true }).fill('contrasena-invitada');
+    await invitedPage.getByRole('button', { name: 'Crear cuenta' }).click();
     await expect(invitedPage.getByTestId('home-greeting')).toContainText('Hola, Persona');
     await invitedContext.close();
   });

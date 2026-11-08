@@ -24,6 +24,15 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 7 — Avatar experimental | Opcional; pendiente | Prototipo local medido y decisión de viabilidad |
 | 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas; corrección de encuadre completo implementada localmente, pendiente de publicación | Validación física del encuadre/lente en teléfonos, incluido iPhone, y mediciones de tiempo, memoria y calidad |
 
+La simplificación de acceso Google está implementada localmente en
+`feat/google-access-simplification`, separada de la reorganización del perfil.
+Permite asociar cuentas existentes por correo exacto cuando Google acredita el
+buzón, conserva la invitación con destinatario fijo y retira la desvinculación
+desde la app. El registro invitado pide confirmar la contraseña, sin OTP extra;
+el enlace sigue siendo bearer si se reenvía. Antes de publicar faltan validación
+real de Google y concurrencia PostgreSQL; no se considera desplegada ni cierra
+por sí sola 5C o 6. El envío durable de recuperación sigue pendiente y separado.
+
 ### Seguimiento de 4A y 4B
 
 La continuidad programada de 4A ya no es una validación pendiente: las siete

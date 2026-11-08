@@ -12,7 +12,7 @@ describe('Errores públicos de Google', () => {
   });
   it('explica vinculación/activación, sin afirmar que un correo no existe', () => {
     const message = googleFailureMessage('account-unavailable');
-    expect(message).toContain('cuenta activa vinculada');
+    expect(message).toContain('Continuar con Google');
     expect(message).toContain('contraseña');
     expect(message).not.toContain('correo no existe');
   });

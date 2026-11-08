@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  apiErrorResponseSchema,
   googleLinkStatusResponseSchema,
   googlePictureAvailabilitySchema,
-  operationSuccessResponseSchema,
 } from '@/lib/domain/validation';
 import { fetchAuthProviders } from '@/lib/auth/client';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
@@ -123,38 +121,15 @@ export function ProfileGoogle({
       .finally(() => setLoaded(true));
   }, [importGooglePicture, profileImageId]);
 
-  async function unlink() {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/profile/google', {
-        method: 'DELETE',
-        headers: { 'x-requested-with': 'my-closet' },
-      });
-      if (!response.ok) {
-        const error = apiErrorResponseSchema.safeParse(await response.json().catch(() => null));
-        throw new Error(error.success ? error.data.error : 'No se pudo desvincular Google');
-      }
-      operationSuccessResponseSchema.parse(await response.json());
-      setLinkedEmail(null);
-      setPictureAvailable(false);
-      setMessage('Google Sign-In desvinculado.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo desvincular Google');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!loaded || !enabled) return null;
 
   return (
     <section className="card-surface p-5 sm:p-6" aria-labelledby="google-sign-in-title">
-      <h2 id="google-sign-in-title" className="font-heading text-lg">Google Sign-In</h2>
+      <h2 id="google-sign-in-title" className="font-heading text-lg">Acceso con Google</h2>
       <p className="mt-1 text-sm text-text-secondary">
         {linkedEmail
-          ? `Vinculado con ${linkedEmail}. Tu foto personalizada siempre tiene prioridad.`
-          : 'Vincula la cuenta de Google que usa exactamente el mismo correo de tu perfil.'}
+          ? `Puedes iniciar sesión con ${linkedEmail}. Tu foto personalizada siempre tiene prioridad.`
+          : 'Puedes continuar con Google usando el mismo correo de tu cuenta. Si Google no acredita ese buzón, debes iniciar sesión primero con tu método actual.'}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         {linkedEmail ? (
@@ -179,15 +154,6 @@ export function ProfileGoogle({
                 Volver a importar foto
               </a>
             )}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={unlink}
-              loading={busy}
-              disabled={!online}
-            >
-              Desvincular Google
-            </Button>
           </>
         ) : (
           <a
@@ -197,7 +163,7 @@ export function ProfileGoogle({
               online ? 'text-text-primary hover:bg-surface-alt' : 'pointer-events-none opacity-50'
             }`}
           >
-            Vincular Google
+            Continuar con Google
           </a>
         )}
       </div>
