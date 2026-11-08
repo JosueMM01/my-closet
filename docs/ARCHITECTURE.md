@@ -68,6 +68,12 @@ El navegador realiza todo el procesamiento de imágenes. Los workers preservan
 la foto original y permiten recuperación ante fallos. Los modelos se cargan
 bajo demanda; la cámara y la galería comparten el flujo de captura.
 
+La corrección local de cámara muestra la escena completa con `contain` y separa
+el visor de la cabecera y los controles. La captura conserva el cuadro completo
+del sensor, sin guardar los márgenes del visor; solo reduce su lado mayor a
+1080 píxeles y no aumenta resolución. No fuerza zoom ni una lente específica
+del dispositivo. Las pruebas simuladas no sustituyen la validación física.
+
 LocalImageStorage cubre pruebas aisladas. Cloudinary recibe las subidas directas
 del navegador en los entornos autorizados; Preview tiene un prefijo separado
 para imágenes nuevas. La entrega actual de Cloudinary es pública, incluidas

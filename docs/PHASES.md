@@ -22,7 +22,7 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 5C — Baja de cuentas | Implementación local en proceso: API, modal, reautenticación, transacción y cola de limpieza; desactivada en producción | Validar PostgreSQL y concurrencia, Google real y UX; cubrir firmas de subida pendientes y assets huérfanos; completar registro de bajas independiente del respaldo, restauración y operación del worker antes de habilitar |
 | 6 — Experiencia y documentación | En proceso; estilos de correo, capturas y documentación integrados en develop; cambio de contraseña por enlace y entrega SMTP probados en Preview aislado, pendientes de integración | Validar el acceso con Google y la experiencia en develop; completar matriz de permisos y revocación, claridad de la entrega pública de imágenes y ensayo adicional de reutilización de Turnstile; Web Push se evalúa aparte |
 | 7 — Avatar experimental | Opcional; pendiente | Prototipo local medido y decisión de viabilidad |
-| 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas | Validación física en iPhone y mediciones de tiempo, memoria y calidad |
+| 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas; corrección de encuadre completo implementada localmente, pendiente de publicación | Validación física del encuadre/lente en teléfonos, incluido iPhone, y mediciones de tiempo, memoria y calidad |
 
 ### Seguimiento de 4A y 4B
 
