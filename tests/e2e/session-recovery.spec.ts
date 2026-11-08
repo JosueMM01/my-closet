@@ -16,7 +16,7 @@ async function seedLocalOwner(page: Page) {
   await expect(page.getByRole('main').getByRole('alert')).toContainText('Cancelaste');
   // Esperar el write real de IndexedDB: la alerta de OAuth por sí sola no lo garantiza.
   await page.goto('/profile');
-  await expect(page.getByRole('textbox', { name: 'Nombre' })).toHaveValue(profile.displayName);
+  await expect(page.getByRole('heading', { name: profile.displayName })).toBeVisible();
 }
 
 test('recuperación no redirige por perfil local y contraseña vuelve a la misma cuenta', async ({ page }) => {
@@ -51,14 +51,14 @@ test('retorno OAuth de otra cuenta revoca sesión y no reemplaza IndexedDB', asy
   expect(revoked).toBe(true);
   await expect(page).toHaveURL(/\/login\?reauth=1/);
   await page.goto('/profile');
-  await expect(page.getByRole('textbox', { name: 'Nombre' })).toHaveValue(profile.displayName);
+  await expect(page.getByRole('heading', { name: profile.displayName })).toBeVisible();
 });
 
 test('retorno OAuth de la misma cuenta completa recuperación', async ({ page }) => {
   await seedLocalOwner(page);
   await page.goto('/login?reauth=1&next=/profile');
   await expect(page).toHaveURL(/\/profile$/);
-  await expect(page.getByRole('textbox', { name: 'Nombre' })).toHaveValue(profile.displayName);
+  await expect(page.getByRole('heading', { name: profile.displayName })).toBeVisible();
 });
 
 test('invitación abierta en otra pestaña exige cambio explícito sin perder el token', async ({ page }) => {
