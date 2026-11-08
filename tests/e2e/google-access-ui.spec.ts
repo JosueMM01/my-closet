@@ -13,6 +13,7 @@ for (const linked of [false, true]) {
     await page.route('**/api/profile/google/picture?mode=availability', (route) => route.fulfill({ json: { available: false } }));
     await page.goto('/profile');
     await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Seguridad', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Acceso con Google', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Desvincular Google' })).toHaveCount(0);
     if (linked) {
