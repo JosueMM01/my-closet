@@ -51,6 +51,7 @@ test.describe('Perfil', () => {
     await page.goto('/profile');
     await waitForHydration(page);
 
+    await page.locator('summary').filter({ hasText: 'Cambiar contraseña' }).click();
     const passwordForm = page.locator('form').filter({ hasText: 'Cambiar contraseña' });
     await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
     await passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' }).click();
@@ -73,6 +74,14 @@ test.describe('Perfil', () => {
     await page.goto('/profile');
     await waitForHydration(page);
 
+    await expect(page.getByLabel('Nombre', { exact: true })).not.toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Ya tengo un código de verificación' }).click();
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Ocultar', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toHaveCount(0);
+    await page.locator('summary').filter({ hasText: 'Nombre visible' }).click();
+    await page.locator('summary').filter({ hasText: 'Cambiar correo' }).click();
     await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Perfil Inicial');
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(/@test\.local$/);
     const originalEmail = await page.getByLabel('Correo nuevo').inputValue();
@@ -82,6 +91,7 @@ test.describe('Perfil', () => {
     await nameForm.getByRole('button', { name: 'Guardar nombre' }).click();
     await expect(page.getByText('Nombre actualizado.')).toBeVisible();
 
+    await page.locator('summary').filter({ hasText: 'Cambiar contraseña' }).click();
     const passwordForm = page.locator('form').filter({ hasText: 'Cambiar contraseña' });
     await expect(passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' })).toBeDisabled();
     await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
@@ -109,6 +119,7 @@ test.describe('Perfil', () => {
     await page.goto('/profile');
     await waitForHydration(page);
 
+    await page.locator('summary').filter({ hasText: 'Cambiar correo' }).click();
     const email = `perfil.nuevo.${Date.now()}@test.local`;
     const emailForm = page.locator('form').filter({ hasText: 'Cambiar correo' });
     await emailForm.getByLabel('Correo nuevo').fill(email);

@@ -46,10 +46,12 @@ export default function ProfilePage() {
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [newEmail, setNewEmail] = useState(profile?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [showVerification, setShowVerification] = useState(false);
   const [emailCode, setEmailCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [noticeAction, setNoticeAction] = useState<string | null>(null);
   const [photoStage, setPhotoStage] = useState<string | null>(null);
 
   const counts = useLiveQuery(async () => {
@@ -68,8 +70,17 @@ export default function ProfilePage() {
 
   function begin(action: string) {
     setBusy(action);
+    setNoticeAction(action);
     setError(null);
     setStatus(null);
+  }
+
+  function feedback(action: string) {
+    if (noticeAction !== action) return null;
+    return <div className="mt-3" aria-live="polite">
+      {error ? <p role="alert" className="text-sm font-medium text-danger">{error}</p> : null}
+      {status ? <p className="text-sm font-medium text-success">{status}</p> : null}
+    </div>;
   }
 
   async function finishProfileChange(message: string) {
@@ -116,6 +127,7 @@ export default function ProfilePage() {
       });
       setCurrentPasswordForEmail('');
       setPendingEmail(requested.email);
+      setShowVerification(true);
       setEmailCode('');
       setStatus(`Código enviado a ${requested.email}. Tu correo actual no ha cambiado.`);
     } catch (caught) {
@@ -132,6 +144,7 @@ export default function ProfilePage() {
       const updated = await confirmEmailChange(emailCode);
       setNewEmail(updated.email);
       setPendingEmail(null);
+      setShowVerification(false);
       setEmailCode('');
       await finishProfileChange('Correo verificado y actualizado. Las otras sesiones se cerraron.');
     } catch (caught) {
@@ -244,6 +257,7 @@ export default function ProfilePage() {
               Se redimensiona y convierte a WebP en tu navegador, sin eliminar el fondo.
             </p>
             {photoStage ? <p className="mt-2 text-sm text-primary" role="status">{photoStage}</p> : null}
+            {feedback('photo')}
           </div>
         </div>
       </section>
@@ -265,6 +279,7 @@ export default function ProfilePage() {
               setBusy(null);
             }
           }}>Iniciar sesión de nuevo</Button>
+          {feedback('reauth')}
         </section>
       ) : null}
 
@@ -283,8 +298,9 @@ export default function ProfilePage() {
           </span>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <form onSubmit={saveName} className="rounded-2xl bg-surface-alt p-4" noValidate>
+        <div className="mt-5 space-y-3">
+          <ProfileDisclosure title="Nombre visible" description="Actualiza cómo te ven las demás personas.">
+          <form onSubmit={saveName} className="px-4 pb-4" noValidate>
             <h3 className="font-heading text-base">Nombre visible</h3>
             <div className="mt-3">
               <Field label="Nombre">
@@ -300,9 +316,12 @@ export default function ProfilePage() {
             <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'name'} disabled={!online}>
               Guardar nombre
             </Button>
+            {feedback('name')}
           </form>
+          </ProfileDisclosure>
 
-          <form onSubmit={savePassword} className="rounded-2xl bg-surface-alt p-4" noValidate>
+          <ProfileDisclosure title="Cambiar contraseña" description="Solicita un enlace seguro por correo.">
+          <form onSubmit={savePassword} className="px-4 pb-4" noValidate>
             <h3 className="font-heading text-base">Cambiar contraseña</h3>
             <p className="mt-1 text-xs leading-relaxed text-text-secondary">Confirma tu contraseña actual y recibirás un enlace en tu correo para elegir una nueva.</p>
             <div className="mt-3 space-y-3">
@@ -323,9 +342,12 @@ export default function ProfilePage() {
             <p className="mt-3 text-xs text-text-secondary">¿No tienes contraseña porque entras con Google?{' '}
               <Link href="/forgot-password" className="font-semibold text-primary underline">Solicita un enlace de recuperación</Link>.
             </p>
+            {feedback('password')}
           </form>
+          </ProfileDisclosure>
 
-          <form onSubmit={saveEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>
+          <ProfileDisclosure title="Cambiar correo" description="Verifica tu nueva dirección antes de cambiarla.">
+          <form onSubmit={saveEmail} className="px-4 pb-4" noValidate>
             <h3 className="font-heading text-base">Cambiar correo</h3>
             <p className="mt-1 text-xs leading-relaxed text-text-secondary">
               Confirma tu contraseña y después copia el código que enviaremos al nuevo buzón. Tu correo actual se conserva hasta verificarlo.
@@ -355,9 +377,19 @@ export default function ProfilePage() {
             <Button className="mt-3 w-full sm:w-auto" type="submit" loading={busy === 'email'} disabled={!online || busy !== null}>
               Enviar código de verificación
             </Button>
+            {feedback('email')}
           </form>
-          <form onSubmit={confirmNewEmail} className="rounded-2xl bg-surface-alt p-4 lg:col-span-2" noValidate>
-            <h3 className="font-heading text-base">Verificar nuevo correo</h3>
+          </ProfileDisclosure>
+          {!showVerification ? (
+            <button type="button" onClick={() => setShowVerification(true)} className="min-h-11 px-2 text-left text-sm font-semibold text-primary underline underline-offset-4">
+              Ya tengo un código de verificación
+            </button>
+          ) : null}
+          {showVerification ? <form onSubmit={confirmNewEmail} className="rounded-2xl bg-surface-alt p-4" noValidate>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-heading text-base">Verificar nuevo correo</h3>
+              <button type="button" onClick={() => setShowVerification(false)} className="min-h-11 text-sm font-semibold text-primary underline underline-offset-4">Ocultar</button>
+            </div>
             <p className="mt-1 text-sm text-text-secondary">
               {pendingEmail ? `Escribe el código de 6 dígitos enviado a ${pendingEmail}.` : 'Si ya solicitaste el cambio, escribe el código de 6 dígitos recibido en el nuevo buzón.'}
               {' '}Vence en 10 minutos; solo el último código es válido y tras 5 intentos fallidos debes pedir otro.
@@ -368,13 +400,10 @@ export default function ProfilePage() {
             <Button className="mt-3" type="submit" loading={busy === 'email-confirm'} disabled={!online || busy !== null || !/^\d{6}$/.test(emailCode)}>
               Confirmar nuevo correo
             </Button>
-          </form>
+          </form> : null}
         </div>
 
-        <div className="mt-4 min-h-5" aria-live="polite">
-          {error ? <p role="alert" className="text-sm font-medium text-danger">{error}</p> : null}
-          {status ? <p className="text-sm font-medium text-success">{status}</p> : null}
-        </div>
+        {feedback('email-confirm')}
       </section>
 
       <ProfileGoogle
@@ -425,6 +454,18 @@ export default function ProfilePage() {
         Los datos de este dispositivo se conservan al cerrar sesión; la caché administrativa se elimina.
       </p>
     </div>
+  );
+}
+
+function ProfileDisclosure({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-2xl bg-surface-alt">
+      <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
+        <span><span className="block text-sm font-semibold text-text-primary">{title}</span><span className="mt-0.5 block text-xs text-text-secondary">{description}</span></span>
+        <span aria-hidden="true" className="text-xl text-primary transition-transform group-open:rotate-45">+</span>
+      </summary>
+      {children}
+    </details>
   );
 }
 
