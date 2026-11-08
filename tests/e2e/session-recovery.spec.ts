@@ -85,6 +85,7 @@ test('invitación abierta en otra pestaña exige cambio explícito sin perder el
   }));
   await page.getByRole('textbox', { name: 'Nombre', exact: true }).fill('Persona invitada');
   await page.getByLabel('Contraseña', { exact: true }).fill('synthetic-password');
+  await page.getByLabel('Confirmar contraseña', { exact: true }).fill('synthetic-password');
   const registrationRequest = page.waitForRequest(request =>
     request.url().endsWith('/api/auth/register') && request.method() === 'POST');
   await page.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
