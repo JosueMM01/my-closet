@@ -14,6 +14,16 @@ export function ensureAccountDeletionSqlite(raw: Database.Database): void {
       next_attempt_at TEXT NOT NULL, created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS image_deletion_jobs_due_idx ON image_deletion_jobs(state, next_attempt_at);
+    CREATE TABLE IF NOT EXISTS cloudinary_upload_authorizations (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL, image_id TEXT NOT NULL, public_id TEXT NOT NULL UNIQUE,
+      folder TEXT NOT NULL, signed_at INTEGER NOT NULL, expires_at TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'AUTHORIZED', next_check_at TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS cloudinary_upload_due_idx ON cloudinary_upload_authorizations(state, next_check_at);
+    CREATE TRIGGER IF NOT EXISTS revoke_cloudinary_uploads_on_disable
+      AFTER UPDATE OF status ON users WHEN OLD.status='ACTIVE' AND NEW.status='DISABLED'
+      BEGIN UPDATE cloudinary_upload_authorizations SET state='REVOKED'
+        WHERE user_id=NEW.id AND state IN ('AUTHORIZED','FINALIZED'); END;
   `);
   // Only fixed, code-owned table/column names are interpolated into DDL.
   for (const [table, owner] of [

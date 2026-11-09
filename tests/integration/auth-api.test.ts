@@ -7,7 +7,7 @@ import {
 } from '@/lib/domain/validation';
 import { closeServerDB, getServerDB, sqliteSchema } from '@/server/db';
 import { parseServerEnv } from '@/server/env';
-import { verifyPassword } from '@/server/auth/password';
+import { hashPassword, verifyPassword } from '@/server/auth/password';
 import { resetRateLimits } from '@/server/auth/rate-limit';
 import {
   readCapturedMessagesForTests,
@@ -51,7 +51,7 @@ import { POST as confirmEmail } from '@/app/api/profile/email/confirm/route';
 import { consumeEmailChangeToken, EMAIL_CHANGE_MAX_ATTEMPTS, hashEmailChangeCode } from '@/server/repositories/email-change-repository';
 import { requestEmailChange } from '@/server/services/email-change-service';
 import * as passwordRecoveryService from '@/server/services/password-recovery-service';
-import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
+import { createUser, findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
 import { POST as changePassword } from '@/app/api/profile/password/route';
 
 const BOOTSTRAP_EMAIL = 'api-bootstrap@example.test';
@@ -355,6 +355,39 @@ describe('API de cuentas y perfil', () => {
     expect(nextLogin.status).toBe(200);
   });
 
+  it('mantiene login y verificación de contraseña actual heredada, y no consume reset ante clave débil', async () => {
+    const legacyPassword = '12345678';
+    const user = await createUser({
+      email: 'legacy-password@example.test',
+      displayName: 'Cuenta antigua',
+      passwordHash: await hashPassword(legacyPassword),
+    });
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: user.email, password: legacyPassword,
+    }))).status).toBe(200);
+
+    const requested = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: legacyPassword,
+    }));
+    expect(requested.status).toBe(200);
+    const token = capturedResetToken();
+    const weak = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token, newPassword: 'passwordpassword',
+    }));
+    expect(weak.status).toBe(400);
+    expect((await weak.json()).error).toContain('demasiado común');
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token }))).json())
+      .toEqual({ valid: true });
+
+    const strong = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token, newPassword: 'un bosque guarda silencio al amanecer',
+    }));
+    expect(strong.status).toBe(200);
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: user.email, password: 'un bosque guarda silencio al amanecer',
+    }))).status).toBe(200);
+  });
+
   it('no expone el código, no permite otra cuenta y reemplaza solicitudes anteriores', async () => {
     const owner = await registerUser('pending-owner@example.test', 'Titular');
     const first = await changeEmail(jsonRequest('/api/profile/email', {
@@ -405,6 +438,79 @@ describe('API de cuentas y perfil', () => {
     await updatePasswordHash(profile.userId, 'scrypt:changed-after-request');
     expect(await consumeEmailChangeToken(profile.userId, token)).toBeNull();
     expect((await findUserById(profile.userId))?.email).toBe(profile.email);
+  });
+
+  it.each(['ACTIVE', 'DISABLED'] as const)('rechaza un correo ocupado por una cuenta %s sin enviar ni reemplazar la solicitud pendiente', async (status) => {
+    const owner = await registerUser('duplicate-owner@example.test', 'Titular');
+    const ownerCookies = new Map(cookieState);
+    expect((await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: 'pending-free@example.test',
+    }))).status).toBe(200);
+    const other = await registerUser('occupied@example.test', 'Otra cuenta');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
+    const { eq } = await import('drizzle-orm');
+    db.sqlite.update(sqliteSchema.users).set({ status }).where(eq(sqliteSchema.users.id, other.userId)).run();
+    cookieState.clear();
+    for (const [key, value] of ownerCookies) cookieState.set(key, value);
+    const previousTokens = db.sqlite.select().from(sqliteSchema.emailChangeTokens).all();
+    const previousMessages = [...readCapturedMessagesForTests()];
+
+    const response = await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: ' OCCUPIED@Example.Test ',
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect((await findUserById(owner.userId))?.email).toBe(owner.email);
+    expect((await findUserById(other.userId))?.email).toBe(other.email);
+    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all()).toEqual(previousTokens);
+    expect(readCapturedMessagesForTests()).toEqual(previousMessages);
+    expect(sessionResponseSchema.parse(await (await session()).json())).toMatchObject({
+      authenticated: true, profile: { userId: owner.userId },
+    });
+  });
+
+  it('devuelve 409 en la API si el destino se ocupa antes de confirmar y conserva la sesión y el código', async () => {
+    const owner = await registerUser('late-owner@example.test', 'Titular');
+    const ownerCookies = new Map(cookieState);
+    expect((await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: 'late-target@example.test',
+    }))).status).toBe(200);
+    const code = capturedEmailToken();
+    const other = await registerUser('late-target@example.test', 'Otra cuenta');
+    cookieState.clear();
+    for (const [key, value] of ownerCookies) cookieState.set(key, value);
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
+    const previousTokens = db.sqlite.select().from(sqliteSchema.emailChangeTokens).all();
+    const previousMessages = [...readCapturedMessagesForTests()];
+
+    const response = await confirmEmail(jsonRequest('/api/profile/email/confirm', { code }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect((await findUserById(owner.userId))?.email).toBe(owner.email);
+    expect((await findUserById(other.userId))?.email).toBe(other.email);
+    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all()).toEqual(previousTokens);
+    expect(readCapturedMessagesForTests()).toEqual(previousMessages);
+    expect(sessionResponseSchema.parse(await (await session()).json())).toMatchObject({
+      authenticated: true, profile: { userId: owner.userId },
+    });
+  });
+
+  it('rechaza registrar dos veces el mismo correo normalizado sin sustituir la cuenta existente', async () => {
+    const owner = await registerUser('registered@example.test', 'Titular');
+    const previousCookies = new Map(cookieState);
+    const response = await register(jsonRequest('/api/auth/register', {
+      email: ' REGISTERED@Example.Test ', displayName: 'Otra identidad', password: 'otra-contrasena',
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect(await findUserByEmail(owner.email)).toMatchObject({ id: owner.userId, displayName: 'Titular' });
+    expect(cookieState).toEqual(previousCookies);
+    const stored = await findUserById(owner.userId);
+    expect(stored && await verifyPassword('contrasena-segura', stored.passwordHash)).toBe(true);
   });
 
   it('resuelve conflictos de destino al confirmar sin consumir ni revocar sesiones', async () => {

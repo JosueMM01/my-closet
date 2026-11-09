@@ -41,6 +41,49 @@ test.describe('Registro por invitación', () => {
 test.describe('Administración', () => {
   test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La fixture admin usa SQLite E2E local.');
 
+  test('elimina una cuenta solo tras desactivarla y confirmar con contraseña ADMIN', async ({ page, context }) => {
+    test.skip(process.env.ADMIN_ACCOUNT_DELETION_ENABLED !== 'true' || process.env.ACCOUNT_DELETION_ENABLED !== 'true', 'Requiere banderas exclusivas de la prueba local');
+    const adminEmail = await registerAndLogin(page, 'Admin Baja');
+    grantAdminAccess(adminEmail);
+    const targetEmail = uniqueEmail('baja-administrativa');
+    createUserFixture(targetEmail, 'Cuenta desechable');
+    await page.goto('/profile');
+    await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Administración', exact: true }).click();
+    await page.getByLabel('Buscar cuenta').fill(targetEmail);
+    const row = page.getByTestId('admin-panel').getByRole('listitem').filter({ hasText: targetEmail });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('button', { name: 'Eliminar cuenta', exact: true })).toHaveCount(0);
+    await row.getByRole('button', { name: 'Desactivar', exact: true }).click();
+    const remove = row.getByRole('button', { name: 'Eliminar cuenta', exact: true });
+    await remove.click();
+    const modal = page.getByRole('dialog', { name: 'Eliminar cuenta desactivada' });
+    await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(modal).toHaveCount(0);
+    await expect(remove).toBeFocused();
+    await remove.click();
+    const confirm = modal.getByRole('button', { name: 'Confirmar eliminación' });
+    await expect(confirm).toBeDisabled();
+    await modal.getByLabel('Tu contraseña de administrador').fill('incorrecta');
+    await modal.getByRole('checkbox').check();
+    await context.setOffline(true);
+    await expect(confirm).toBeDisabled();
+    await context.setOffline(false);
+    await confirm.click();
+    await expect(modal.getByRole('alert')).toHaveText('Tu contraseña de administrador es incorrecta');
+    await modal.getByLabel('Tu contraseña de administrador').fill('contrasena-segura');
+    await page.route('**/api/admin/users', route => route.fulfill({ status: 503, json: { error: 'Fallo de refresco sintético' } }));
+    await confirm.click();
+    await expect(modal).toHaveCount(0);
+    await expect(page.getByText('Cuenta eliminada de los datos activos. Las copias de respaldo siguen su retención.')).toBeVisible();
+    await expect(page.getByText('La baja fue confirmada, pero falta actualizar la lista. Pulsa Actualizar datos; no repitas la eliminación.')).toBeVisible();
+    await page.unroute('**/api/admin/users');
+    await page.getByRole('button', { name: 'Actualizar datos' }).click();
+    await expect(row).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Actualizar datos' })).toBeEnabled();
+  });
+
   test('permite buscar cuentas y cambiar la paginación', async ({ page }) => {
     const adminEmail = await registerAndLogin(page, 'Admin Páginas');
     grantAdminAccess(adminEmail);

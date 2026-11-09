@@ -55,6 +55,7 @@ export const serverEnvSchema = z
     GOOGLE_AUTH_ENABLED: explicitBoolean,
     PUBLIC_REGISTRATION_ENABLED: explicitBoolean,
     ACCOUNT_DELETION_ENABLED: explicitBoolean,
+    ADMIN_ACCOUNT_DELETION_ENABLED: explicitBoolean,
     ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: explicitBoolean,
     ACCOUNT_DELETION_WORKER_SECRET: optionalHeaderSafeString,
     GOOGLE_CLIENT_ID: optionalEnvString,

@@ -315,3 +315,24 @@ export const images = pgTable(
     check('images_storage_provider_check', sql`${table.storageProvider} IN ('local', 'cloudinary')`),
   ],
 );
+
+/** Cloudinary signature inventory, retained as a tombstone after account removal. */
+export const cloudinaryUploadAuthorizations = pgTable(
+  'cloudinary_upload_authorizations',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    imageId: text('image_id').notNull(),
+    publicId: text('public_id').notNull().unique(),
+    folder: text('folder').notNull(),
+    signedAt: integer('signed_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    state: text('state', { enum: ['AUTHORIZED', 'FINALIZED', 'REVOKED', 'RECONCILE'] })
+      .notNull()
+      .default('AUTHORIZED'),
+    nextCheckAt: text('next_check_at').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [index('cloudinary_upload_due_idx').on(table.state, table.nextCheckAt)],
+);

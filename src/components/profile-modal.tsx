@@ -12,7 +12,11 @@ export function ProfileModal({ open, onClose, title, children }: {
   const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
-    if (open && dialog && !dialog.open) dialog.showModal();
+    if (open && dialog && !dialog.open) {
+      dialog.showModal();
+      // React autoFocus may run before a newly mounted dialog is visible.
+      dialog.querySelector<HTMLElement>('[data-modal-initial-focus]')?.focus();
+    }
     return () => { if (dialog?.open) dialog.close(); };
   }, [open]);
   if (!open) return null;

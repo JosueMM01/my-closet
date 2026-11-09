@@ -5,7 +5,7 @@ import { createServerDB, type SqliteServerDB } from '@/server/db';
 import { parseServerEnv } from '@/server/env';
 import { credentialFingerprint } from '@/server/repositories/email-change-repository';
 import {
-  claimImageDeletionJob, deleteOwnAccount, deletionDigest, finishImageDeletionJob,
+  claimImageDeletionJob, deleteOwnAccount, deleteDisabledAccountForAdmin, deletionDigest, finishImageDeletionJob,
   saveDeletionProof, validDeletionProof,
 } from '@/server/repositories/account-deletion-repository';
 
@@ -43,7 +43,77 @@ beforeEach(async () => {
 });
 afterEach(() => database.raw.close());
 
+describe('baja administrativa de cuentas desactivadas', () => {
+  function input(actor: ReturnType<typeof user>, target: ReturnType<typeof user>) {
+    return { actorId: actor.userId, userId: target.userId, sessionId: actor.sessionId, credentialHash: actor.credentialHash };
+  }
+  it('exige desactivar primero y no modifica una cuenta activa', async () => {
+    const actor = user('ADMIN', 1); const target = user();
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 409 });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM account_deletions').get()).toEqual({ n: 0 });
+  });
+  it('elimina la cuenta desactivada, conserva la sesión ADMIN y no duplica efectos al repetir', async () => {
+    const actor = user('ADMIN', 1); const target = user();
+    const photo = image(target.userId); garment(target.userId, photo);
+    database.raw.prepare("UPDATE users SET status='DISABLED' WHERE id=?").run(target.userId);
+    expect(await deleteDisabledAccountForAdmin(input(actor, target), database)).toEqual({ ok: true, cleanupPending: true });
+    expect(database.raw.prepare('SELECT id FROM sessions WHERE user_id=?').all(actor.userId)).toEqual([{ id: actor.sessionId }]);
+    expect(database.raw.prepare('SELECT count(*) AS n FROM sessions WHERE user_id=?').get(target.userId)).toEqual({ n: 0 });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM garments').get()).toEqual({ n: 0 });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM image_deletion_jobs').get()).toEqual({ n: 1 });
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 409 });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM account_deletions').get()).toEqual({ n: 1 });
+  });
+  it('rechaza la baja propia desde administración y protege al último ADMIN', async () => {
+    const actor = user('ADMIN', 1);
+    await expect(deleteDisabledAccountForAdmin(input(actor, actor), database)).rejects.toMatchObject({ status: 409 });
+    expect(database.raw.prepare("SELECT count(*) AS n FROM users WHERE role='ADMIN' AND status='ACTIVE'").get()).toEqual({ n: 1 });
+  });
+  it('no acepta la credencial del objetivo, aunque fuese verificada', async () => {
+    const actor = user('ADMIN', 1); const target = user();
+    database.raw.prepare('UPDATE users SET password_hash=? WHERE id=?').run('another-actor-hash', actor.userId);
+    database.raw.prepare("UPDATE users SET status='DISABLED' WHERE id=?").run(target.userId);
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 403 });
+  });
+  it('revalida sesión vigente y pertenencia al actor', async () => {
+    const actor = user('ADMIN', 1); const target = user();
+    database.raw.prepare("UPDATE users SET status='DISABLED' WHERE id=?").run(target.userId);
+    await expect(deleteDisabledAccountForAdmin({ ...input(actor, target), sessionId: target.sessionId }, database)).rejects.toMatchObject({ status: 401 });
+    database.raw.prepare("UPDATE sessions SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(actor.sessionId);
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 401 });
+    database.raw.prepare('DELETE FROM sessions WHERE id=?').run(actor.sessionId);
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 401 });
+  });
+  it('no acepta un ADMIN que haya sido desactivado antes de confirmar', async () => {
+    const actor = user('ADMIN', 1); user('ADMIN', 2); const target = user();
+    database.raw.prepare("UPDATE users SET status='DISABLED',admin_slot=NULL WHERE id IN (?,?)").run(actor.userId, target.userId);
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 403 });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM account_deletions').get()).toEqual({ n: 0 });
+  });
+  it('rechaza actor sin rol ADMIN y conserva imágenes referenciadas por otras cuentas', async () => {
+    const actor = user(); const target = user(); const other = user();
+    const photo = image(target.userId); garment(other.userId, photo);
+    database.raw.prepare("UPDATE users SET status='DISABLED' WHERE id=?").run(target.userId);
+    await expect(deleteDisabledAccountForAdmin(input(actor, target), database)).rejects.toMatchObject({ status: 403 });
+    const admin = user('ADMIN', 1);
+    await deleteDisabledAccountForAdmin(input(admin, target), database);
+    expect(await claimImageDeletionJob(photo, database)).toBeNull();
+    expect(database.raw.prepare('SELECT state FROM image_deletion_jobs WHERE image_id=?').get(photo)).toEqual({ state: 'SHARED' });
+  });
+});
+
 describe('baja transaccional de cuentas aisladas', () => {
+  it('informa limpieza pendiente si solo existe una firma sin imagen finalizada', async () => {
+    const target = user();
+    const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    database.raw.prepare(`INSERT INTO cloudinary_upload_authorizations
+      (id,user_id,session_id,image_id,public_id,folder,signed_at,expires_at,next_check_at,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`).run(randomUUID(), target.userId, target.sessionId,
+      randomUUID(), randomUUID(), `isolated/${target.userId}`, Math.floor(Date.now() / 1000), expiresAt, expiresAt, now());
+    expect(await deleteOwnAccount(target, database)).toEqual({ ok: true, cleanupPending: true });
+    expect(database.raw.prepare('SELECT count(*) AS n FROM images').get()).toEqual({ n: 0 });
+    expect(database.raw.prepare('SELECT state FROM cloudinary_upload_authorizations').get()).toEqual({ state: 'REVOKED' });
+  });
   it('protege al último ADMIN y revierte todos los efectos', async () => {
     const target = user('ADMIN', 1);
     image(target.userId);

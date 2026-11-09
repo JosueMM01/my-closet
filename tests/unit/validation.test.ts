@@ -5,6 +5,7 @@ import {
   loginSchema,
   processedImageUploadSchema,
   profileUpdateSchema,
+  resetPasswordSchema,
   remoteImageMetadataSchema,
   outfitInputSchema,
   registerSchema,
@@ -14,6 +15,11 @@ import {
 } from '@/lib/domain/validation';
 import { normalizeSize } from '@/lib/domain/constants';
 import { startOfWeek, toDateOnly, weekDays } from '@/lib/domain/dates';
+import {
+  newPasswordPolicyError,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from '@/lib/domain/password-policy';
 
 describe('garmentInputSchema', () => {
   it('acepta un input válido y normaliza strings vacíos a null', () => {
@@ -134,6 +140,56 @@ describe('registerSchema / loginSchema', () => {
       password: '12345678',
       invitationToken: 'corta',
     })).toThrow('La invitación no es válida');
+  });
+});
+
+describe('política de contraseñas nuevas', () => {
+  const registration = (password: unknown) => registerSchema.safeParse({
+    displayName: 'Ana', email: 'ana@example.test', password,
+  });
+
+  it('fija límites 15–128 y conserva palabras y frases sin símbolos', () => {
+    expect(PASSWORD_MIN_LENGTH).toBe(15);
+    expect(PASSWORD_MAX_LENGTH).toBe(128);
+    expect(newPasswordPolicyError('Taza-cielo-rama')).toBeNull();
+    expect(newPasswordPolicyError('luna naranja calma brisa')).toBeNull();
+    expect(registration('Taza-cielo-rama').success).toBe(true);
+  });
+
+  it('rechaza longitud corta/larga y valores que no sean cadenas sin recortarlos', () => {
+    expect(registration('Taza-cielo-ram').success).toBe(false);
+    expect(registration('a'.repeat(PASSWORD_MAX_LENGTH + 1)).success).toBe(false);
+    expect(registration(null).success).toBe(false);
+    expect(registration(123456789012345).success).toBe(false);
+    const exactMaximum = `luna naranja calma brisa${' y calma'.repeat(13)}`;
+    expect(exactMaximum.length).toBe(PASSWORD_MAX_LENGTH);
+    expect(newPasswordPolicyError(exactMaximum)).toBeNull();
+    expect(newPasswordPolicyError(exactMaximum + 'x')).not.toBeNull();
+  });
+
+  it('no normaliza ni trunca la contraseña aceptada', () => {
+    const password = '  Taza-cielo-rama  ';
+    const parsed = registration(password);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.password).toBe(password);
+  });
+
+  it.each([
+    'passwordpassword',
+    'qwertyuiopasdfgh',
+    '123456789012345',
+    '123412341234123',
+    '1234123412341234',
+    'aaaaaaaaaaaaaaa',
+  ])('rechaza contraseñas comunes o patrones repetidos: %s', (password) => {
+    expect(newPasswordPolicyError(password)).not.toBeNull();
+    expect(registration(password).success).toBe(false);
+  });
+
+  it('aplica la misma política al restablecer, pero deja iniciar sesión con una clave heredada', () => {
+    expect(resetPasswordSchema.safeParse({ token: 'x'.repeat(43), newPassword: 'passwordpassword' }).success).toBe(false);
+    expect(resetPasswordSchema.safeParse({ token: 'x'.repeat(43), newPassword: 'luna naranja calma brisa' }).success).toBe(true);
+    expect(loginSchema.safeParse({ email: 'ana@example.test', password: '12345678' }).success).toBe(true);
   });
 });
 

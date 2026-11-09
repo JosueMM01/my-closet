@@ -44,6 +44,16 @@ localStorage, sessionStorage ni IndexedDB. Una sesión remota expirada exige
 reautenticación y preserva la identidad local y la outbox. El trabajo offline
 permanece ligado al origen del navegador y al usuario correspondiente.
 
+La política compartida para contraseñas nuevas exige 15–128 caracteres y
+rechaza una lista local acotada de valores comunes y patrones completos
+predecibles. No impone clases de caracteres ni consulta servicios externos;
+la lista no equivale a comprobar todas las filtraciones conocidas. Registro
+y recuperación validan la misma regla en formulario y API, sin normalizar ni
+truncar la contraseña almacenada. El acceso y las comprobaciones de contraseña
+actual mantienen compatibilidad con credenciales anteriores: no se cambian
+hashes ni se bloquean cuentas por actualizar la política. Esta mejora está
+implementada localmente y pendiente de publicación.
+
 El cambio de correo exige contraseña actual y un código numérico de 6 dígitos
 enviado al nuevo buzón, con caducidad de 10 minutos y HMAC-SHA256 con el secreto
 del servidor. Cinco intentos fallidos invalidan el código. La confirmación está
@@ -101,7 +111,7 @@ sugerencias explicadas. El contexto vive en KV por usuario y no se sincroniza.
 - Los permisos se comprueban en servidor. Invitaciones ADMIN vigentes reservan
   plaza y comparten protección transaccional con promociones y reactivaciones.
 
-## Acceso Google — simplificación local pendiente de publicación
+## Acceso Google — simplificación integrada en develop
 
 El registro invitado fija el destinatario: el formulario no permite editar su
 correo y Google debe acreditar exactamente el mismo. El alta con contraseña
@@ -123,11 +133,12 @@ Esta simplificación no identifica todavía si una contraseña fue elegida por e
 usuario: las cuentas creadas con Google almacenan una contraseña aleatoria
 desconocida, y pueden establecer una mediante recuperación por correo.
 
-## Baja de cuentas — implementación local, no operativa
+## Baja de cuentas — integrada en develop, no operativa en producción
 
 `ACCOUNT_DELETION_ENABLED` y `ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED` son falsas
-por defecto. No se han activado en producción. La migración `0006` solo se ensayó
-en una base vacía dedicada de Neon, no en staging ni producción.
+por defecto. No se han activado en producción. Las migraciones hasta `0007` se
+ensayaron en una base sintética y después se aplicaron a staging (2026-11-09),
+conservando sus cinco cuentas, dieciséis imágenes y una prenda. No se aplicaron a producción.
 La API requiere sesión, origen propio, Zod, límite de intentos y contraseña actual
 o prueba Google breve y consumible. Google debe acreditar `auth_time` reciente,
 el mismo sujeto enlazado y la misma sesión; el callback nunca ejecuta la baja.
@@ -147,8 +158,69 @@ Cerrar sesión ordinariamente sigue conservando los datos locales.
 
 Pendientes antes de habilitar: PostgreSQL/concurrencia, prueba real de Google,
 subidas firmadas en vuelo y huérfanos, recuperación ante respuesta perdida,
-worker operativo y reconciliación con un registro de bajas independiente del
-respaldo. La retención histórica no equivale a borrado físico inmediato.
+worker operativo y ensayo de restauración. La retención histórica no equivale
+a borrado físico inmediato.
+
+La baja administrativa está implementada solo en local. Exige ambas banderas
+`ACCOUNT_DELETION_ENABLED` y `ADMIN_ACCOUNT_DELETION_ENABLED` (falsas por defecto),
+sesión de ADMIN activo y su propia contraseña; no admite la prueba Google de baja
+propia para eliminar a otra persona. La transacción revalida sesión, rol y huella
+de credencial del actor, exige objetivo distinto y previamente `DISABLED`, y
+reutiliza los efectos de la baja propia. El listado excluye principales de
+`account_deletions`; el administrador conserva su sesión y no obtiene acceso al
+clóset ajeno. Si el refresco posterior falla, se informa baja confirmada y lista
+pendiente, sin repetir la eliminación. Si se pierde la respuesta, se pide actualizar
+antes de reintentar. Requiere las migraciones `0006` y `0007` antes de desplegar.
+
+### Autorizaciones Cloudinary — implementación solo local
+
+`cloudinary_upload_authorizations` es una tabla en la base existente, no otra base
+ni un servicio externo. La migración aditiva `0007` se ensayó únicamente en una
+base temporal sintética de Neon y posteriormente en staging; no en producción.
+Se registra cada autorización antes de entregar la firma: usuario,
+sesión, imagen lógica, clave física única, fecha y estado. Cada revisión obtiene
+una clave física distinta, sin sobrescritura, para no romper la edición de fotos.
+El cliente finaliza con la autorización exacta; tras consultar Cloudinary, una
+transacción revalida cuenta, sesión, propiedad y estado antes de persistirla.
+La vía alternativa `POST /api/images` queda reservada al proveedor local, evitando
+una subida remota sin inventario cuando falla la firma.
+
+Desactivar una cuenta revoca sus autorizaciones en la base, pero no revoca una
+firma en Cloudinary. La limpieza conserva el inventario y vuelve a revisar las
+claves tras su ventana de validez y un margen operativo. Un resultado «no
+encontrado» no cierra definitivamente la revisión: pueden existir subidas en curso.
+Los trabajos protegen referencias ajenas y reintentan fallos. Esta reconciliación
+depende de invocar periódicamente el worker; no se ha configurado ni validado un
+programador remoto. No se promete una hora exacta de borrado definitivo ni borrar
+copias descargadas o cachés ajenas al proveedor.
+
+`0007` y los treinta contratos PostgreSQL ya pasaron en aislamiento. Antes de dar
+por validada la baja, comprobar Cloudinary con imágenes sintéticas, observar el worker y
+drenar emisores antiguos. Las firmas anteriores a este inventario requieren una
+revisión controlada adicional; no borrar carpetas completas ni imágenes reales
+por proceder de una copia de la base. Un rollback al emisor antiguo reabre esa
+limitación y no debe mantener bajas activas.
+
+Para esta integración se prepararon overrides únicamente de `develop`/Preview:
+Neon staging explícito, banderas de baja propia/administrativa y limpieza remota,
+secreto del worker separado y prefijo `my-closet-staging`. No cambian las variables
+compartidas ni Production. Staging contiene referencias históricas de los prefijos
+`my-closet` y `my-closet-preview`: quedan fuera del alcance de esta limpieza.
+
+### Restauración manual: alcance y limitación
+
+Por decisión del propietario se pospone el registro automático externo de bajas:
+no se añade otra base ni un servicio nuevo. `account_deletions` sigue dentro del
+respaldo y **no** impide por sí solo resucitar cuentas al restaurar una copia antigua.
+La recuperación propuesta es manual y cerrada por defecto: restaurar en un entorno
+aislado, sin login, sincronización, firmas ni workers destructivos; revocar todas
+las sesiones recuperadas y reconciliar las bajas posteriores a la copia antes de
+reabrir. Mantener solo la bandera de baja apagada no bloquea los otros accesos.
+Si no existe evidencia suficiente para identificar esas bajas, no reabrir la base.
+Este procedimiento todavía necesita aceptación y ensayo; no existe una compuerta
+automática implementada. Un eventual registro privado del propietario debe quedar
+fuera de Git y fuera de la restauración que podría sobrescribirlo. No se usa la
+ausencia de fotos de Cloudinary como prueba de una cuenta eliminada.
 
 ## Recuperación y compatibilidad
 

@@ -4,7 +4,7 @@ import { inArray } from 'drizzle-orm';
 import { createServerDB, pgSchema, type ServerDB } from '@/server/db';
 import { parseServerEnv } from '@/server/env';
 import { credentialFingerprint } from '@/server/repositories/email-change-repository';
-import { claimImageDeletionJob, deleteOwnAccount, deletionDigest, finishImageDeletionJob, saveDeletionProof, validDeletionProof } from '@/server/repositories/account-deletion-repository';
+import { claimImageDeletionJob, deleteOwnAccount, deleteDisabledAccountForAdmin, deletionDigest, finishImageDeletionJob, saveDeletionProof, validDeletionProof } from '@/server/repositories/account-deletion-repository';
 
 type Database = Extract<ServerDB, { dialect: 'postgres' }>;
 let first: Database;
@@ -71,6 +71,34 @@ suite('baja PostgreSQL en base sintética aislada', { timeout: 30_000 }, () => {
       VALUES(${id},${userId},'image/webp',1,'AQ==','local',${id})`;
     return id;
   }
+
+  it('baja administrativa exige objetivo desactivado y conserva la sesión del actor', async () => {
+    const [free] = await first.raw`SELECT s AS slot FROM generate_series(1,2) s WHERE NOT EXISTS(SELECT 1 FROM users WHERE admin_slot=s) LIMIT 1`;
+    if (!free) throw new Error('No free isolated ADMIN fixture slot');
+    const actor = await account('ADMIN', Number(free.slot)); const target = await account();
+    const input = { actorId: actor.userId, userId: target.userId, sessionId: actor.sessionId, credentialHash: actor.credentialHash };
+    await expect(deleteDisabledAccountForAdmin(input, first)).rejects.toMatchObject({ status: 409 });
+    await first.raw`UPDATE users SET status='DISABLED' WHERE id=${target.userId}`;
+    expect(await deleteDisabledAccountForAdmin(input, first)).toEqual({ ok: true, cleanupPending: false });
+    const sessions = await first.raw`SELECT id FROM sessions WHERE user_id=${actor.userId}`;
+    expect(sessions).toHaveLength(1);
+    await expect(deleteDisabledAccountForAdmin(input, first)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('serializa reactivación contra baja administrativa sin resucitar una cuenta eliminada', async () => {
+    const [free] = await first.raw`SELECT s AS slot FROM generate_series(1,2) s WHERE NOT EXISTS(SELECT 1 FROM users WHERE admin_slot=s) LIMIT 1`;
+    if (!free) throw new Error('No free isolated ADMIN fixture slot');
+    const actor = await account('ADMIN', Number(free.slot)); const target = await account();
+    await first.raw`UPDATE users SET status='DISABLED' WHERE id=${target.userId}`;
+    const [removal] = await Promise.allSettled([
+      deleteDisabledAccountForAdmin({ actorId: actor.userId, userId: target.userId, sessionId: actor.sessionId, credentialHash: actor.credentialHash }, first),
+      second.raw`UPDATE users SET status='ACTIVE' WHERE id=${target.userId}`,
+    ]);
+    const [state] = await first.raw`SELECT status FROM users WHERE id=${target.userId}`;
+    const deleted = await first.raw`SELECT user_id FROM account_deletions WHERE user_id=${target.userId}`;
+    if (removal.status === 'fulfilled') { expect(state?.status).toBe('DISABLED'); expect(deleted).toHaveLength(1); }
+    else { expect(state?.status).toBe('ACTIVE'); expect(deleted).toHaveLength(0); }
+  });
   async function garment(database: Database, userId: string, photoId: string | null = null) {
     const now = new Date().toISOString();
     await database.raw`INSERT INTO garments(id,user_id,shareable_id,category,photo_id,created_at,updated_at,server_updated_at)

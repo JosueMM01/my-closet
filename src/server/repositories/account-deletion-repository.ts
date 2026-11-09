@@ -75,7 +75,6 @@ export async function deleteOwnAccount(input: {
   userId: string; sessionId: string; credentialHash?: string; googleProof?: string; sessionHash: string;
 }, database?: ServerDB): Promise<{ ok: true; cleanupPending: boolean }> {
   const now = new Date().toISOString();
-  const unusableCredential = `deleted:${randomBytes(32).toString('hex')}`;
   return transact(function* (postgres) {
     if (postgres) yield sql`SELECT pg_advisory_xact_lock(${ADMIN_CAPACITY_LOCK[0]}, ${ADMIN_CAPACITY_LOCK[1]})`;
     const [raw] = yield sql`SELECT id, email, status, role, password_hash FROM users WHERE id=${input.userId} ${postgres ? sql`FOR UPDATE` : sql``}`;
@@ -102,6 +101,45 @@ export async function deleteOwnAccount(input: {
       const admins = yield sql`SELECT id FROM users WHERE role='ADMIN' AND status='ACTIVE' ${postgres ? sql`FOR UPDATE` : sql``}`;
       if (admins.length <= 1) throw new AccountDeletionError(409, 'No puedes eliminar al último administrador. Designa otro antes de continuar.');
     }
+    return yield* removeAccountData(user, now, postgres);
+  }, database);
+}
+
+/** Administrative removal never borrows the target's session or Google proof. */
+export async function deleteDisabledAccountForAdmin(input: {
+  actorId: string; userId: string; sessionId: string; credentialHash: string;
+}, database?: ServerDB): Promise<{ ok: true; cleanupPending: boolean }> {
+  const now = new Date().toISOString();
+  return transact(function* (postgres) {
+    if (postgres) yield sql`SELECT pg_advisory_xact_lock(${ADMIN_CAPACITY_LOCK[0]}, ${ADMIN_CAPACITY_LOCK[1]})`;
+    const rows = yield sql`SELECT id, email, status, role, password_hash FROM users
+      WHERE id IN (${input.actorId}, ${input.userId}) ORDER BY id ${postgres ? sql`FOR UPDATE` : sql``}`;
+    const accounts = z.array(accountRow).parse(rows);
+    const actor = accounts.find(row => row.id === input.actorId);
+    if (!actor || actor.status !== 'ACTIVE' || actor.role !== 'ADMIN') {
+      throw new AccountDeletionError(403, 'Ya no tienes permisos de administrador');
+    }
+    const sessions = yield sql`SELECT id FROM sessions WHERE id=${input.sessionId} AND user_id=${actor.id}
+      AND expires_at>${now} ${postgres ? sql`FOR UPDATE` : sql``}`;
+    if (!sessions.length) throw new AccountDeletionError(401, 'La sesión ya no está vigente');
+    if (credentialFingerprint(actor.password_hash) !== input.credentialHash) {
+      throw new AccountDeletionError(403, 'Tu contraseña cambió. Vuelve a confirmar.');
+    }
+    if (input.actorId === input.userId) throw new AccountDeletionError(409, 'Usa la baja de tu propia cuenta, no la administración');
+    const target = accounts.find(row => row.id === input.userId);
+    if (!target) throw new AccountDeletionError(404, 'Cuenta no encontrada');
+    const deleted = yield sql`SELECT user_id FROM account_deletions WHERE user_id=${target.id}`;
+    if (deleted.length) throw new AccountDeletionError(409, 'La cuenta ya fue eliminada');
+    if (target.status !== 'DISABLED') throw new AccountDeletionError(409, 'Primero debes desactivar la cuenta');
+    // The actor remains an active ADMIN. An active target (including the last
+    // administrator) can never reach this operation.
+    return yield* removeAccountData(target, now, postgres);
+  }, database);
+}
+
+/** Shared effects only; callers must validate the actor/target within this transaction. */
+function* removeAccountData(user: z.infer<typeof accountRow>, now: string, postgres: boolean): Workflow<{ ok: true; cleanupPending: boolean }> {
+    const unusableCredential = `deleted:${randomBytes(32).toString('hex')}`;
     // Lock image identities before publishing jobs; reference triggers use the same order.
     if (postgres) yield sql`SELECT id FROM images WHERE user_id=${user.id} ORDER BY id FOR UPDATE`;
     const jobs = yield sql`INSERT INTO image_deletion_jobs (image_id, storage_provider, storage_key, remote_url, state, attempts, next_attempt_at, created_at)
@@ -124,8 +162,9 @@ export async function deleteOwnAccount(input: {
     yield sql`UPDATE users SET email=${`deleted-${randomBytes(24).toString('hex')}@deleted.invalid`}, display_name='Cuenta eliminada',
       password_hash=${unusableCredential}, role='USER', status='DISABLED', admin_slot=NULL, profile_image_id=NULL WHERE id=${user.id} RETURNING id`;
     yield sql`INSERT INTO account_deletions (user_id, deleted_at) VALUES (${user.id}, ${now}) RETURNING user_id`;
-    return { ok: true, cleanupPending: jobs.length > 0 };
-  }, database);
+    // A signed upload may exist at the provider without any finalized images row.
+    const authorizations = yield sql`SELECT id FROM cloudinary_upload_authorizations WHERE user_id=${user.id} LIMIT 1`;
+    return { ok: true, cleanupPending: jobs.length > 0 || authorizations.length > 0 };
 }
 
 const imageJobRow = z.object({ image_id: z.string(), storage_provider: z.enum(['local', 'cloudinary']), storage_key: z.string().nullable(), remote_url: z.string().nullable(), attempts: z.number().int() });

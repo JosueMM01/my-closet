@@ -3,6 +3,7 @@
  */
 import { z } from 'zod';
 import { LIMITS } from './constants';
+import { newPasswordPolicyError } from './password-policy';
 
 const isoDateTime = z.string().datetime({ offset: true });
 
@@ -114,10 +115,10 @@ const accountEmailSchema = z
   .trim()
   .toLowerCase()
   .pipe(z.email('Correo inválido').max(120));
-const accountPasswordSchema = z
-  .string()
-  .min(8, 'La contraseña debe tener al menos 8 caracteres')
-  .max(128);
+const accountPasswordSchema = z.string({ error: 'La contraseña debe ser texto' }).superRefine((value, context) => {
+  const message = newPasswordPolicyError(value);
+  if (message) context.addIssue({ code: 'custom', message });
+});
 
 export const invitationTokenSchema = z
   .string()
@@ -235,6 +236,11 @@ export const accountDeletionStatusSchema = z.object({
 
 export const accountDeletionResponseSchema = z.object({ ok: z.literal(true), cleanupPending: z.boolean() });
 
+export const adminAccountDeletionInputSchema = z.object({
+  acknowledge: z.literal(true),
+  currentPassword: z.string().min(1, 'Introduce tu contraseña de administrador').max(128),
+}).strict();
+
 export const googlePictureAvailabilitySchema = z.object({
   available: z.boolean(),
 });
@@ -300,7 +306,10 @@ export const adminUserResponseSchema = accountProfileSchema.extend({
   adminSlot: z.union([z.literal(1), z.literal(2)]).nullable(),
 });
 
-export const adminUsersResponseSchema = z.object({ users: z.array(adminUserResponseSchema) });
+export const adminUsersResponseSchema = z.object({
+  users: z.array(adminUserResponseSchema),
+  adminDeletionEnabled: z.boolean().default(false),
+});
 
 export const adminUserUpdateSchema = z
   .object({
@@ -400,6 +409,7 @@ export const imageUploadResponseSchema = z.object({
 });
 
 export const cloudinaryUploadSignatureSchema = z.object({
+  authorizationId: z.string().uuid(),
   cloudName: z.string().min(1),
   apiKey: z.string().min(1),
   timestamp: z.number().int().positive(),
@@ -410,6 +420,7 @@ export const cloudinaryUploadSignatureSchema = z.object({
 
 export const cloudinaryFinalizeRequestSchema = z.object({
   id: z.string().uuid(),
+  authorizationId: z.string().uuid(),
 }).strict();
 
 /** Respuesta mínima validada de Cloudinary Admin API al finalizar. */

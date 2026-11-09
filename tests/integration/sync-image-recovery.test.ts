@@ -12,10 +12,11 @@ function signatureResponse(): Response {
   return Response.json({
     cloudName: 'test-cloud',
     apiKey: 'test-key',
+    authorizationId: '44444444-0000-4000-8000-000000000001',
     timestamp: 1_787_702_400,
     signature: 'a'.repeat(40),
     folder: `my-closet/${USER}`,
-    publicId: IMAGE,
+    publicId: '44444444-0000-4000-8000-000000000002',
   });
 }
 
@@ -30,7 +31,7 @@ function finalizedResponse(): Response {
       byteSize: 4,
       remoteUrl: `https://res.cloudinary.com/test/image/upload/${IMAGE}.webp`,
       storageProvider: 'cloudinary',
-      storageKey: `my-closet/${USER}/${IMAGE}`,
+      storageKey: `my-closet/${USER}/44444444-0000-4000-8000-000000000002`,
       createdAt: NOW,
       updatedAt: NOW,
     },
@@ -116,7 +117,7 @@ describe('recuperación de subida de imágenes', () => {
     await expect(getDB().images.get(IMAGE)).resolves.toMatchObject({
       id: IMAGE,
       syncStatus: 'synced',
-      storageKey: `my-closet/${USER}/${IMAGE}`,
+      storageKey: `my-closet/${USER}/44444444-0000-4000-8000-000000000002`,
     });
   });
 });
