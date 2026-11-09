@@ -1,6 +1,6 @@
 # Fases de My Closet
 
-Actualización: 2026-11-07. Este archivo conserva el plan público del proyecto.
+Actualización: 2026-11-09. Este archivo conserva el plan público del proyecto.
 La implementación, la integración, la publicación y la validación en uso son
 estados distintos; aprobar CI no cierra por sí solo una fase.
 
@@ -19,19 +19,25 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 4B — Publicación OAuth | Lista: páginas públicas y cliente de respaldos publicados; renovación comprobada | Seguimiento del propietario: atender fallos de autorización y mantener permisos y textos públicos vigentes; no bloquea el cierre de esta entrega |
 | 5A — Invitaciones y cupo ADMIN | Lista funcionalmente; aceptación del propietario y protección transaccional del cupo de dos ADMIN, incluidas reservas vigentes | Publicar el endurecimiento adicional: los siete días de vigencia ya se calculan en servidor en la rama actual, sin confiar en la fecha del cliente |
 | 5B — Seguridad e identidad | Lista en su alcance funcional, aceptado por el propietario: cambio de correo verificado y Turnstile operativos en producción | Las comprobaciones adicionales de permisos, política de imágenes y ensayo de reutilización real se siguen en 6, sin afirmar que ya se ejecutaron |
-| 5C — Baja de cuentas | Implementación integrada en develop y probada parcialmente en Preview; no habilitada en producción | Validar PostgreSQL y concurrencia, Google real y UX; cubrir firmas de subida pendientes y assets huérfanos; completar registro de bajas independiente del respaldo, restauración y operación del worker antes de habilitar |
-| 6 — Experiencia y documentación | En proceso; cambio de contraseña por enlace integrado en develop y validado en Preview aislado; perfil organizado localmente en pestañas Perfil, Seguridad y Administración, con modales, búsqueda y paginación | Publicar y validar la reorganización del perfil en Preview/develop y el acceso con Google; completar matriz de permisos y revocación, claridad de la entrega pública de imágenes y ensayo adicional de reutilización de Turnstile; resolver o aceptar explícitamente el canal temporal de recuperación antes de producción; Web Push se evalúa aparte |
+| 5C — Baja de cuentas | Baja propia integrada en develop; endurecimiento y baja administrativa en integración; treinta contratos PostgreSQL aprobados y staging migrado; no habilitada en producción | Validar Google real y UX en develop, limpieza Cloudinary sintética y operación del worker; reconciliar firmas anteriores al inventario y ensayar recuperación manual antes de producción. El registro externo automático queda pospuesto; no se garantiza reconciliación automática de un respaldo antiguo |
+| 6 — Experiencia y documentación | En proceso; cambio de contraseña por enlace, perfil compacto y Google simplificado integrados en develop mediante PR #18/#19; política nueva de contraseñas implementada solo localmente | Validar la política de contraseñas, la primera asociación real con Google y la experiencia Crear contraseña; completar matriz de permisos y revocación, claridad de la entrega pública de imágenes y ensayo adicional de reutilización de Turnstile; resolver o aceptar explícitamente el canal temporal de recuperación antes de producción; Web Push se evalúa aparte |
 | 7 — Avatar experimental | Opcional; pendiente | Prototipo local medido y decisión de viabilidad |
-| 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas; corrección de encuadre completo implementada localmente, pendiente de publicación | Validación física del encuadre/lente en teléfonos, incluido iPhone, y mediciones de tiempo, memoria y calidad |
+| 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas; encuadre completo integrado en develop mediante PR #19, no promovido a main | Validación física del encuadre/lente en teléfonos, incluido iPhone, y mediciones de tiempo, memoria y calidad |
 
-La simplificación de acceso Google está implementada localmente en
-`feat/google-access-simplification`, separada de la reorganización del perfil.
+La simplificación de acceso Google y la reorganización del perfil están
+integradas en develop mediante PR #19, sin promoverse a main.
 Permite asociar cuentas existentes por correo exacto cuando Google acredita el
 buzón, conserva la invitación con destinatario fijo y retira la desvinculación
 desde la app. El registro invitado pide confirmar la contraseña, sin OTP extra;
-el enlace sigue siendo bearer si se reenvía. Antes de publicar faltan validación
-real de Google y concurrencia PostgreSQL; no se considera desplegada ni cierra
-por sí sola 5C o 6. El envío durable de recuperación sigue pendiente y separado.
+el enlace sigue siendo bearer si se reenvía. El acceso real con una cuenta Google
+ya asociada y el cambio de contraseña por correo se comprobaron en develop;
+faltan la primera asociación real y concurrencia PostgreSQL adicional. Esto no
+cierra por sí solo 5C o 6. El envío durable de recuperación sigue pendiente.
+
+La política de contraseñas nuevas (15–128 caracteres, lista local de valores
+comunes, sin composición obligatoria) está implementada solo en local y no se
+considera desplegada. Se aplica al registro y al establecer una contraseña por
+correo, sin invalidar las contraseñas existentes ni modificar datos reales.
 
 ### Seguimiento de 4A y 4B
 
@@ -148,7 +154,8 @@ compartidas, reintentos e idempotencia. El worker solo acepta llamadas autentica
 y bloquea claves fuera del prefijo autorizado. Su operación real no está habilitada.
 La migración aditiva `0006_account_deletion.sql` se aplicó únicamente a la base
 vacía `closet_5c_preview`, en una rama Neon de pruebas y con un rol nuevos.
-No se aplicó a staging ni producción. Pasaron los 14 contratos PostgreSQL previos
+Ese ensayo inicial no incluyó staging ni producción; staging se migró después en
+la integración de 2026-11-09. Pasaron los 14 contratos PostgreSQL previos
 y cinco nuevos de baja: ADMIN concurrentes, escrituras tardías, referencias
 compartidas, guardas de imágenes y consumo de la prueba Google simulada.
 El Preview aislado de `feat/secure-account-lifecycle` tiene la baja habilitada y
@@ -165,12 +172,67 @@ Turnstile en este hostname; el registro por invitación no usa ese desafío.
 
 Antes de activar, cubrir también las subidas firmadas aún no finalizadas y assets
 huérfanos: una firma ya emitida puede sobrevivir a la sesión de la aplicación.
-Definir un registro mínimo de bajas independiente de la base restaurada y el
-procedimiento de reconciliación y revocación antes de recuperar un respaldo antiguo.
+El propietario pospone el registro externo automático y no desea añadir otra base
+de datos. La alternativa propuesta exige restaurar en aislamiento, bloquear login,
+sync, firmas y workers, revocar sesiones y reconciliar manualmente las bajas
+posteriores al respaldo antes de reabrir. Si no hay información suficiente sobre
+esas bajas, no reabrir. Queda pendiente aceptar y ensayar este alcance operativo:
+no se ha implementado una compuerta automática ni se acepta reactivar cuentas
+eliminadas. La bandera de baja apagada no impide por sí sola login o sincronización.
 Validar Google real y la pérdida de conexión después de confirmar el servidor.
 Estas son condiciones de cierre, no tareas omitibles.
-No se habilitan bajas en producción ni se ejecutan borrados de cuentas o imágenes reales durante
-esta preparación. Tampoco se promete borrado inmediato de respaldos, cachés CDN
+
+La baja administrativa local exige una cuenta objetivo desactivada y la contraseña
+del ADMIN que actúa, no la del objetivo. Ambos permisos y la sesión se revalidan
+en la transacción. Se impide la baja propia desde administración y se conserva la
+sesión del actor. Está protegida además por `ADMIN_ACCOUNT_DELETION_ENABLED`, falsa
+por defecto; no se ha activado en ningún despliegue. Una cuenta solo Google debe
+establecer su contraseña mediante recuperación por correo antes de usar este
+flujo administrativo. La reautenticación Google de la baja propia sigue separada.
+
+Las autorizaciones Cloudinary también están preparadas solo localmente mediante
+la tabla `cloudinary_upload_authorizations` y la migración aditiva `0007`, dentro
+de la base existente. Cada revisión usa una clave física distinta; se registra
+antes de firmar y se revalidan sesión y cuenta al finalizar. El worker vuelve a
+reconciliar autorizaciones expiradas/revocadas, aun si no hubo finalización o el
+proveedor respondió «no encontrado». No existe todavía programación remota
+comprobada ni garantía de limpieza instantánea. Antes de publicar: ensayar la
+migración en PostgreSQL aislado, probar assets sintéticos y revisiones/reintentos,
+operar el worker y revisar firmas anteriores al inventario. No se ha creado otra
+base operativa ni servicio adicional para la aplicación. El ensayo posterior
+utiliza una base temporal exclusivamente sintética en una rama Neon de pruebas.
+
+Validación local de este conjunto (2026-11-09): TypeScript, ESLint y build pasan;
+Vitest termina con 410 pruebas aprobadas y 23 omitidas en tres suites que requieren
+PostgreSQL aislado. No se cuentan las omitidas como aprobadas. Los 44 recorridos
+E2E de autenticación, invitaciones/administración y perfil pasan en Chromium móvil
+y escritorio, con SQLite, correo capturado e imágenes locales. La baja
+administrativa cubre desactivación previa, contraseña incorrecta, foco en Cancelar,
+Escape, falta de conexión y refresco fallido después de confirmar la baja. Las
+pruebas Cloudinary son simuladas: no sustituyen migración/concurrencia PostgreSQL,
+Google real, entrega SMTP real, limpieza remota o una restauración ensayada. Estos
+cambios siguen sin commit ni publicación; no cierran 5C o 6 por sí solos.
+
+Ensayo PostgreSQL posterior (2026-11-09): se aplicaron las migraciones hasta `0007`
+con Drizzle en `closet_5c_preview`, base temporal nueva dentro de la rama de pruebas
+existente, con rol acotado y sin datos de staging/producción. Los cuatro contratos
+PostgreSQL pasan completos: 30/30, incluidas bajas administrativas, carreras de
+reactivación, autorizaciones de subida, sesiones revocadas, revisiones y referencias
+ajenas. Se corrigió una suposición de las fixtures sobre la plaza ADMIN libre para
+permitir repetir el ensayo. La limpieza Cloudinary de estos contratos sigue simulada.
+El CI prepara una base PostgreSQL local equivalente, no una conexión a Neon.
+
+La inspección de staging detectó referencias a imágenes del prefijo de producción.
+No eliminarlas desde staging. La validación real de develop debe usar cuentas
+desechables y un prefijo Cloudinary exclusivo. Tras autorización del propietario,
+se aplicaron las migraciones hasta `0007` a staging sin cambiar sus cinco cuentas,
+dieciséis imágenes y una prenda. Se prepararon overrides solo para `develop`:
+endpoint staging explícito, baja propia/administrativa y limpieza remota, secreto
+del worker y prefijo `my-closet-staging`. Su validación real requiere el nuevo
+despliegue de develop. No se ha fusionado a `main` ni habilitado la baja en producción.
+No se habilitan bajas en producción ni se borran cuentas o imágenes de producción.
+Las pruebas remotas autorizadas usan únicamente cuentas y assets sintéticos en
+staging con prefijo exclusivo. Tampoco se promete borrado inmediato de respaldos, cachés CDN
 ni de dispositivos offline; el origen actual se limpia tras recargar, antes del sync.
 
 ## Orden de entrega

@@ -3,6 +3,7 @@ import { requireAdmin } from '@/server/auth/session';
 import { authGuardError, jsonError, jsonOk } from '@/server/http';
 import { listUsersForAdmin } from '@/server/repositories/admin-users-repository';
 import { AdminAuthorizationError } from '@/server/repositories/invitations-repository';
+import { getEnv } from '@/server/env';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,10 @@ export async function GET() {
       profileImageId: user.profileImageId,
       createdAt: user.createdAt,
     }));
-    return jsonOk(adminUsersResponseSchema.parse({ users }));
+    const env = getEnv();
+    return jsonOk(adminUsersResponseSchema.parse({ users,
+      adminDeletionEnabled: env.ACCOUNT_DELETION_ENABLED && env.ADMIN_ACCOUNT_DELETION_ENABLED,
+    }));
   } catch (error) {
     const guardResponse = authGuardError(error);
     if (guardResponse) return guardResponse;

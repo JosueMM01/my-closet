@@ -8,6 +8,8 @@ import {
   invitationCreatedResponseSchema,
   invitationResponseSchema,
   invitationsResponseSchema,
+  adminAccountDeletionInputSchema,
+  accountDeletionResponseSchema,
 } from '@/lib/domain/validation';
 import { jsonBody, parseClientInput, requestJSON } from '@/lib/api/client';
 import { replaceAdminInvitations, replaceAdminUsers } from '@/lib/local/admin-cache';
@@ -15,9 +17,21 @@ import { replaceAdminInvitations, replaceAdminUsers } from '@/lib/local/admin-ca
 const adminEntityIdSchema = z.string().uuid('Identificador inválido');
 
 export async function refreshAdminUsers(): Promise<AdminUserCache[]> {
+  return (await refreshAdminUsersState()).users;
+}
+
+export async function refreshAdminUsersState() {
   const response = await requestJSON('/api/admin/users', adminUsersResponseSchema);
   await replaceAdminUsers(response.users);
-  return response.users;
+  return response;
+}
+
+/** A successful deletion must not be reported as failed if a cache refresh fails. */
+export async function deleteAdminAccount(id: string, input: z.input<typeof adminAccountDeletionInputSchema>) {
+  const userId = parseClientInput(adminEntityIdSchema, id, 'Usuario inválido');
+  const body = parseClientInput(adminAccountDeletionInputSchema, input, 'Confirma la baja y tu contraseña');
+  return requestJSON(`/api/admin/users/${encodeURIComponent(userId)}`, accountDeletionResponseSchema,
+    { method: 'DELETE', ...jsonBody(body) });
 }
 
 export async function refreshAdminInvitations(): Promise<AdminInvitationCache[]> {

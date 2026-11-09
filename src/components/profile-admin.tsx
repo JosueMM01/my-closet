@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { AdminInvitationCache, LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
+import type { AdminInvitationCache, AdminUserCache, LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
 import { ApiClientError } from '@/lib/api/client';
 import {
   createAdminInvitation,
   refreshAdminInvitations,
-  refreshAdminUsers,
+  refreshAdminUsersState,
+  deleteAdminAccount,
   revokeAdminInvitation,
   updateAdminUser,
 } from '@/lib/admin/client';
@@ -42,11 +43,18 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
   const [search, setSearch] = useState('');
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(0);
+  const [deletionEnabled, setDeletionEnabled] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserCache | null>(null);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [acknowledgeDeletion, setAcknowledgeDeletion] = useState(false);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!online) return;
     let active = true;
-    void Promise.all([refreshAdminUsers(), refreshAdminInvitations()])
+    void Promise.all([refreshAdminUsersState().then(state => {
+      if (active) setDeletionEnabled(state.adminDeletionEnabled);
+    }), refreshAdminInvitations()])
       .catch((caught) => {
         if (active) setError(readableError(caught));
       })
@@ -128,7 +136,8 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
     setBusy('refresh');
     setError(null);
     try {
-      await Promise.all([refreshAdminUsers(), refreshAdminInvitations()]);
+      const [state] = await Promise.all([refreshAdminUsersState(), refreshAdminInvitations()]);
+      setDeletionEnabled(state.adminDeletionEnabled);
       setStatus('Datos de administración actualizados.');
     } catch (caught) {
       setError(readableError(caught));
@@ -171,6 +180,50 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
       setStatus('Cuenta actualizada.');
     } catch (caught) {
       setError(readableError(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function closeDeletion() {
+    if (busy?.startsWith('delete-')) return;
+    setDeleteTarget(null);
+    setAdminPassword('');
+    setAcknowledgeDeletion(false);
+    setDeletionError(null);
+  }
+
+  async function removeAccount(event: React.FormEvent) {
+    event.preventDefault();
+    if (!deleteTarget || !online || busy || !adminPassword || !acknowledgeDeletion) return;
+    setBusy(`delete-${deleteTarget.userId}`);
+    setDeletionError(null);
+    setError(null);
+    setStatus(null);
+    try {
+      const result = await deleteAdminAccount(deleteTarget.userId, {
+        acknowledge: true, currentPassword: adminPassword,
+      });
+      setAdminPassword('');
+      setAcknowledgeDeletion(false);
+      setDeleteTarget(null);
+      setStatus(result.cleanupPending
+        ? 'Cuenta eliminada de los datos activos. La limpieza de imágenes sigue pendiente.'
+        : 'Cuenta eliminada de los datos activos. Las copias de respaldo siguen su retención.');
+      try {
+        await Promise.all([refreshAdminUsersState(), refreshAdminInvitations()]);
+      } catch {
+        setError('La baja fue confirmada, pero falta actualizar la lista. Pulsa Actualizar datos; no repitas la eliminación.');
+      }
+    } catch (caught) {
+      if (caught instanceof ApiClientError && (caught.status === 0 || caught.status >= 500 || (caught.status >= 200 && caught.status < 300))) {
+        setDeleteTarget(null);
+        setAdminPassword('');
+        setAcknowledgeDeletion(false);
+        setError('No pudimos confirmar el resultado de la baja. Recupera la conexión y actualiza las cuentas antes de volver a intentarlo.');
+      } else {
+        setDeletionError(readableError(caught));
+      }
     } finally {
       setBusy(null);
     }
@@ -380,6 +433,12 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                       >
                         {user.status === 'ACTIVE' ? 'Desactivar' : 'Activar'}
                       </Button>
+                      {deletionEnabled && !self && user.status === 'DISABLED' ? (
+                        <Button type="button" variant="danger" disabled={!online || busy !== null}
+                          onClick={() => { setDeletionError(null); setAdminPassword(''); setAcknowledgeDeletion(false); setDeleteTarget(user); }}>
+                          Eliminar cuenta
+                        </Button>
+                      ) : null}
                     </div>
                   </li>
                 );
@@ -393,6 +452,26 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
           </div>
         </div>
       </div>
+
+      <ProfileModal open={deleteTarget !== null} onClose={closeDeletion} title="Eliminar cuenta desactivada">
+        <form onSubmit={removeAccount} className="space-y-4">
+          <p className="break-words text-sm">Vas a eliminar la cuenta de <strong>{deleteTarget?.email}</strong>. No podrás deshacer esta operación desde la app.</p>
+          <p className="text-sm text-text-secondary">Se revocarán sus accesos y se retirarán sus datos activos. La limpieza de imágenes puede quedar pendiente; se conservan las copias ajenas legítimas y los respaldos siguen su retención.</p>
+          <Button type="button" variant="secondary" data-modal-initial-focus onClick={closeDeletion} disabled={busy !== null}>Cancelar</Button>
+          <Field label="Tu contraseña de administrador" htmlFor="admin-deletion-password">
+            <TextInput id="admin-deletion-password" type="password" autoComplete="current-password" required maxLength={128}
+              value={adminPassword} onChange={event => setAdminPassword(event.target.value)} disabled={busy !== null} />
+          </Field>
+          <p className="text-xs text-text-secondary">Si solo accedes con Google, primero establece tu contraseña mediante el correo de recuperación.</p>
+          <label className="flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={acknowledgeDeletion} onChange={event => setAcknowledgeDeletion(event.target.checked)} disabled={busy !== null} className="mt-1 h-5 w-5 shrink-0" />
+            Entiendo que se eliminarán los datos activos de esta cuenta.
+          </label>
+          {deletionError ? <p role="alert" className="text-sm text-danger">{deletionError}</p> : null}
+          <Button type="submit" variant="danger" loading={busy?.startsWith('delete-') ?? false}
+            disabled={!online || busy !== null || !adminPassword || !acknowledgeDeletion}>Confirmar eliminación</Button>
+        </form>
+      </ProfileModal>
 
       <div className="px-5 pb-5 sm:px-6" aria-live="polite">
         {error ? <p role="alert" className="text-sm font-medium text-danger">{error}</p> : null}

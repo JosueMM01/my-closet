@@ -12,7 +12,10 @@ export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const parsed = resetPasswordSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return jsonError(400, INVALID_RESET_MESSAGE);
+  if (!parsed.success) {
+    const onlyPasswordIssues = parsed.error.issues.every(issue => issue.path[0] === 'newPassword');
+    return jsonError(400, onlyPasswordIssues ? parsed.error.issues[0]?.message ?? INVALID_RESET_MESSAGE : INVALID_RESET_MESSAGE);
+  }
 
   const ip = requestRateLimitIdentity(request);
   const limited = await guardRateLimit(`reset-password:${ip}`, RESET_PASSWORD_LIMIT);

@@ -16,6 +16,11 @@ import {
   type CloudinaryCredentials,
 } from '@/server/env';
 import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
+import {
+  CloudinaryUploadAuthorizationError,
+  findCloudinaryUploadAuthorization,
+  finalizeCloudinaryUpload,
+} from '@/server/repositories/cloudinary-upload-repository';
 
 export interface ImagePutInput {
   id: string;
@@ -253,8 +258,9 @@ export function getImageStorage(): ImageStorage {
 
 /** Parámetros de firma para subida directa desde el navegador (Cloudinary). */
 export function buildDirectUploadSignature(
-  userId: string,
-  imageId: string,
+  folder: string,
+  publicId: string,
+  timestamp: number,
   apiSecret: string,
 ): {
   timestamp: number;
@@ -262,22 +268,30 @@ export function buildDirectUploadSignature(
   folder: string;
   publicId: string;
 } {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const folder = getCloudinaryFolder(userId);
-  const publicId = imageId;
   const signature = createHash('sha1')
-    .update(`folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`)
+    .update(`folder=${folder}&overwrite=false&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`)
     .digest('hex');
   return { timestamp, signature, folder, publicId };
+}
+
+export class CloudinaryUploadNotFoundError extends Error {
+  constructor() { super('La imagen todavía no aparece en Cloudinary'); this.name = 'CloudinaryUploadNotFoundError'; }
 }
 
 export async function finalizeDirectCloudinaryUpload(
   userId: string,
   imageId: string,
+  authorizationId: string,
+  sessionId: string,
 ): Promise<RemoteImageMetadata> {
   const credentials = getCloudinaryCredentials();
   if (!credentials) throw new Error('Cloudinary no está configurado');
-  const expectedPublicId = `${getCloudinaryFolder(userId)}/${imageId}`;
+  const authorization = await findCloudinaryUploadAuthorization(authorizationId);
+  if (!authorization || authorization.userId !== userId || authorization.imageId !== imageId
+    || !['AUTHORIZED', 'FINALIZED'].includes(authorization.state)) {
+    throw new CloudinaryUploadAuthorizationError(409, 'La autorización de subida ya no está vigente');
+  }
+  const expectedPublicId = `${authorization.folder}/${authorization.publicId}`;
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.apiSecret}`).toString('base64');
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${encodeURIComponent(credentials.cloudName)}`
@@ -285,6 +299,7 @@ export async function finalizeDirectCloudinaryUpload(
     { headers: { authorization: `Basic ${auth}` }, cache: 'no-store' },
   );
   if (!response.ok) {
+    if (response.status === 404) throw new CloudinaryUploadNotFoundError();
     throw new Error(`No se pudo verificar la imagen en Cloudinary: HTTP ${response.status}`);
   }
   const resource = cloudinaryResourceSchema.parse(await response.json());
@@ -292,23 +307,6 @@ export async function finalizeDirectCloudinaryUpload(
     throw new ImageOwnershipError();
   }
 
-  const existing = await findStoredImage(imageId);
-  if (existing && existing.userId !== userId) throw new ImageOwnershipError();
-  const now = new Date().toISOString();
-  const values: PersistedImageInput = {
-    id: imageId,
-    userId,
-    mimeType: 'image/webp',
-    width: resource.width,
-    height: resource.height,
-    byteSize: resource.bytes,
-    data: null,
-    remoteUrl: resource.secure_url,
-    storageProvider: 'cloudinary',
-    storageKey: resource.public_id,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
-  await persistImage(values);
-  return toRemoteImageMetadata(values);
+  return finalizeCloudinaryUpload({ authorizationId, userId, sessionId, imageId, expectedPublicId,
+    remoteUrl: resource.secure_url, width: resource.width, height: resource.height, byteSize: resource.bytes });
 }

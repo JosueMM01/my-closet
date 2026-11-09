@@ -34,6 +34,38 @@ test.describe('Autenticación', () => {
     await expect(page.getByTestId('home-greeting')).toBeVisible();
   });
 
+  test('registro aplica la política nueva antes de enviar y acepta una frase', async ({ page }) => {
+    await page.goto('/register');
+    await waitForHydration(page);
+    const registerRequests: string[] = [];
+    page.on('request', request => {
+      if (new URL(request.url()).pathname === '/api/auth/register' && request.method() === 'POST') {
+        registerRequests.push(request.url());
+      }
+    });
+    await page.getByLabel('Nombre').fill('Prueba política');
+    await page.getByLabel('Correo electrónico').fill(uniqueEmail('password-policy'));
+    const main = page.getByRole('main');
+    const password = page.getByLabel('Contraseña', { exact: true });
+    await expect(password).toHaveAttribute('minlength', '15');
+    await expect(password).toHaveAttribute('maxlength', '128');
+
+    await password.fill('12345678');
+    await page.getByRole('button', { name: 'Crear cuenta' }).click();
+    await expect(main.getByRole('alert')).toContainText('al menos 15 caracteres');
+    expect(registerRequests).toHaveLength(0);
+
+    await password.fill('passwordpassword');
+    await page.getByRole('button', { name: 'Crear cuenta' }).click();
+    await expect(main.getByRole('alert')).toContainText('demasiado común');
+    expect(registerRequests).toHaveLength(0);
+
+    await password.fill('un bosque guarda silencio al amanecer');
+    await page.getByRole('button', { name: 'Crear cuenta' }).click();
+    await expect(page.getByTestId('home-greeting')).toContainText('Hola, Prueba');
+    expect(registerRequests).toHaveLength(1);
+  });
+
   test('logout y login posterior', async ({ page }) => {
     const email = await registerAndLogin(page, 'Ana');
     await page.goto('/profile');

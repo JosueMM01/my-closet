@@ -14,7 +14,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('reautenticación de baja', () => {
   it('mantiene desactivadas la baja y la limpieza remota por defecto', () => {
-    expect(parseServerEnv({ NODE_ENV: 'test' })).toMatchObject({ ACCOUNT_DELETION_ENABLED: false, ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: false });
+    expect(parseServerEnv({ NODE_ENV: 'test' })).toMatchObject({ ACCOUNT_DELETION_ENABLED: false, ADMIN_ACCOUNT_DELETION_ENABLED: false, ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: false });
     expect(parseServerEnv({ NODE_ENV: 'test', ACCOUNT_DELETION_ENABLED: 'false' }).ACCOUNT_DELETION_ENABLED).toBe(false);
   });
   it('liga el contexto firmado a sesión, usuario, estado y plazo', () => {

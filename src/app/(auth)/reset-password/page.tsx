@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { AuthError, inspectPasswordResetToken, resetPassword } from '@/lib/auth/client';
 import { Button, Field, PasswordInput } from '@/components/ui';
+import { newPasswordPolicyError, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, PASSWORD_POLICY_HINT } from '@/lib/domain/password-policy';
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -48,6 +49,11 @@ export default function ResetPasswordPage() {
       setError('Las contraseñas no coinciden');
       return;
     }
+    const policyError = newPasswordPolicyError(password);
+    if (policyError) {
+      setError(policyError);
+      return;
+    }
     setSubmitting(true);
     try {
       await resetPassword({ token, newPassword: password });
@@ -72,7 +78,7 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="font-heading text-3xl text-text-primary">{inspection === 'invalid' ? 'Enlace no disponible' : 'Crea una contraseña nueva'}</h1>
-          {inspection === 'valid' && !complete ? <p className="mt-2 text-sm text-text-secondary">Usa al menos 8 caracteres.</p> : null}
+          {inspection === 'valid' && !complete ? <p className="mt-2 text-sm text-text-secondary">{PASSWORD_POLICY_HINT}</p> : null}
         </div>
 
         {inspection === 'checking' ? (
@@ -109,14 +115,15 @@ export default function ResetPasswordPage() {
           </section>
         ) : (
           <form onSubmit={handleSubmit} className="card-surface space-y-4 p-6" noValidate>
-            <Field label="Nueva contraseña" hint="Mínimo 8 caracteres" htmlFor="reset-password">
+            <Field label="Nueva contraseña" hint={PASSWORD_POLICY_HINT} htmlFor="reset-password">
               <PasswordInput
                 id="reset-password"
                 name="password"
                 autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 required
               />
             </Field>
@@ -127,7 +134,8 @@ export default function ResetPasswordPage() {
                 autoComplete="new-password"
                 value={confirmation}
                 onChange={(event) => setConfirmation(event.target.value)}
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 required
               />
             </Field>

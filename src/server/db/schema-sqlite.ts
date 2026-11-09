@@ -252,6 +252,21 @@ export const images = sqliteTable('images', {
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+/** Cloudinary signature inventory, retained as a tombstone after account removal. */
+export const cloudinaryUploadAuthorizations = sqliteTable('cloudinary_upload_authorizations', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  imageId: text('image_id').notNull(),
+  publicId: text('public_id').notNull().unique(),
+  folder: text('folder').notNull(),
+  signedAt: integer('signed_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  state: text('state', { enum: ['AUTHORIZED', 'FINALIZED', 'REVOKED', 'RECONCILE'] }).notNull().default('AUTHORIZED'),
+  nextCheckAt: text('next_check_at').notNull(),
+  createdAt: text('created_at').notNull(),
+});
 // Durable lifecycle records deliberately do not cascade with user/image rows.
 export const accountDeletions = sqliteTable('account_deletions', {
   userId: text('user_id').primaryKey(),
