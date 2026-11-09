@@ -18,10 +18,8 @@
 .dialog::backdrop { background: rgb(0 0 0 / 80%); }
 
 .header {
-  position: absolute;
-  inset: 0 0 auto;
-  z-index: 1;
-  background: linear-gradient(rgb(0 0 0 / 75%), transparent);
+  position: relative;
+  background: #211d20;
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -44,14 +42,12 @@
   cursor: pointer;
 }
 
-.viewfinder { position: absolute; inset: 0; overflow: hidden; background: #000; }
-/* cameraFrame saves exactly this visible, centered crop, without distortion. */
-.video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.viewfinder { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #000; }
+/* Show the full sensor frame; letterboxing avoids the apparent zoom/crop. */
+.video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .footer {
-  position: absolute;
-  inset: auto 0 0;
-  z-index: 1;
-  background: linear-gradient(transparent, rgb(0 0 0 / 85%) 30%);
+  position: relative;
+  background: #211d20;
   flex-shrink: 0;
   padding: 0.75rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }

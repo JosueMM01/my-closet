@@ -10,6 +10,7 @@ import {
   buildGoogleAuthorizationUrl,
   createGoogleOAuthValues,
   getGoogleIdentityFromCode,
+  isGoogleEmailAuthoritative,
   verifyGoogleIdToken,
 } from '@/server/auth/google';
 import type { GoogleAuthConfig } from '@/server/env';
@@ -79,6 +80,7 @@ describe('Google OAuth', () => {
     ).resolves.toEqual({
       subject: 'google-subject',
       email: 'person@example.test',
+      hostedDomain: null,
       displayName: null,
       pictureUrl: null,
     });
@@ -112,5 +114,21 @@ describe('Google OAuth', () => {
         jwks,
       }),
     ).rejects.toThrow();
+  });
+
+  it('considera autoritativo Gmail o el dominio Workspace firmado y coincidente', () => {
+    expect(isGoogleEmailAuthoritative({ email: 'Josue@gmail.com', hostedDomain: null })).toBe(true);
+    expect(isGoogleEmailAuthoritative({ email: 'person@company.test', hostedDomain: 'COMPANY.TEST' })).toBe(true);
+    expect(isGoogleEmailAuthoritative({ email: 'person@company.test', hostedDomain: null })).toBe(false);
+    expect(isGoogleEmailAuthoritative({ email: 'person@company.test', hostedDomain: 'other.test' })).toBe(false);
+  });
+
+  it('conserva `hd` solo después de verificar la firma del token', async () => {
+    await expect(verifyGoogleIdToken({
+      idToken: await token({ email: 'person@company.test', hd: 'company.test' }),
+      expectedNonce: 'expected-nonce-value-with-enough-length',
+      clientId: config.clientId,
+      jwks,
+    })).resolves.toMatchObject({ email: 'person@company.test', hostedDomain: 'company.test' });
   });
 });

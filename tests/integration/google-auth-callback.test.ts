@@ -215,6 +215,45 @@ describe('callback de Google', () => {
     expect(cookieState.has('mc_session')).toBe(false);
   });
 
+  it('auto-vincula Gmail a una cuenta activa existente sin crear otra ni alterar su rol', async () => {
+    const user = await createUser({ email: 'josue@gmail.com', displayName: 'Existente', passwordHash: 'fixture-hash' });
+    setFlow('login');
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'gmail-existing-subject', email: 'JOSUE@GMAIL.COM', hostedDomain: null,
+    });
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/');
+    expect(cookieState.has('mc_session')).toBe(true);
+    expect(await findGoogleAccountByUserId(user.id)).toMatchObject({
+      providerSubject: 'gmail-existing-subject', providerEmail: 'josue@gmail.com',
+    });
+    expect((await getSqlite()).select().from(sqliteSchema.users).all()).toHaveLength(1);
+    expect((await getSqlite()).select().from(sqliteSchema.users).get()).toMatchObject({ role: 'USER', status: 'ACTIVE' });
+  });
+
+  it('auto-vincula Workspace solo cuando hd firmado coincide exactamente con el correo', async () => {
+    const user = await createUser({ email: 'person@company.test', displayName: 'Existente', passwordHash: 'fixture-hash' });
+    setFlow('login');
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'workspace-subject', email: user.email, hostedDomain: 'company.test',
+    });
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/');
+    await expect(findGoogleAccountByUserId(user.id)).resolves.toMatchObject({ providerSubject: 'workspace-subject' });
+  });
+
+  it('no auto-vincula dominios externos aunque Google informe email_verified', async () => {
+    const user = await createUser({ email: 'person@external.test', displayName: 'Existente', passwordHash: 'fixture-hash' });
+    setFlow('login');
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'external-subject', email: user.email, hostedDomain: null,
+    });
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=account-unavailable');
+    expect(cookieState.has('mc_session')).toBe(false);
+    await expect(findGoogleAccountByUserId(user.id)).resolves.toBeNull();
+  });
+
   it('distingue cancelación sin intercambiar código ni crear sesión', async () => {
     setFlow('login');
     const response = await callback(new Request('http://localhost/api/auth/google/callback?error=access_denied&state=state-value-with-at-least-thirty-two-bytes'));
@@ -314,6 +353,22 @@ describe('callback de Google', () => {
     expect(cookieState.has('mc_session')).toBe(false);
   });
 
+  it('no hace fallback por correo si el subject ya pertenece a una cuenta deshabilitada', async () => {
+    const disabled = await createUser({ email: 'old@gmail.com', displayName: 'Deshabilitada', passwordHash: 'hash' });
+    const active = await createUser({ email: 'current@gmail.com', displayName: 'Activa', passwordHash: 'hash' });
+    await linkGoogleAccount({ userId: disabled.id, providerSubject: 'disabled-owner-subject', providerEmail: disabled.email });
+    const sqlite = await getSqlite();
+    await sqlite.update(sqliteSchema.users).set({ status: 'DISABLED' }).where(eq(sqliteSchema.users.id, disabled.id));
+    setFlow('login');
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'disabled-owner-subject', email: active.email, hostedDomain: null,
+    });
+    const response = await callback(callbackRequest());
+    expect(response.headers.get('location')).toBe('http://localhost/login?google=account-unavailable');
+    expect(cookieState.has('mc_session')).toBe(false);
+    await expect(findGoogleAccountByUserId(active.id)).resolves.toBeNull();
+  });
+
   it('vincula solo el correo normalizado exacto de la sesión activa', async () => {
     const user = await createUser({
       email: 'person@example.test',
@@ -336,11 +391,8 @@ describe('callback de Google', () => {
 
     const status = googleLinkStatusResponseSchema.parse(await (await getGoogleStatus()).json());
     expect(status).toEqual({ linked: true, providerEmail: 'person@example.test' });
-    expect(
-      (await unlinkGoogle(new Request('http://localhost/api/profile/google', { method: 'DELETE' })))
-        .status,
-    ).toBe(200);
-    await expect(findGoogleAccountByUserId(user.id)).resolves.toBeNull();
+    expect((await unlinkGoogle()).status).toBe(405);
+    await expect(findGoogleAccountByUserId(user.id)).resolves.toMatchObject({ providerSubject: 'linked-subject' });
   });
 
   it('deniega la vinculación cuando el correo verificado no coincide', async () => {
@@ -418,5 +470,30 @@ describe('callback de Google', () => {
     );
     expect(picture.status).toBe(200);
     expect(picture.headers.get('content-type')).toBe('image/jpeg');
+  });
+
+  it('no permite usar con otra cuenta una invitación dirigida a un correo específico', async () => {
+    const admin = await createUser({ email: 'invite-admin@example.test', displayName: 'Admin', passwordHash: 'hash' });
+    const sqlite = await getSqlite();
+    await sqlite.update(sqliteSchema.users).set({ role: 'ADMIN', adminSlot: 1 }).where(eq(sqliteSchema.users.id, admin.id));
+    const invited = await createInvitation({
+      actorId: admin.id,
+      email: 'intended@gmail.com',
+      role: 'USER',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await startInvitation(new Request('http://localhost/api/auth/google/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+      body: JSON.stringify({ invitationToken: invited.token }),
+    }));
+    getGoogleIdentityFromCode.mockResolvedValue({
+      subject: 'wrong-invite-subject', email: 'forwarded-to@gmail.com', hostedDomain: null,
+    });
+    const response = await callback(callbackRequest(cookieState.get(GOOGLE_FLOW_COOKIES.state)));
+    expect(response.headers.get('location')).toBe('http://localhost/register?google=email-mismatch#invite=' + invited.token);
+    expect(cookieState.has('mc_session')).toBe(false);
+    expect(sqlite.select().from(sqliteSchema.users).all()).toHaveLength(1);
+    expect(sqlite.select().from(sqliteSchema.accountInvitations).get()).toMatchObject({ acceptedAt: null });
   });
 });

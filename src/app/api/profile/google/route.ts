@@ -1,14 +1,11 @@
 import {
   googleLinkStatusResponseSchema,
-  operationSuccessResponseSchema,
 } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
-import { guardRateLimit } from '@/server/auth/rate-limit';
 import { isGoogleEnabled } from '@/server/env';
-import { jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
+import { jsonError, jsonOk, unauthorized } from '@/server/http';
 import {
   findGoogleAccountByUserId,
-  unlinkGoogleAccount,
 } from '@/server/repositories/auth-accounts-repository';
 
 export const runtime = 'nodejs';
@@ -28,14 +25,6 @@ export async function GET(): Promise<Response> {
   );
 }
 
-export async function DELETE(request: Request): Promise<Response> {
-  const originError = requireSameOrigin(request);
-  if (originError) return originError;
-  const principal = await getSessionUser();
-  if (!principal) return unauthorized();
-  const limited = await guardRateLimit(`profile-google-unlink:${principal.userId}`, 5);
-  if (limited) return limited;
-  if (!isGoogleEnabled()) return jsonError(404, 'Acceso con Google no disponible');
-  await unlinkGoogleAccount(principal.userId);
-  return jsonOk(operationSuccessResponseSchema.parse({ ok: true }));
+export async function DELETE(): Promise<Response> {
+  return jsonError(405, 'La desvinculación de Google no está disponible desde la app');
 }

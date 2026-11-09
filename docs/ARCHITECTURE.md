@@ -68,6 +68,12 @@ El navegador realiza todo el procesamiento de imágenes. Los workers preservan
 la foto original y permiten recuperación ante fallos. Los modelos se cargan
 bajo demanda; la cámara y la galería comparten el flujo de captura.
 
+La corrección local de cámara muestra la escena completa con `contain` y separa
+el visor de la cabecera y los controles. La captura conserva el cuadro completo
+del sensor, sin guardar los márgenes del visor; solo reduce su lado mayor a
+1080 píxeles y no aumenta resolución. No fuerza zoom ni una lente específica
+del dispositivo. Las pruebas simuladas no sustituyen la validación física.
+
 LocalImageStorage cubre pruebas aisladas. Cloudinary recibe las subidas directas
 del navegador en los entornos autorizados; Preview tiene un prefijo separado
 para imágenes nuevas. La entrega actual de Cloudinary es pública, incluidas
@@ -94,6 +100,28 @@ sugerencias explicadas. El contexto vive en KV por usuario y no se sincroniza.
   Sus claves se separan por entorno y los tokens solo permanecen en memoria.
 - Los permisos se comprueban en servidor. Invitaciones ADMIN vigentes reservan
   plaza y comparten protección transaccional con promociones y reactivaciones.
+
+## Acceso Google — simplificación local pendiente de publicación
+
+El registro invitado fija el destinatario: el formulario no permite editar su
+correo y Google debe acreditar exactamente el mismo. El alta con contraseña
+pide confirmación, sin OTP adicional. La invitación sigue siendo un enlace bearer:
+reenviarlo no permite elegir otro correo, pero sí puede permitir completar el
+alta del destinatario original. No se afirma que ese flujo pruebe por separado
+el control actual del buzón.
+
+El acceso Google conserva el vínculo por su identificador estable `sub`. Solo
+si aún no existe vínculo puede asociarse una cuenta activa con correo exacto,
+cuando Google sea autoridad del buzón (Gmail o Workspace acreditado por el token).
+Para cuentas Google con correo externo se exige una sesión propia autenticada
+antes de asociarlas. Nunca se crean cuentas, reemplazan vínculos ni cambian roles
+en el inicio de sesión ordinario. Las invitaciones mantienen su flujo separado.
+
+La app no ofrece desvincular Google y su API rechaza esa operación. No se debe
+confundir revocar el consentimiento en Google con borrar el vínculo local.
+Esta simplificación no identifica todavía si una contraseña fue elegida por el
+usuario: las cuentas creadas con Google almacenan una contraseña aleatoria
+desconocida, y pueden establecer una mediante recuperación por correo.
 
 ## Baja de cuentas — implementación local, no operativa
 
