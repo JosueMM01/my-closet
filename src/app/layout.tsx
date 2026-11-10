@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Fraunces, Manrope } from 'next/font/google';
 import './globals.css';
+import { PwaInstallProvider } from '@/components/pwa-install';
 
 const heading = Fraunces({
   subsets: ['latin'],
@@ -44,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={`${heading.variable} ${body.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-text-primary font-body">
-        {children}
+        <PwaInstallProvider>{children}</PwaInstallProvider>
       </body>
     </html>
   );
