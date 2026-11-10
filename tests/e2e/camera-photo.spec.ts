@@ -63,6 +63,14 @@ async function mockCamera(page: Page, mode: 'ready' | 'denied' | 'pending') {
         if (!context) throw new Error('Canvas de prueba no disponible');
         context.fillStyle = '#b35b70';
         context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#ff0000';
+        context.fillRect(0, 0, canvas.width, 24);
+        context.fillStyle = '#00ff00';
+        context.fillRect(0, canvas.height - 24, canvas.width, 24);
+        context.fillStyle = '#0000ff';
+        context.fillRect(0, 0, 24, canvas.height);
+        context.fillStyle = '#ffff00';
+        context.fillRect(canvas.width - 24, 0, 24, canvas.height);
         state.stream = canvas.captureStream(5);
         return state.stream;
       },
@@ -97,7 +105,7 @@ test('captura local sin audio y libera la cámara antes de procesar', async ({ p
   const portrait = initialViewport ? initialViewport.height > initialViewport.width : false;
   expect(await page.evaluate(() => (window as CameraTestWindow).__cameraTest.constraints?.video)).toMatchObject({
     width: { ideal: portrait ? 720 : 1280 },
-    height: { ideal: portrait ? 1280 : 720 },
+    height: { ideal: 960 },
   });
   const geometry = await dialog.boundingBox();
   const viewport = page.viewportSize();
@@ -114,16 +122,32 @@ test('captura local sin audio y libera la cámara antes de procesar', async ({ p
       expect(geometry.width).toBeLessThanOrEqual(viewport.width - 30);
     }
   }
-  await expect(dialog.locator('video')).toHaveCSS('object-fit', 'cover');
+  await expect(dialog.locator('video')).toHaveCSS('object-fit', 'contain');
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   await page.screenshot({ path: testInfo.outputPath('camera-ready.png') });
   await dialog.getByRole('button', { name: 'Tomar foto', exact: true }).click();
   await expect(page.getByTestId('photo-preview')).toBeVisible();
-  if (portrait) {
-    await expect.poll(() => page.getByTestId('photo-preview').evaluate(image => {
-      const img = image as HTMLImageElement;
-      return img.naturalHeight > img.naturalWidth;
-    })).toBe(true);
+  await expect.poll(() => page.getByTestId('photo-preview').evaluate(image => {
+    const img = image as HTMLImageElement;
+    return img.naturalWidth === 1080 && img.naturalHeight === 608;
+  })).toBe(true);
+  const edges = await page.getByTestId('photo-preview').evaluate(image => {
+    const img = image as HTMLImageElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas de comprobación no disponible');
+    context.drawImage(img, 0, 0);
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data].slice(0, 3);
+    return { top: pixel(540, 4), bottom: pixel(540, 603), left: pixel(4, 300), right: pixel(1075, 300) };
+  });
+  const expectedEdges = { top: [255, 0, 0], bottom: [0, 255, 0], left: [0, 0, 255], right: [255, 255, 0] };
+  for (const edge of ['top', 'bottom', 'left', 'right'] as const) {
+    // JPEG capture and the WebP pipeline are lossy; preserve each edge color, not exact bytes.
+    expectedEdges[edge].forEach((value, channel) => {
+      expect(Math.abs((edges[edge][channel] ?? Infinity) - value)).toBeLessThanOrEqual(20);
+    });
   }
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');

@@ -3,6 +3,7 @@
  */
 import { z } from 'zod';
 import { LIMITS } from './constants';
+import { newPasswordPolicyError } from './password-policy';
 
 const isoDateTime = z.string().datetime({ offset: true });
 
@@ -114,10 +115,10 @@ const accountEmailSchema = z
   .trim()
   .toLowerCase()
   .pipe(z.email('Correo inválido').max(120));
-const accountPasswordSchema = z
-  .string()
-  .min(8, 'La contraseña debe tener al menos 8 caracteres')
-  .max(128);
+const accountPasswordSchema = z.string({ error: 'La contraseña debe ser texto' }).superRefine((value, context) => {
+  const message = newPasswordPolicyError(value);
+  if (message) context.addIssue({ code: 'custom', message });
+});
 
 export const invitationTokenSchema = z
   .string()
@@ -177,6 +178,9 @@ export const passwordResetTokenSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{43}$/, 'El enlace de recuperación no es válido');
 
+export const passwordResetInspectionSchema = z.object({ token: passwordResetTokenSchema }).strict();
+export const passwordResetInspectionResponseSchema = z.object({ valid: z.boolean() }).strict();
+
 export const resetPasswordSchema = z.object({
   token: passwordResetTokenSchema,
   newPassword: accountPasswordSchema,
@@ -219,6 +223,24 @@ export const googleLinkStatusResponseSchema = z.discriminatedUnion('linked', [
   z.object({ linked: z.literal(true), providerEmail: accountEmailSchema }),
 ]);
 
+export const accountDeletionInputSchema = z.object({
+  acknowledge: z.literal(true),
+  currentPassword: z.string().min(1).max(128).optional(),
+}).strict();
+
+export const accountDeletionStatusSchema = z.object({
+  enabled: z.boolean(),
+  googleAvailable: z.boolean(),
+  reauthenticated: z.boolean(),
+});
+
+export const accountDeletionResponseSchema = z.object({ ok: z.literal(true), cleanupPending: z.boolean() });
+
+export const adminAccountDeletionInputSchema = z.object({
+  acknowledge: z.literal(true),
+  currentPassword: z.string().min(1, 'Introduce tu contraseña de administrador').max(128),
+}).strict();
+
 export const googlePictureAvailabilitySchema = z.object({
   available: z.boolean(),
 });
@@ -241,8 +263,7 @@ export const profileUpdateSchema = z
 
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
-  newPassword: accountPasswordSchema,
-});
+}).strict();
 
 export const emailChangeSchema = z.object({
   currentPassword: z.string().min(1, 'La contraseña actual es obligatoria').max(128),
@@ -252,7 +273,6 @@ export const emailChangeSchema = z.object({
 export const invitationCreateSchema = z.object({
   email: accountEmailSchema,
   role: userRoleSchema,
-  expiresAt: isoDateTime,
 });
 
 export const invitationResponseSchema = z.object({
@@ -286,7 +306,10 @@ export const adminUserResponseSchema = accountProfileSchema.extend({
   adminSlot: z.union([z.literal(1), z.literal(2)]).nullable(),
 });
 
-export const adminUsersResponseSchema = z.object({ users: z.array(adminUserResponseSchema) });
+export const adminUsersResponseSchema = z.object({
+  users: z.array(adminUserResponseSchema),
+  adminDeletionEnabled: z.boolean().default(false),
+});
 
 export const adminUserUpdateSchema = z
   .object({
@@ -386,6 +409,7 @@ export const imageUploadResponseSchema = z.object({
 });
 
 export const cloudinaryUploadSignatureSchema = z.object({
+  authorizationId: z.string().uuid(),
   cloudName: z.string().min(1),
   apiKey: z.string().min(1),
   timestamp: z.number().int().positive(),
@@ -396,6 +420,7 @@ export const cloudinaryUploadSignatureSchema = z.object({
 
 export const cloudinaryFinalizeRequestSchema = z.object({
   id: z.string().uuid(),
+  authorizationId: z.string().uuid(),
 }).strict();
 
 /** Respuesta mínima validada de Cloudinary Admin API al finalizar. */

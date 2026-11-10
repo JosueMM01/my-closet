@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
-  if (!parsed.success) return invalidBody('Datos de registro inválidos');
+  if (!parsed.success) return invalidBody(parsed.error.issues[0]?.message ?? 'Datos de registro inválidos');
 
   const { email, password, displayName, invitationToken } = parsed.data;
   try {

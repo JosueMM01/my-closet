@@ -47,6 +47,7 @@ export async function linkGoogleAccount(input: {
         .select({ email: pgSchema.users.email, status: pgSchema.users.status })
         .from(pgSchema.users)
         .where(eq(pgSchema.users.id, input.userId))
+        .for('update')
         .limit(1);
       const actor = actors[0];
       if (!actor || actor.status !== 'ACTIVE') throw new AuthAccountError('ACTOR_INVALID');
@@ -155,7 +156,7 @@ export async function linkGoogleAccount(input: {
       throw new AuthAccountError('ALREADY_LINKED');
     }
     return record;
-  });
+  }, { behavior: 'immediate' });
 }
 
 export async function findGoogleAccountByUserId(
@@ -181,6 +182,14 @@ export async function findGoogleAccountByUserId(
 export async function findActiveUserByGoogleSubject(
   providerSubject: string,
 ): Promise<UserRecord | null> {
+  const linked = await findUserByGoogleSubject(providerSubject);
+  return linked?.user.status === 'ACTIVE' ? linked.user : null;
+}
+
+/** Includes disabled owners so login never falls back to email for a known subject. */
+export async function findUserByGoogleSubject(
+  providerSubject: string,
+): Promise<{ user: UserRecord } | null> {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     const row = await db.postgres
@@ -191,13 +200,12 @@ export async function findActiveUserByGoogleSubject(
         and(
           eq(pgSchema.authAccounts.provider, 'GOOGLE'),
           eq(pgSchema.authAccounts.providerSubject, providerSubject),
-          eq(pgSchema.users.status, 'ACTIVE'),
         ),
       )
       .limit(1)
       .then((rows) => rows[0]);
     if (!row) return null;
-    return { ...row.user, createdAt: row.user.createdAt.toISOString() };
+    return { user: { ...row.user, createdAt: row.user.createdAt.toISOString() } };
   }
   const row = await db.sqlite
     .select({ user: sqliteSchema.users })
@@ -207,12 +215,49 @@ export async function findActiveUserByGoogleSubject(
       and(
         eq(sqliteSchema.authAccounts.provider, 'GOOGLE'),
         eq(sqliteSchema.authAccounts.providerSubject, providerSubject),
-        eq(sqliteSchema.users.status, 'ACTIVE'),
       ),
     )
     .limit(1)
     .then((rows) => rows[0]);
-  return row?.user ?? null;
+  return row ? { user: row.user } : null;
+}
+
+/** Links an authoritative Google identity to an existing exact-email active account only. */
+export async function linkGoogleAccountByEmail(input: {
+  providerSubject: string;
+  providerEmail: string;
+}): Promise<UserRecord | null> {
+  const normalizedEmail = normalizeEmail(input.providerEmail);
+  const db = await getServerDB();
+  const row = db.dialect === 'postgres'
+    ? await db.postgres
+        .select({ id: pgSchema.users.id })
+        .from(pgSchema.users)
+        .where(and(eq(pgSchema.users.email, normalizedEmail), eq(pgSchema.users.status, 'ACTIVE')))
+        .limit(1)
+        .then((rows) => rows[0])
+    : await db.sqlite
+        .select({ id: sqliteSchema.users.id })
+        .from(sqliteSchema.users)
+        .where(and(eq(sqliteSchema.users.email, normalizedEmail), eq(sqliteSchema.users.status, 'ACTIVE')))
+        .limit(1)
+        .then((rows) => rows[0]);
+  if (!row) return null;
+
+  // linkGoogleAccount locks/revalidates the account and handles concurrent/repeated callbacks.
+  await linkGoogleAccount({
+    userId: row.id,
+    providerSubject: input.providerSubject,
+    providerEmail: normalizedEmail,
+  });
+  const user = db.dialect === 'postgres'
+    ? await db.postgres.select().from(pgSchema.users).where(eq(pgSchema.users.id, row.id)).limit(1).then((rows) => rows[0])
+    : await db.sqlite.select().from(sqliteSchema.users).where(eq(sqliteSchema.users.id, row.id)).limit(1).then((rows) => rows[0]);
+  if (!user || user.status !== 'ACTIVE' || normalizeEmail(user.email) !== normalizedEmail) return null;
+  return {
+    ...user,
+    createdAt: user.createdAt instanceof Date ? user.createdAt.toISOString() : user.createdAt,
+  };
 }
 
 export async function unlinkGoogleAccount(userId: string): Promise<boolean> {

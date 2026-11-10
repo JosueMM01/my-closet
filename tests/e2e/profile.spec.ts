@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { expect, test } from '@playwright/test';
 import { registerAndLogin, waitForHydration } from './helpers';
@@ -22,35 +22,125 @@ function seedEmailConfirmation(email: string, newEmail: string, code: string): v
   } finally { db.close(); }
 }
 
+function seedPasswordReset(email: string, expiresAt?: string): string {
+  const token = randomBytes(32).toString('base64url');
+  const db = new Database(path.resolve('data/my-closet-e2e.db'), { fileMustExist: true });
+  try {
+    const changed = db.prepare(`UPDATE password_reset_tokens SET token_hash = ?, expires_at = COALESCE(?, expires_at)
+      WHERE user_id = (SELECT id FROM users WHERE email = ?)`)
+      .run(createHash('sha256').update(token).digest('hex'), expiresAt ?? null, email);
+    expect(changed.changes).toBe(1);
+  } finally { db.close(); }
+  return token;
+}
+
 test.describe('Perfil', () => {
-  test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page }) => {
+  test('permite reintentar si falla la inspección del enlace de contraseña', async ({ page }) => {
+    await page.route('**/api/auth/reset-password/inspect', route => route.fulfill({ status: 503, json: { error: 'Temporal' } }));
+    await page.goto(`/reset-password#token=${'x'.repeat(43)}`);
+    await expect(page.getByText('No se pudo comprobar el enlace. Revisa tu conexión e inténtalo de nuevo.')).toBeVisible();
+    await expect(page.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await page.unroute('**/api/auth/reset-password/inspect');
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(page.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+  });
+
+  test('muestra la pantalla de enlace expirado sin ofrecer el formulario de contraseña', async ({ page }) => {
+    test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La siembra del token usa exclusivamente SQLite E2E local');
+    const email = await registerAndLogin(page, 'Enlace Expirado');
+    await page.goto('/profile');
+    await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Seguridad', exact: true }).click();
+
+    await page.getByRole('button', { name: /Cambiar contraseña/ }).click();
+    const passwordForm = page.getByRole('dialog', { name: 'Cambiar contraseña' }).locator('form');
+    await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
+    await passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' }).click();
+    await expect(page.getByText(/recibirás un enlace para cambiar tu contraseña/)).toBeVisible();
+
+    const expiredToken = seedPasswordReset(email, new Date(Date.now() - 60_000).toISOString());
+    await page.goto(`/reset-password#token=${expiredToken}`);
+
+    await expect(page.getByRole('heading', { name: 'Enlace no disponible' })).toBeVisible();
+    await expect(page.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+    await expect(page.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await expect(page.getByLabel('Repite la contraseña')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Solicitar otro enlace' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Iniciar sesión' })).toBeVisible();
+  });
+
+  test('verifica el nuevo correo, actualiza el perfil y conserva acceso con la nueva identidad', async ({ page, browser }) => {
     test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), 'La siembra de correo usa exclusivamente SQLite E2E local');
     await registerAndLogin(page, 'Perfil Inicial');
     await page.goto('/profile');
     await waitForHydration(page);
+    await expect(page.getByRole('tab', { name: 'Administración', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tabpanel', { name: 'Perfil', exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 'Perfil', exact: true }).press('ArrowRight');
+    await expect(page.getByRole('tab', { name: 'Seguridad', exact: true })).toBeFocused();
+    await expect(page.getByRole('tabpanel', { name: 'Perfil', exact: true })).toBeHidden();
 
-    await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Perfil Inicial');
+    await expect(page.getByLabel('Nombre', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Ya tengo un código de verificación' }).click();
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Ocultar', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: /Cambiar correo/ }).click();
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(/@test\.local$/);
     const originalEmail = await page.getByLabel('Correo nuevo').inputValue();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
+    await page.getByRole('button', { name: /Nombre visible/ }).click();
+    await expect(page.getByRole('dialog', { name: 'Nombre visible' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Nombre visible/ })).toBeFocused();
+    await page.getByRole('button', { name: /Nombre visible/ }).click();
+    await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Perfil Inicial');
 
-    const nameForm = page.locator('form').filter({ hasText: 'Nombre visible' });
+    const nameForm = page.getByRole('dialog', { name: 'Nombre visible' }).locator('form');
     await nameForm.getByLabel('Nombre', { exact: true }).fill('Perfil Nuevo');
     await nameForm.getByRole('button', { name: 'Guardar nombre' }).click();
     await expect(page.getByText('Nombre actualizado.')).toBeVisible();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
 
-    const passwordForm = page.locator('form').filter({ hasText: 'Cambiar contraseña' });
+    await page.getByRole('button', { name: /Cambiar contraseña/ }).click();
+    const passwordForm = page.getByRole('dialog', { name: 'Cambiar contraseña' }).locator('form');
+    await expect(passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' })).toBeDisabled();
     await passwordForm.getByLabel('Contraseña actual').fill('contrasena-segura');
-    await passwordForm.getByLabel(/^Nueva contraseña/).fill('contrasena-nueva');
-    await passwordForm.getByLabel('Repite la nueva contraseña').fill('contrasena-nueva');
-    await passwordForm.getByRole('button', { name: 'Cambiar contraseña' }).click();
-    await expect(page.getByText('Contraseña actualizada y sesión renovada.')).toBeVisible();
+    await passwordForm.getByRole('button', { name: 'Solicitar cambio por correo' }).click();
+    await expect(page.getByText(/recibirás un enlace para cambiar tu contraseña/)).toBeVisible();
+    const resetToken = seedPasswordReset(originalEmail);
+    await page.goto(`/reset-password#token=${resetToken}`);
+    await page.getByLabel(/^Nueva contraseña/).fill('contrasena-nueva');
+    await page.getByLabel('Repite la contraseña').fill('contrasena-nueva');
+    await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
+    await expect(page.getByText('Tu contraseña se actualizó correctamente.')).toBeVisible();
+    const staleContext = await browser.newContext();
+    const stalePage = await staleContext.newPage();
+    await stalePage.goto(new URL(`/reset-password#token=${resetToken}`, page.url()).toString());
+    await expect(stalePage.getByText('El enlace no es válido o ha expirado.')).toBeVisible();
+    await expect(stalePage.getByLabel(/^Nueva contraseña/)).toHaveCount(0);
+    await expect(stalePage.getByRole('link', { name: 'Solicitar otro enlace' })).toBeVisible();
+    await expect(stalePage.getByRole('link', { name: 'Iniciar sesión' })).toBeVisible();
+    await staleContext.close();
+    await page.getByRole('link', { name: 'Iniciar sesión' }).click();
+    await page.getByLabel('Correo electrónico').fill(originalEmail);
+    await page.getByLabel('Contraseña', { exact: true }).fill('contrasena-nueva');
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    await expect(page.getByTestId('home-greeting')).toContainText('Hola, Perfil');
+    await page.goto('/profile');
+    await waitForHydration(page);
+    await page.getByRole('tab', { name: 'Seguridad', exact: true }).click();
 
+    await page.getByRole('button', { name: /Cambiar correo/ }).click();
     const email = `perfil.nuevo.${Date.now()}@test.local`;
-    const emailForm = page.locator('form').filter({ hasText: 'Cambiar correo' });
+    const emailForm = page.getByRole('dialog', { name: 'Cambiar correo' }).locator('form');
     await emailForm.getByLabel('Correo nuevo').fill(email);
     await emailForm.getByLabel('Contraseña actual').fill('contrasena-nueva');
     await emailForm.getByRole('button', { name: 'Enviar código de verificación' }).click();
-    await expect(page.getByText(`Código enviado a ${email}. Tu correo actual no ha cambiado.`)).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Cambiar correo' })).toHaveCount(0);
+    await expect(page.getByText(`Escribe el código de 6 dígitos enviado a ${email}.`, { exact: false })).toBeVisible();
     seedEmailConfirmation(originalEmail, email, '482913');
     const codeInput = page.getByRole('textbox', { name: 'Dígito 1 de 6', exact: true });
     const confirm = page.getByRole('button', { name: 'Confirmar nuevo correo' });
@@ -91,7 +181,9 @@ test.describe('Perfil', () => {
     for (const [index, digit] of [...'482913'].entries()) await expect(digits.nth(index)).toHaveValue(digit);
     await confirm.click();
     await expect(page.getByText('Correo verificado y actualizado. Las otras sesiones se cerraron.')).toBeVisible();
+    await page.getByRole('button', { name: /Cambiar correo/ }).click();
     await expect(page.getByLabel('Correo nuevo')).toHaveValue(email);
+    await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
 
     await page.getByTestId('logout').click();
     await page.getByLabel('Correo electrónico').fill(email);

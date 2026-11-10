@@ -6,7 +6,8 @@ import {
   sessionResponseSchema,
 } from '@/lib/domain/validation';
 import { closeServerDB, getServerDB, sqliteSchema } from '@/server/db';
-import { verifyPassword } from '@/server/auth/password';
+import { parseServerEnv } from '@/server/env';
+import { hashPassword, verifyPassword } from '@/server/auth/password';
 import { resetRateLimits } from '@/server/auth/rate-limit';
 import {
   readCapturedMessagesForTests,
@@ -14,6 +15,7 @@ import {
 } from '@/server/mail/testing';
 import { updateUserForAdmin } from '@/server/repositories/admin-users-repository';
 import { findUserByEmail } from '@/server/repositories/users-repository';
+import { getPasswordResetTokenState, hashPasswordResetToken, replacePasswordResetToken } from '@/server/repositories/password-reset-repository';
 
 const cookieState = vi.hoisted(() => new Map<string, string>());
 
@@ -42,12 +44,14 @@ import { POST as forgotPassword } from '@/app/api/auth/forgot-password/route';
 import { GET as providers } from '@/app/api/auth/providers/route';
 import { POST as register } from '@/app/api/auth/register/route';
 import { POST as resetPassword } from '@/app/api/auth/reset-password/route';
+import { POST as inspectResetPassword } from '@/app/api/auth/reset-password/inspect/route';
 import { GET as session } from '@/app/api/auth/session/route';
 import { POST as changeEmail } from '@/app/api/profile/email/route';
 import { POST as confirmEmail } from '@/app/api/profile/email/confirm/route';
 import { consumeEmailChangeToken, EMAIL_CHANGE_MAX_ATTEMPTS, hashEmailChangeCode } from '@/server/repositories/email-change-repository';
 import { requestEmailChange } from '@/server/services/email-change-service';
-import { findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
+import * as passwordRecoveryService from '@/server/services/password-recovery-service';
+import { createUser, findUserById, updatePasswordHash } from '@/server/repositories/users-repository';
 import { POST as changePassword } from '@/app/api/profile/password/route';
 
 const BOOTSTRAP_EMAIL = 'api-bootstrap@example.test';
@@ -121,6 +125,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await closeServerDB();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -142,6 +147,13 @@ describe('API de cuentas y perfil', () => {
     const recovery = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: BOOTSTRAP_EMAIL }));
     expect(recovery.status).toBe(403);
     expect(readCapturedMessagesForTests()).toHaveLength(0);
+    fetcher.mockResolvedValue(Response.json({ success: false, action: 'recovery', hostname: 'localhost' }));
+    const invalidRecovery = await forgotPassword(jsonRequest('/api/auth/forgot-password', {
+      email: BOOTSTRAP_EMAIL,
+      turnstileToken: 'invalid-synthetic-token',
+    }));
+    expect(invalidRecovery.status).toBe(403);
+    expect(readCapturedMessagesForTests()).toHaveLength(0);
     fetcher.mockResolvedValue(Response.json({ success: true, action: 'login', hostname: 'localhost' }));
     const verified = await login(jsonRequest('/api/auth/login', {
       email: BOOTSTRAP_EMAIL, password: BOOTSTRAP_PASSWORD, turnstileToken: 'synthetic-token',
@@ -158,7 +170,7 @@ describe('API de cuentas y perfil', () => {
     expect(readCapturedMessagesForTests().filter(message => message.subject.includes('Recupera'))).toHaveLength(1);
   });
   it.each([
-    { route: '/api/profile/password', handler: changePassword, extra: { newPassword: 'nueva-contrasena-segura' } },
+    { route: '/api/profile/password', handler: changePassword, extra: {} },
     { route: '/api/profile/email', handler: changeEmail, extra: { newEmail: 'destino@example.test' } },
   ])('limita comprobaciones de contraseña en $route sin modificar la cuenta', async ({ route, handler, extra }) => {
     const profile = await registerUser('limited-profile@example.test', 'Perfil');
@@ -192,24 +204,112 @@ describe('API de cuentas y perfil', () => {
     expect(activeSession.authenticated).toBe(true);
   });
 
-  it('valida contraseña actual, rota sesión y cambia correo sin perder acceso', async () => {
+  it('no emite un enlace autenticado si el correo o la contraseña cambiaron durante la solicitud', async () => {
+    const profile = await registerUser('race-profile@example.test', 'Perfil');
+    const original = await findUserByEmail(profile.email);
+    if (!original) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    db.raw.prepare('UPDATE users SET email = ? WHERE id = ?').run('race-new@example.test', profile.userId);
+    const now = new Date();
+    await expect(replacePasswordResetToken({
+      userId: profile.userId, tokenHash: 'synthetic-hash', createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      expectedEmail: profile.email, expectedPasswordHash: original.passwordHash,
+      expectedTokenState: await getPasswordResetTokenState(profile.userId),
+    })).rejects.toThrow('La cuenta cambió durante la solicitud');
+    expect(db.raw.prepare('SELECT count(*) AS count FROM password_reset_tokens WHERE user_id = ?').get(profile.userId))
+      .toEqual({ count: 0 });
+  });
+
+  it('preserva el enlace anterior si SMTP falla antes de activar uno nuevo', async () => {
+    const profile = await registerUser('smtp-failure@example.test', 'SMTP');
+    const user = await findUserByEmail(profile.email);
+    if (!user) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const previousToken = 'previous-reset-token';
+    const previousTokenHash = hashPasswordResetToken(previousToken);
+    const now = new Date('2026-11-01T12:00:00.000Z');
+    db.sqlite.insert(sqliteSchema.passwordResetTokens).values({
+      id: crypto.randomUUID(), userId: user.id, tokenHash: previousTokenHash,
+      expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), createdAt: now.toISOString(),
+    }).run();
+
+    await expect(passwordRecoveryService.requestPasswordReset(profile.email, {
+      env: parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' }),
+      mailProvider: { kind: 'smtp', send: async () => { throw new Error('private SMTP failure'); } },
+      findUser: async () => user,
+      generateToken: () => 'replacement-token',
+      now: () => now,
+    })).rejects.toThrow('No se pudo enviar el correo de recuperación');
+
+    expect(db.raw.prepare('SELECT token_hash FROM password_reset_tokens WHERE user_id = ?').get(user.id))
+      .toEqual({ token_hash: previousTokenHash });
+  });
+
+  it('rechaza un snapshot de recuperación concurrente sin pisar el token ganador', async () => {
+    const profile = await registerUser('concurrent-reset@example.test', 'Concurrencia');
+    const user = await findUserByEmail(profile.email);
+    if (!user) throw new Error('Falta la cuenta de prueba');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const snapshot = await getPasswordResetTokenState(user.id);
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+    const base = {
+      userId: user.id, createdAt, expiresAt, expectedEmail: user.email,
+      expectedPasswordHash: user.passwordHash, expectedTokenState: snapshot,
+    };
+
+    await replacePasswordResetToken({ ...base, tokenHash: hashPasswordResetToken('winner-token') });
+    await expect(replacePasswordResetToken({ ...base, tokenHash: hashPasswordResetToken('stale-token') }))
+      .rejects.toThrow('La solicitud de recuperación cambió durante el envío');
+    expect(db.raw.prepare('SELECT token_hash FROM password_reset_tokens WHERE user_id = ?').get(user.id))
+      .toEqual({ token_hash: hashPasswordResetToken('winner-token') });
+  });
+
+  it('exige correo para cambiar contraseña y luego permite verificar el cambio de correo', async () => {
     const profile = await registerUser('perfil@example.test', 'Perfil');
     const wrong = await changePassword(
       jsonRequest('/api/profile/password', {
         currentPassword: 'incorrecta',
-        newPassword: 'nueva-contrasena',
       }),
     );
     expect(wrong.status).toBe(403);
+    expect(readCapturedMessagesForTests()).toHaveLength(0);
+
+    const legacy = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: 'contrasena-segura', newPassword: 'nueva-contrasena',
+    }));
+    expect(legacy.status).toBe(400);
 
     const passwordResponse = await changePassword(
       jsonRequest('/api/profile/password', {
         currentPassword: 'contrasena-segura',
-        newPassword: 'nueva-contrasena',
       }),
     );
     expect(passwordResponse.status).toBe(200);
     expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(true);
+    const beforeReset = await findUserByEmail(profile.email);
+    expect(beforeReset && await verifyPassword('contrasena-segura', beforeReset.passwordHash)).toBe(true);
+    const resetToken = capturedResetToken();
+    const inspected = await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: resetToken }));
+    expect(await inspected.json()).toEqual({ valid: true });
+    expect(inspected.headers.get('cache-control')).toBe('no-store');
+    const changed = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token: resetToken, newPassword: 'nueva-contrasena',
+    }));
+    expect(changed.status).toBe(200);
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: resetToken }))).json())
+      .toEqual({ valid: false });
+    expect(sessionResponseSchema.parse(await (await session()).json()).authenticated).toBe(false);
+    expect((await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token: resetToken, newPassword: 'otra-contrasena',
+    }))).status).toBe(400);
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: profile.email, password: 'nueva-contrasena',
+    }))).status).toBe(200);
 
     const emailResponse = await changeEmail(
       jsonRequest('/api/profile/email', {
@@ -253,6 +353,39 @@ describe('API de cuentas y perfil', () => {
       }),
     );
     expect(nextLogin.status).toBe(200);
+  });
+
+  it('mantiene login y verificación de contraseña actual heredada, y no consume reset ante clave débil', async () => {
+    const legacyPassword = '12345678';
+    const user = await createUser({
+      email: 'legacy-password@example.test',
+      displayName: 'Cuenta antigua',
+      passwordHash: await hashPassword(legacyPassword),
+    });
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: user.email, password: legacyPassword,
+    }))).status).toBe(200);
+
+    const requested = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: legacyPassword,
+    }));
+    expect(requested.status).toBe(200);
+    const token = capturedResetToken();
+    const weak = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token, newPassword: 'passwordpassword',
+    }));
+    expect(weak.status).toBe(400);
+    expect((await weak.json()).error).toContain('demasiado común');
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token }))).json())
+      .toEqual({ valid: true });
+
+    const strong = await resetPassword(jsonRequest('/api/auth/reset-password', {
+      token, newPassword: 'un bosque guarda silencio al amanecer',
+    }));
+    expect(strong.status).toBe(200);
+    expect((await login(jsonRequest('/api/auth/login', {
+      email: user.email, password: 'un bosque guarda silencio al amanecer',
+    }))).status).toBe(200);
   });
 
   it('no expone el código, no permite otra cuenta y reemplaza solicitudes anteriores', async () => {
@@ -305,6 +438,79 @@ describe('API de cuentas y perfil', () => {
     await updatePasswordHash(profile.userId, 'scrypt:changed-after-request');
     expect(await consumeEmailChangeToken(profile.userId, token)).toBeNull();
     expect((await findUserById(profile.userId))?.email).toBe(profile.email);
+  });
+
+  it.each(['ACTIVE', 'DISABLED'] as const)('rechaza un correo ocupado por una cuenta %s sin enviar ni reemplazar la solicitud pendiente', async (status) => {
+    const owner = await registerUser('duplicate-owner@example.test', 'Titular');
+    const ownerCookies = new Map(cookieState);
+    expect((await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: 'pending-free@example.test',
+    }))).status).toBe(200);
+    const other = await registerUser('occupied@example.test', 'Otra cuenta');
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
+    const { eq } = await import('drizzle-orm');
+    db.sqlite.update(sqliteSchema.users).set({ status }).where(eq(sqliteSchema.users.id, other.userId)).run();
+    cookieState.clear();
+    for (const [key, value] of ownerCookies) cookieState.set(key, value);
+    const previousTokens = db.sqlite.select().from(sqliteSchema.emailChangeTokens).all();
+    const previousMessages = [...readCapturedMessagesForTests()];
+
+    const response = await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: ' OCCUPIED@Example.Test ',
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect((await findUserById(owner.userId))?.email).toBe(owner.email);
+    expect((await findUserById(other.userId))?.email).toBe(other.email);
+    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all()).toEqual(previousTokens);
+    expect(readCapturedMessagesForTests()).toEqual(previousMessages);
+    expect(sessionResponseSchema.parse(await (await session()).json())).toMatchObject({
+      authenticated: true, profile: { userId: owner.userId },
+    });
+  });
+
+  it('devuelve 409 en la API si el destino se ocupa antes de confirmar y conserva la sesión y el código', async () => {
+    const owner = await registerUser('late-owner@example.test', 'Titular');
+    const ownerCookies = new Map(cookieState);
+    expect((await changeEmail(jsonRequest('/api/profile/email', {
+      currentPassword: 'contrasena-segura', newEmail: 'late-target@example.test',
+    }))).status).toBe(200);
+    const code = capturedEmailToken();
+    const other = await registerUser('late-target@example.test', 'Otra cuenta');
+    cookieState.clear();
+    for (const [key, value] of ownerCookies) cookieState.set(key, value);
+    const db = await getServerDB();
+    if (db.dialect !== 'sqlite') throw new Error('Prueba SQLite');
+    const previousTokens = db.sqlite.select().from(sqliteSchema.emailChangeTokens).all();
+    const previousMessages = [...readCapturedMessagesForTests()];
+
+    const response = await confirmEmail(jsonRequest('/api/profile/email/confirm', { code }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect((await findUserById(owner.userId))?.email).toBe(owner.email);
+    expect((await findUserById(other.userId))?.email).toBe(other.email);
+    expect(db.sqlite.select().from(sqliteSchema.emailChangeTokens).all()).toEqual(previousTokens);
+    expect(readCapturedMessagesForTests()).toEqual(previousMessages);
+    expect(sessionResponseSchema.parse(await (await session()).json())).toMatchObject({
+      authenticated: true, profile: { userId: owner.userId },
+    });
+  });
+
+  it('rechaza registrar dos veces el mismo correo normalizado sin sustituir la cuenta existente', async () => {
+    const owner = await registerUser('registered@example.test', 'Titular');
+    const previousCookies = new Map(cookieState);
+    const response = await register(jsonRequest('/api/auth/register', {
+      email: ' REGISTERED@Example.Test ', displayName: 'Otra identidad', password: 'otra-contrasena',
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Ya existe una cuenta con ese correo' });
+    expect(await findUserByEmail(owner.email)).toMatchObject({ id: owner.userId, displayName: 'Titular' });
+    expect(cookieState).toEqual(previousCookies);
+    const stored = await findUserById(owner.userId);
+    expect(stored && await verifyPassword('contrasena-segura', stored.passwordHash)).toBe(true);
   });
 
   it('resuelve conflictos de destino al confirmar sin consumir ni revocar sesiones', async () => {
@@ -428,9 +634,43 @@ describe('API de cuentas y perfil', () => {
       jsonRequest('/api/auth/forgot-password', { email: user.email }),
     );
 
-    expect([active.status, missing.status, disabled.status]).toEqual([200, 200, 200]);
-    expect(await active.text()).toBe(await missing.text());
-    expect(await disabled.text()).toBe(JSON.stringify({ ok: true }));
+    const responses = [active, missing, disabled];
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200]);
+    const bodies = await Promise.all(responses.map(response => response.text()));
+    expect(new Set(bodies)).toEqual(new Set([JSON.stringify({ ok: true })]));
+  });
+
+  it('mantiene la respuesta anti-enumeración cuando falla la entrega de recuperación', async () => {
+    const user = await registerUser('smtp-route-failure@example.test', 'SMTP');
+    vi.spyOn(passwordRecoveryService, 'requestPasswordReset').mockRejectedValue(new Error('private SMTP detail'));
+
+    const active = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: user.email }));
+    const missing = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: 'missing-smtp@example.test' }));
+    const admin = await loginBootstrap();
+    await updateUserForAdmin({ actorId: admin.userId, userId: user.userId, status: 'DISABLED' });
+    const disabled = await forgotPassword(jsonRequest('/api/auth/forgot-password', { email: user.email }));
+
+    const responses = [active, missing, disabled];
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200]);
+    const bodies = await Promise.all(responses.map(response => response.text()));
+    expect(new Set(bodies)).toEqual(new Set([JSON.stringify({ ok: true })]));
+    const activeBody = bodies[0] ?? '';
+    expect(activeBody).not.toContain('private SMTP detail');
+  });
+
+  it('presenta un error genérico en perfil cuando no se puede enviar el enlace', async () => {
+    const user = await registerUser('smtp-profile-failure@example.test', 'SMTP Perfil');
+    await login(jsonRequest('/api/auth/login', { email: user.email, password: 'contrasena-segura' }));
+    vi.spyOn(passwordRecoveryService, 'requestPasswordReset').mockRejectedValue(new Error('private SMTP detail'));
+
+    const response = await changePassword(jsonRequest('/api/profile/password', {
+      currentPassword: 'contrasena-segura',
+    }));
+
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(body).toBe(JSON.stringify({ error: 'No se pudo completar la solicitud. Intenta de nuevo.' }));
+    expect(body).not.toContain('private SMTP detail');
   });
 
   it('mantiene la respuesta genérica al aplicar rate limit', async () => {
@@ -447,8 +687,10 @@ describe('API de cuentas y perfil', () => {
     );
   });
 
-  it('guarda solo hash y permite un único reset concurrente que revoca sesiones', async () => {
+  it('guarda solo hash y permite un único reset concurrente que revoca sesiones y otros enlaces', async () => {
     const user = await registerUser('reset@example.test', 'Reset');
+    const registeredUser = await findUserByEmail(user.email);
+    if (!registeredUser) throw new Error('Cuenta de prueba no encontrada');
     await login(
       jsonRequest('/api/auth/login', {
         email: user.email,
@@ -462,6 +704,11 @@ describe('API de cuentas y perfil', () => {
     const token = capturedResetToken();
     const db = await getServerDB();
     if (db.dialect !== 'sqlite') throw new Error('SQLite requerido');
+    const secondToken = 'o'.repeat(43);
+    db.sqlite.insert(sqliteSchema.passwordResetTokens).values({
+      id: crypto.randomUUID(), userId: registeredUser.id, tokenHash: hashPasswordResetToken(secondToken),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(), createdAt: new Date().toISOString(),
+    }).run();
     const stored = db.raw
       .prepare<[], { token_hash: string }>('SELECT token_hash FROM password_reset_tokens')
       .get();
@@ -480,9 +727,10 @@ describe('API de cuentas y perfil', () => {
     ]);
     expect(attempts.map((response) => response.status).sort()).toEqual([200, 400]);
     expect(db.raw.prepare('SELECT COUNT(*) AS count FROM sessions').get()).toEqual({ count: 0 });
-    expect(
-      db.raw.prepare('SELECT used_at FROM password_reset_tokens').get(),
-    ).toMatchObject({ used_at: expect.any(String) });
+    expect(db.raw.prepare('SELECT COUNT(*) AS count FROM password_reset_tokens WHERE user_id = ?').get(registeredUser.id))
+      .toEqual({ count: 0 });
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token: secondToken }))).json())
+      .toEqual({ valid: false });
     expect(sessionResponseSchema.parse(await (await session()).json())).toEqual({ authenticated: false });
 
     const updated = await findUserByEmail(user.email);
@@ -511,6 +759,8 @@ describe('API de cuentas y perfil', () => {
     const expired = await resetPassword(
       jsonRequest('/api/auth/reset-password', { token, newPassword: 'nueva-contrasena' }),
     );
+    expect(await (await inspectResetPassword(jsonRequest('/api/auth/reset-password/inspect', { token }))).json())
+      .toEqual({ valid: false });
     const unknown = await resetPassword(
       jsonRequest('/api/auth/reset-password', {
         token: 'x'.repeat(43),

@@ -10,6 +10,7 @@ import {
 } from '@/server/repositories/invitations-repository';
 
 type CreateInvitationInput = Parameters<typeof createInvitation>[0];
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 interface InvitationServiceDependencies {
   env?: ServerEnv;
@@ -39,14 +40,15 @@ export type InvitationDeliveryResult =
     };
 
 export async function createAndDeliverInvitation(
-  input: CreateInvitationInput,
+  input: Omit<CreateInvitationInput, 'expiresAt'>,
   dependencies: InvitationServiceDependencies = {},
 ): Promise<InvitationDeliveryResult> {
   const env = dependencies.env ?? getEnv();
   const provider = dependencies.mailProvider ?? createMailProvider(env);
   const create = dependencies.create ?? createInvitation;
   const revoke = dependencies.revoke ?? revokeInvitation;
-  const created = await create(input);
+  // Server time is authoritative. Ignore expiration fields from older clients.
+  const created = await create({ ...input, expiresAt: new Date(Date.now() + INVITATION_TTL_MS).toISOString() });
   const inviteUrl = buildInvitationUrl(created.token, env);
   const message = createInvitationEmail({
     email: created.invitation.email,

@@ -47,9 +47,11 @@ describeStaging('cupo de invitaciones PostgreSQL en tablas temporales de staging
     if (host !== env.INVITATION_CONTRACT_EXPECTED_HOST || host === env.INVITATION_CONTRACT_PRODUCTION_HOST) {
       throw new Error('Se rechazó el destino: el contrato solo permite el staging esperado, distinto de producción');
     }
-    client = postgres(env.INVITATION_CONTRACT_DATABASE_URL, { ssl: 'require', max: 1, prepare: false, connect_timeout: 15, onnotice: () => {} });
+    // Local CI PostgreSQL is not configured for TLS; remote staging must use TLS.
+    const ssl = host === 'localhost' || host === '127.0.0.1' ? false : 'require';
+    client = postgres(env.INVITATION_CONTRACT_DATABASE_URL, { ssl, max: 1, prepare: false, connect_timeout: 15, onnotice: () => {} });
     database = drizzle(client, { schema: pgSchema });
-    observer = postgres(env.INVITATION_CONTRACT_DATABASE_URL, { ssl: 'require', max: 1, prepare: false, connect_timeout: 15, onnotice: () => {} });
+    observer = postgres(env.INVITATION_CONTRACT_DATABASE_URL, { ssl, max: 1, prepare: false, connect_timeout: 15, onnotice: () => {} });
   });
   afterAll(async () => {
     if (client) await client.end({ timeout: 5 });

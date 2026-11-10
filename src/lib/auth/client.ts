@@ -13,6 +13,7 @@ import {
   loginSchema,
   registerSchema,
   resetPasswordSchema,
+  passwordResetInspectionResponseSchema,
   sessionResponseSchema,
   googleInvitationStartSchema,
   googleInvitationStartResponseSchema,
@@ -123,6 +124,15 @@ export async function requestPasswordRecovery(email: string, turnstileToken?: st
     throw new AuthError(error.success ? error.data.error : 'No se pudo procesar la solicitud', response.status);
   }
   operationSuccessResponseSchema.parse(await response.json());
+}
+
+export async function inspectPasswordResetToken(token: string, signal?: AbortSignal): Promise<boolean> {
+  const response = await fetch('/api/auth/reset-password/inspect', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'my-closet' },
+    body: JSON.stringify({ token }), cache: 'no-store', signal,
+  });
+  if (!response.ok) throw new AuthError('No se pudo comprobar el enlace. Intenta de nuevo.', response.status);
+  return passwordResetInspectionResponseSchema.parse(await response.json()).valid;
 }
 
 export async function resetPassword(input: { token: string; newPassword: string }): Promise<void> {

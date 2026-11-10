@@ -62,7 +62,7 @@ export function PhotoCapture({ onPhoto, onGallery, onClose }: {
           video: {
             facingMode: { ideal: 'environment' },
             width: { ideal: portrait ? 720 : 1280 },
-            height: { ideal: portrait ? 1280 : 720 },
+            height: { ideal: 960 },
             aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
           },
         });
@@ -116,13 +116,13 @@ export function PhotoCapture({ onPhoto, onGallery, onClose }: {
     const generation = generationRef.current;
     setCapturing(true);
     try {
-      const frame = cameraFrame(video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
+      const frame = cameraFrame(video.videoWidth, video.videoHeight);
       const canvas = document.createElement('canvas');
       canvas.width = frame.outputWidth;
       canvas.height = frame.outputHeight;
       const context = canvas.getContext('2d');
       if (!context) throw new Error('Canvas no disponible');
-      context.drawImage(video, frame.x, frame.y, frame.width, frame.height, 0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
         value => value ? resolve(value) : reject(new Error('No se pudo capturar la imagen')),
         'image/jpeg', 0.92,

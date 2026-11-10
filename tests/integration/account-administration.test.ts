@@ -190,7 +190,6 @@ describe('invitaciones de cuenta', () => {
     const send = vi.fn(async () => 'captured' as const);
     await expect(createAndDeliverInvitation({
       actorId: admin.id, email: 'blocked@example.test', role: 'ADMIN',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
     }, {
       env: parseServerEnv({ NODE_ENV: 'test', EMAIL_PROVIDER: 'capture' }),
       mailProvider: { kind: 'capture', send },

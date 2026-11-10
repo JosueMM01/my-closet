@@ -61,9 +61,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      AUTH_SECRET: github-actions-only-auth-secret
+      ACCOUNT_DELETION_ENABLED: 'true'
+      ADMIN_ACCOUNT_DELETION_ENABLED: 'true'
+      ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: 'false'
       DATABASE_PROVIDER: postgres
-      DATABASE_URL: postgresql://my_closet:test-only-password@localhost:5432/my_closet_test
-      DATABASE_URL_UNPOOLED: postgresql://my_closet:test-only-password@localhost:5432/my_closet_test
+      DATABASE_URL: postgresql://closet_5c_preview_owner:closet-5c-contract-test-only-password@localhost:5432/closet_5c_preview
+      DATABASE_URL_UNPOOLED: postgresql://closet_5c_preview_owner:closet-5c-contract-test-only-password@localhost:5432/closet_5c_preview
       IMAGE_PROVIDER: local
     steps:
       - uses: actions/checkout@v4
@@ -73,13 +77,66 @@ jobs:
           node-version: 24.13.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm db:migrate
-      - run: pnpm exec vitest run tests/integration/postgres-contract.test.ts
+      - name: Migrate the existing PostgreSQL contract database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://my_closet:test-only-password@localhost:5432/my_closet_test
+          DATABASE_URL_UNPOOLED: postgresql://my_closet:test-only-password@localhost:5432/my_closet_test
+      - name: Create isolated 5C contract role and database
+        run: |
+          node --input-type=module <<'NODE'
+          import postgres from 'postgres';
+
+          const admin = postgres(process.env.CONTRACT_ADMIN_DATABASE_URL, { max: 1, prepare: false });
+          try {
+            await admin.unsafe(`DO $contract$
+              BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'closet_5c_preview_owner') THEN
+                  CREATE ROLE closet_5c_preview_owner LOGIN;
+                END IF;
+              END;
+            $contract$`);
+            await admin.unsafe("ALTER ROLE closet_5c_preview_owner PASSWORD 'closet-5c-contract-test-only-password'");
+            const [database] = await admin`SELECT 1 FROM pg_database WHERE datname = 'closet_5c_preview'`;
+            if (!database) await admin.unsafe('CREATE DATABASE closet_5c_preview OWNER closet_5c_preview_owner');
+            else await admin.unsafe('ALTER DATABASE closet_5c_preview OWNER TO closet_5c_preview_owner');
+            await admin.unsafe('REVOKE ALL ON DATABASE closet_5c_preview FROM PUBLIC');
+            await admin.unsafe('GRANT CONNECT, TEMPORARY ON DATABASE closet_5c_preview TO closet_5c_preview_owner');
+          } finally {
+            await admin.end({ timeout: 5 });
+          }
+          NODE
+        env:
+          CONTRACT_ADMIN_DATABASE_URL: postgresql://my_closet:test-only-password@localhost:5432/my_closet_test
+      - name: Migrate isolated 5C contract database
+        run: pnpm db:migrate
+      - name: Run PostgreSQL repository and lifecycle contracts sequentially
+        run: >-
+          pnpm exec vitest run
+          tests/integration/postgres-contract.test.ts
+          tests/integration/postgres-invitation-capacity.test.ts
+          tests/integration/postgres-account-deletion.test.ts
+          tests/integration/postgres-cloudinary-upload-authorizations.test.ts
+          --maxWorkers=1
+          --testTimeout=30000
+          --hookTimeout=30000
+        env:
+          INVITATION_CONTRACT_DATABASE_URL: postgresql://closet_5c_preview_owner:closet-5c-contract-test-only-password@localhost:5432/closet_5c_preview
+          INVITATION_CONTRACT_EXPECTED_HOST: localhost
+          INVITATION_CONTRACT_PRODUCTION_HOST: production.invalid.example
+          ACCOUNT_DELETION_CONTRACT_DATABASE_URL: postgresql://closet_5c_preview_owner:closet-5c-contract-test-only-password@localhost:5432/closet_5c_preview
+          CLOUDINARY_UPLOAD_CONTRACT_DATABASE_URL: postgresql://closet_5c_preview_owner:closet-5c-contract-test-only-password@localhost:5432/closet_5c_preview
+          CLOUDINARY_UPLOAD_CONTRACT_EXPECTED_HOST: localhost
+          CLOUDINARY_UPLOAD_CONTRACT_PRODUCTION_HOST: production.invalid.example
 
   e2e:
     name: Playwright E2E
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ACCOUNT_DELETION_ENABLED: 'true'
+      ADMIN_ACCOUNT_DELETION_ENABLED: 'true'
+      ACCOUNT_DELETION_REMOTE_CLEANUP_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

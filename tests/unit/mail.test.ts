@@ -48,6 +48,12 @@ beforeEach(() => {
 });
 
 describe('límite de correo', () => {
+  it('acepta SMTP opcional vacío en Preview sin heredar transporte ni relajar booleanos inválidos', () => {
+    const empty = { NODE_ENV: 'production', EMAIL_PROVIDER: 'capture', AUTH_SECRET: 'synthetic-preview-auth-secret',
+      EMAIL_FROM: '', SMTP_HOST: '', SMTP_PORT: '', SMTP_SECURE: '', SMTP_USER: '', SMTP_PASSWORD: '' };
+    expect(parseServerEnv(empty).SMTP_SECURE).toBeUndefined();
+    expect(() => parseServerEnv({ ...empty, SMTP_SECURE: 'invalid' })).toThrow();
+  });
   it('disabled no captura ni carga un transporte SMTP', async () => {
     const provider = createMailProvider(parseServerEnv({ NODE_ENV: 'test' }));
 
@@ -147,11 +153,18 @@ describe('correo de recuperación', () => {
   it('captura una URL con fragmento y entrega al repositorio solo el hash', async () => {
     const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
     const rawToken = 'r'.repeat(43);
-    const replaceToken = vi.fn(async () => undefined);
+    const events: string[] = [];
+    let deliveredMessage: OutboundMailMessage | undefined;
+    const replaceToken = vi.fn(async () => { events.push('persist'); });
 
     await requestPasswordReset('owner@example.test', {
       env,
       generateToken: () => rawToken,
+      getTokenState: async () => 'previous-token-state',
+      mailProvider: {
+        kind: 'smtp',
+        send: async (mail) => { events.push('send'); deliveredMessage = mail; return 'sent'; },
+      },
       replaceToken,
       findUser: async () => ({
         id: '11111111-1111-4111-8111-111111111111',
@@ -167,13 +180,17 @@ describe('correo de recuperación', () => {
     });
 
     expect(replaceToken).toHaveBeenCalledWith(
-      expect.objectContaining({ tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+      expect.objectContaining({
+        tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        expectedEmail: 'owner@example.test',
+        expectedPasswordHash: 'stored-hash',
+        expectedTokenState: 'previous-token-state',
+      }),
     );
+    expect(events).toEqual(['persist', 'send']);
     expect(JSON.stringify(replaceToken.mock.calls)).not.toContain(rawToken);
-    const captured = readCapturedMessagesForTests();
-    expect(captured).toHaveLength(1);
-    expect(captured[0]?.text).toContain(`/reset-password#token=${rawToken}`);
-    expect(captured[0]?.text).not.toContain('/reset-password?token=');
+    expect(deliveredMessage?.text).toContain(`/reset-password#token=${rawToken}`);
+    expect(deliveredMessage?.text).not.toContain('/reset-password?token=');
   });
 
   it('construye y escapa la plantilla española', () => {
@@ -188,7 +205,7 @@ describe('correo de recuperación', () => {
     expect(email.html).toContain('30 minutos');
   });
 
-  it('no propaga detalles cuando falla la entrega', async () => {
+  it('mantiene el token anterior si falla SMTP y no propaga detalles del proveedor', async () => {
     const env = parseServerEnv({ EMAIL_PROVIDER: 'capture', NODE_ENV: 'test' });
     const mailProvider: MailProvider = {
       kind: 'smtp',
@@ -197,12 +214,16 @@ describe('correo de recuperación', () => {
       },
     };
 
+    const replaceToken = vi.fn(async () => undefined);
+    const invalidateToken = vi.fn(async () => undefined);
     await expect(
       requestPasswordReset('owner@example.test', {
         env,
         mailProvider,
         generateToken: () => 'f'.repeat(43),
-        replaceToken: async () => undefined,
+        getTokenState: async () => 'previous-token-state',
+        replaceToken,
+        invalidateToken,
         findUser: async () => ({
           id: '11111111-1111-4111-8111-111111111111',
           email: 'owner@example.test',
@@ -215,11 +236,23 @@ describe('correo de recuperación', () => {
           createdAt: '2029-01-01T00:00:00.000Z',
         }),
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('No se pudo enviar el correo de recuperación');
+    expect(replaceToken).toHaveBeenCalledOnce();
+    expect(invalidateToken).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{64}$/));
   });
 });
 
 describe('servicio de invitaciones', () => {
+  it('fija siete días desde el servidor aunque un cliente antiguo mande otra fecha', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-25T12:00:00.000Z'));
+    try {
+      const create = vi.fn(async () => ({ invitation, token: 'd'.repeat(43) }));
+      const legacyInput = { actorId: invitation.createdBy, email: invitation.email, role: invitation.role, expiresAt: '2099-01-01T00:00:00.000Z' };
+      await createAndDeliverInvitation(legacyInput, { env: parseServerEnv({ NODE_ENV: 'test' }), create });
+      expect(create).toHaveBeenCalledWith({ ...legacyInput, expiresAt: '2026-11-01T12:00:00.000Z' });
+    } finally { vi.useRealTimers(); }
+  });
   it('expone el token por separado solo cuando el correo está disabled', async () => {
     const env = parseServerEnv({ NODE_ENV: 'test' });
     const create = vi.fn(async () => ({ invitation, token: 'a'.repeat(43) }));
@@ -229,7 +262,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -249,7 +281,6 @@ describe('servicio de invitaciones', () => {
         actorId: invitation.createdBy,
         email: invitation.email,
         role: invitation.role,
-        expiresAt: invitation.expiresAt,
       },
       { env, create },
     );
@@ -274,7 +305,6 @@ describe('servicio de invitaciones', () => {
           actorId: invitation.createdBy,
           email: invitation.email,
           role: invitation.role,
-          expiresAt: invitation.expiresAt,
         },
         { env, create, revoke, mailProvider },
       ),

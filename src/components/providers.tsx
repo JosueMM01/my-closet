@@ -89,6 +89,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!('BroadcastChannel' in window)) return;
+    const channel = new BroadcastChannel('my-closet-account');
+    channel.onmessage = (event: MessageEvent<unknown>) => {
+      const message = event.data;
+      if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'account-deleted') {
+        window.location.replace('/login?account=deleted');
+      }
+    };
+    return () => channel.close();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     const loadProfile = async () => {
       let loaded = await getLocalProfile();

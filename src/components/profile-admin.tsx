@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { AdminInvitationCache, LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
+import type { AdminInvitationCache, AdminUserCache, LocalProfile, UserRole, UserStatus } from '@/lib/domain/types';
 import { ApiClientError } from '@/lib/api/client';
 import {
   createAdminInvitation,
   refreshAdminInvitations,
-  refreshAdminUsers,
+  refreshAdminUsersState,
+  deleteAdminAccount,
   revokeAdminInvitation,
   updateAdminUser,
 } from '@/lib/admin/client';
@@ -15,6 +16,7 @@ import { getDB } from '@/lib/local/db';
 import { adminCapacityMessage, isPendingInvitation, MAX_ACTIVE_ADMINS, reservedAdminSeats } from '@/lib/domain/admin-capacity';
 import { useSync } from '@/components/providers';
 import { Button, Field, Select, TextInput } from './ui';
+import { ProfileModal } from './profile-modal';
 
 const EMPTY_INVITATIONS: AdminInvitationCache[] = [];
 
@@ -37,11 +39,22 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(0);
+  const [deletionEnabled, setDeletionEnabled] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserCache | null>(null);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [acknowledgeDeletion, setAcknowledgeDeletion] = useState(false);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!online) return;
     let active = true;
-    void Promise.all([refreshAdminUsers(), refreshAdminInvitations()])
+    void Promise.all([refreshAdminUsersState().then(state => {
+      if (active) setDeletionEnabled(state.adminDeletionEnabled);
+    }), refreshAdminInvitations()])
       .catch((caught) => {
         if (active) setError(readableError(caught));
       })
@@ -79,6 +92,10 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
   const adminCapacityKnown = users.some((user) => user.userId === profile.userId);
   const reservedSeats = reservedAdminSeats(invitations, now);
   const adminInvitationUnavailable = !adminCapacityKnown || activeAdminCount + reservedSeats >= MAX_ACTIVE_ADMINS;
+  const filteredUsers = users.filter((user) => `${user.displayName} ${user.email}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleUsers = filteredUsers.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
 
   async function createInvitation(event: React.FormEvent) {
     event.preventDefault();
@@ -97,9 +114,9 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
       const created = await createAdminInvitation({
         email,
         role,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
       });
       setInviteUrl(created.inviteUrl);
+      setInviteOpen(false);
       setEmail('');
       const delivery = created.delivery === 'sent'
         ? 'enviada por correo'
@@ -119,7 +136,8 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
     setBusy('refresh');
     setError(null);
     try {
-      await Promise.all([refreshAdminUsers(), refreshAdminInvitations()]);
+      const [state] = await Promise.all([refreshAdminUsersState(), refreshAdminInvitations()]);
+      setDeletionEnabled(state.adminDeletionEnabled);
       setStatus('Datos de administración actualizados.');
     } catch (caught) {
       setError(readableError(caught));
@@ -167,6 +185,50 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
     }
   }
 
+  function closeDeletion() {
+    if (busy?.startsWith('delete-')) return;
+    setDeleteTarget(null);
+    setAdminPassword('');
+    setAcknowledgeDeletion(false);
+    setDeletionError(null);
+  }
+
+  async function removeAccount(event: React.FormEvent) {
+    event.preventDefault();
+    if (!deleteTarget || !online || busy || !adminPassword || !acknowledgeDeletion) return;
+    setBusy(`delete-${deleteTarget.userId}`);
+    setDeletionError(null);
+    setError(null);
+    setStatus(null);
+    try {
+      const result = await deleteAdminAccount(deleteTarget.userId, {
+        acknowledge: true, currentPassword: adminPassword,
+      });
+      setAdminPassword('');
+      setAcknowledgeDeletion(false);
+      setDeleteTarget(null);
+      setStatus(result.cleanupPending
+        ? 'Cuenta eliminada de los datos activos. La limpieza de imágenes sigue pendiente.'
+        : 'Cuenta eliminada de los datos activos. Las copias de respaldo siguen su retención.');
+      try {
+        await Promise.all([refreshAdminUsersState(), refreshAdminInvitations()]);
+      } catch {
+        setError('La baja fue confirmada, pero falta actualizar la lista. Pulsa Actualizar datos; no repitas la eliminación.');
+      }
+    } catch (caught) {
+      if (caught instanceof ApiClientError && (caught.status === 0 || caught.status >= 500 || (caught.status >= 200 && caught.status < 300))) {
+        setDeleteTarget(null);
+        setAdminPassword('');
+        setAcknowledgeDeletion(false);
+        setError('No pudimos confirmar el resultado de la baja. Recupera la conexión y actualiza las cuentas antes de volver a intentarlo.');
+      } else {
+        setDeletionError(readableError(caught));
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="card-surface overflow-hidden" aria-labelledby="admin-title" data-testid="admin-panel">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-primary-soft px-5 py-4 sm:px-6">
@@ -194,10 +256,11 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
         </p>
       ) : null}
 
-      <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-2">
+      <div className="grid gap-6 p-5 sm:p-6">
         <div>
-          <h3 className="font-heading text-base">Crear invitación</h3>
-          <form onSubmit={createInvitation} className="mt-3 space-y-3" noValidate>
+          <Button type="button" onClick={() => setInviteOpen(true)} disabled={!online || busy !== null}>Crear invitación</Button>
+          <ProfileModal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Crear invitación">
+          <form onSubmit={createInvitation} className="space-y-3" noValidate>
             <Field label="Correo de la persona invitada">
               <TextInput
                 type="email"
@@ -242,7 +305,9 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
             >
               Crear invitación de 7 días
             </Button>
+            {error ? <p role="alert" className="text-sm font-medium text-danger">{error}</p> : null}
           </form>
+          </ProfileModal>
 
           {inviteUrl ? (
             <div className="mt-4 rounded-xl border border-border bg-surface-alt p-3">
@@ -267,8 +332,15 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
             </div>
           ) : null}
 
-          <div className="mt-6">
-            <h3 className="font-heading text-base">Invitaciones pendientes</h3>
+          <details className="group mt-4 rounded-2xl bg-surface-alt">
+            <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-sm font-semibold">Invitaciones pendientes ({pendingInvitations.length})</span>
+                <span className="mt-0.5 block text-xs text-text-secondary">Consulta su vigencia o revoca una invitación.</span>
+              </span>
+              <span aria-hidden="true" className="text-xl text-primary transition-transform group-open:rotate-90">›</span>
+            </summary>
+            <div className="px-4 pb-4">
             {pendingInvitations.length === 0 ? (
               <p className="mt-2 rounded-xl bg-surface-alt p-3 text-sm text-text-secondary">
                 No hay invitaciones pendientes.
@@ -299,7 +371,8 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                 ))}
               </ul>
             )}
-          </div>
+            </div>
+          </details>
         </div>
 
         <div>
@@ -309,15 +382,23 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
               {activeAdminCount}/2 admins activos · {reservedSeats} {reservedSeats === 1 ? 'plaza reservada' : 'plazas reservadas'}
             </span>
           </div>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="min-w-0 flex-1 text-xs font-semibold text-text-secondary">Buscar cuenta
+              <input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Nombre o correo" className="mt-1 h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text-primary" />
+            </label>
+            <label className="text-xs font-semibold text-text-secondary">Por página
+              <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(0); }} className="mt-1 block h-11 rounded-lg border border-border bg-surface px-3 text-sm text-text-primary"><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
+            </label>
+          </div>
           {busy === 'refresh' && users.length === 0 ? (
             <p className="mt-3 text-sm text-text-secondary" role="status">Actualizando cuentas…</p>
           ) : (
-            <ul className="mt-3 space-y-3">
-              {users.map((user) => {
+            <ul className="mt-3 grid gap-3 md:grid-cols-2">
+              {visibleUsers.map((user) => {
                 const self = user.userId === profile.userId;
                 const userBusy = busy === `user-${user.userId}`;
                 return (
-                  <li key={user.userId} className="rounded-xl border border-border p-3">
+                  <li key={user.userId} className="min-w-0 rounded-xl border border-border p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">
@@ -352,14 +433,45 @@ export function ProfileAdmin({ profile }: { profile: LocalProfile }) {
                       >
                         {user.status === 'ACTIVE' ? 'Desactivar' : 'Activar'}
                       </Button>
+                      {deletionEnabled && !self && user.status === 'DISABLED' ? (
+                        <Button type="button" variant="danger" disabled={!online || busy !== null}
+                          onClick={() => { setDeletionError(null); setAdminPassword(''); setAcknowledgeDeletion(false); setDeleteTarget(user); }}>
+                          Eliminar cuenta
+                        </Button>
+                      ) : null}
                     </div>
                   </li>
                 );
               })}
             </ul>
           )}
+          {filteredUsers.length === 0 && busy !== 'refresh' ? <p className="mt-3 text-sm text-text-secondary">No se encontraron cuentas.</p> : null}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-secondary">
+            <span>{filteredUsers.length} {filteredUsers.length === 1 ? 'cuenta' : 'cuentas'} · Página {currentPage + 1} de {pageCount}</span>
+            <div className="flex gap-2"><Button type="button" variant="secondary" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0}>Anterior</Button><Button type="button" variant="secondary" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount - 1}>Siguiente</Button></div>
+          </div>
         </div>
       </div>
+
+      <ProfileModal open={deleteTarget !== null} onClose={closeDeletion} title="Eliminar cuenta desactivada">
+        <form onSubmit={removeAccount} className="space-y-4">
+          <p className="break-words text-sm">Vas a eliminar la cuenta de <strong>{deleteTarget?.email}</strong>. No podrás deshacer esta operación desde la app.</p>
+          <p className="text-sm text-text-secondary">Se revocarán sus accesos y se retirarán sus datos activos. La limpieza de imágenes puede quedar pendiente; se conservan las copias ajenas legítimas y los respaldos siguen su retención.</p>
+          <Button type="button" variant="secondary" data-modal-initial-focus onClick={closeDeletion} disabled={busy !== null}>Cancelar</Button>
+          <Field label="Tu contraseña de administrador" htmlFor="admin-deletion-password">
+            <TextInput id="admin-deletion-password" type="password" autoComplete="current-password" required maxLength={128}
+              value={adminPassword} onChange={event => setAdminPassword(event.target.value)} disabled={busy !== null} />
+          </Field>
+          <p className="text-xs text-text-secondary">Si solo accedes con Google, primero establece tu contraseña mediante el correo de recuperación.</p>
+          <label className="flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={acknowledgeDeletion} onChange={event => setAcknowledgeDeletion(event.target.checked)} disabled={busy !== null} className="mt-1 h-5 w-5 shrink-0" />
+            Entiendo que se eliminarán los datos activos de esta cuenta.
+          </label>
+          {deletionError ? <p role="alert" className="text-sm text-danger">{deletionError}</p> : null}
+          <Button type="submit" variant="danger" loading={busy?.startsWith('delete-') ?? false}
+            disabled={!online || busy !== null || !adminPassword || !acknowledgeDeletion}>Confirmar eliminación</Button>
+        </form>
+      </ProfileModal>
 
       <div className="px-5 pb-5 sm:px-6" aria-live="polite">
         {error ? <p role="alert" className="text-sm font-medium text-danger">{error}</p> : null}

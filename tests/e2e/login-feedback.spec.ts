@@ -29,7 +29,7 @@ test('login muestra nombre de Google y candado sin tapar contraseña', async ({ 
 });
 
 for (const [reason, message] of [
-  ['account-unavailable', 'No se encontró una cuenta activa vinculada'],
+  ['account-unavailable', 'No se pudo iniciar con esta cuenta de Google'],
   ['cancelled', 'Cancelaste o no autorizaste'],
   ['session-invalid', 'La solicitud de acceso con Google ya no es válida'],
 ] as const) {
@@ -52,7 +52,7 @@ test('un perfil local no oculta un error nuevo de Google con una redirección', 
     },
   } }));
   await page.goto('/login?google=account-unavailable');
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('No se encontró una cuenta activa vinculada');
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('No se pudo iniciar con esta cuenta de Google');
   await expect(page.getByRole('link', { name: 'Iniciar sesión con Google', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
 });

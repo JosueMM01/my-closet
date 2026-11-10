@@ -1,10 +1,55 @@
 import { createHash } from 'node:crypto';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { uuid } from '@/lib/domain/ids';
 import { getServerDB, pgSchema, sqliteSchema } from '@/server/db';
 
+const MAX_ACTIVE_RESET_TOKENS_PER_USER = 3;
+
 export function hashPasswordResetToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** Read-only check; consuming the token still revalidates it transactionally. */
+export async function isPasswordResetTokenValid(tokenHash: string, now: string): Promise<boolean> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const rows = await db.postgres.select({ id: pgSchema.passwordResetTokens.id })
+      .from(pgSchema.passwordResetTokens)
+      .innerJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.passwordResetTokens.userId))
+      .where(and(eq(pgSchema.passwordResetTokens.tokenHash, tokenHash), isNull(pgSchema.passwordResetTokens.usedAt),
+        gt(pgSchema.passwordResetTokens.expiresAt, new Date(now)), eq(pgSchema.users.status, 'ACTIVE'))).limit(1);
+    return rows.length > 0;
+  }
+  const row = db.sqlite.select({ id: sqliteSchema.passwordResetTokens.id })
+    .from(sqliteSchema.passwordResetTokens)
+    .innerJoin(sqliteSchema.users, eq(sqliteSchema.users.id, sqliteSchema.passwordResetTokens.userId))
+    .where(and(eq(sqliteSchema.passwordResetTokens.tokenHash, tokenHash), isNull(sqliteSchema.passwordResetTokens.usedAt),
+      gt(sqliteSchema.passwordResetTokens.expiresAt, now), eq(sqliteSchema.users.status, 'ACTIVE'))).get();
+  return !!row;
+}
+
+type PasswordResetTokenStateRow = { tokenHash: string; usedAt: Date | string | null };
+
+function serializePasswordResetTokenState(rows: PasswordResetTokenStateRow[]): string {
+  return JSON.stringify(rows.map((row) => ({
+    tokenHash: row.tokenHash,
+    usedAt: row.usedAt instanceof Date ? row.usedAt.toISOString() : row.usedAt,
+  })));
+}
+
+/** Snapshot used to avoid replacing a token changed while its email was in flight. */
+export async function getPasswordResetTokenState(userId: string): Promise<string> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    const rows = await db.postgres.select({ tokenHash: pgSchema.passwordResetTokens.tokenHash, usedAt: pgSchema.passwordResetTokens.usedAt })
+      .from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, userId))
+      .orderBy(asc(pgSchema.passwordResetTokens.tokenHash));
+    return serializePasswordResetTokenState(rows);
+  }
+  const rows = db.sqlite.select({ tokenHash: sqliteSchema.passwordResetTokens.tokenHash, usedAt: sqliteSchema.passwordResetTokens.usedAt })
+    .from(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.userId, userId))
+    .orderBy(asc(sqliteSchema.passwordResetTokens.tokenHash)).all();
+  return serializePasswordResetTokenState(rows);
 }
 
 export async function replacePasswordResetToken(input: {
@@ -12,12 +57,31 @@ export async function replacePasswordResetToken(input: {
   tokenHash: string;
   expiresAt: string;
   createdAt: string;
+  expectedEmail: string;
+  expectedPasswordHash: string;
+  expectedTokenState: string;
 }): Promise<void> {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     await db.postgres.transaction(async (tx) => {
-      await tx.delete(pgSchema.passwordResetTokens)
-        .where(eq(pgSchema.passwordResetTokens.userId, input.userId));
+      const [user] = await tx.select({ email: pgSchema.users.email, passwordHash: pgSchema.users.passwordHash, status: pgSchema.users.status })
+        .from(pgSchema.users).where(eq(pgSchema.users.id, input.userId)).for('update');
+      if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+        throw new Error('La cuenta cambió durante la solicitud');
+      }
+      const currentTokens = await tx.select({ tokenHash: pgSchema.passwordResetTokens.tokenHash, usedAt: pgSchema.passwordResetTokens.usedAt })
+        .from(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, input.userId))
+        .orderBy(asc(pgSchema.passwordResetTokens.tokenHash));
+      if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
+        throw new Error('La solicitud de recuperación cambió durante el envío');
+      }
+      const activeTokens = await tx.select({ id: pgSchema.passwordResetTokens.id })
+        .from(pgSchema.passwordResetTokens)
+        .where(and(eq(pgSchema.passwordResetTokens.userId, input.userId), isNull(pgSchema.passwordResetTokens.usedAt),
+          gt(pgSchema.passwordResetTokens.expiresAt, new Date(input.createdAt))));
+      if (activeTokens.length >= MAX_ACTIVE_RESET_TOKENS_PER_USER) {
+        throw new Error('Hay demasiados enlaces de recuperación activos');
+      }
       await tx.insert(pgSchema.passwordResetTokens).values({
         id: uuid(),
         userId: input.userId,
@@ -30,13 +94,38 @@ export async function replacePasswordResetToken(input: {
   }
   const sqlite = db.sqlite;
   sqlite.transaction((tx) => {
-    tx.delete(sqliteSchema.passwordResetTokens)
-      .where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
-      .run();
+    const user = tx.select({ email: sqliteSchema.users.email, passwordHash: sqliteSchema.users.passwordHash, status: sqliteSchema.users.status })
+      .from(sqliteSchema.users).where(eq(sqliteSchema.users.id, input.userId)).get();
+    if (!user || user.status !== 'ACTIVE' || user.email !== input.expectedEmail || user.passwordHash !== input.expectedPasswordHash) {
+      throw new Error('La cuenta cambió durante la solicitud');
+    }
+    const currentTokens = tx.select({ tokenHash: sqliteSchema.passwordResetTokens.tokenHash, usedAt: sqliteSchema.passwordResetTokens.usedAt })
+      .from(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.userId, input.userId))
+      .orderBy(asc(sqliteSchema.passwordResetTokens.tokenHash)).all();
+    if (serializePasswordResetTokenState(currentTokens) !== input.expectedTokenState) {
+      throw new Error('La solicitud de recuperación cambió durante el envío');
+    }
+    const activeTokens = tx.select({ id: sqliteSchema.passwordResetTokens.id })
+      .from(sqliteSchema.passwordResetTokens)
+      .where(and(eq(sqliteSchema.passwordResetTokens.userId, input.userId), isNull(sqliteSchema.passwordResetTokens.usedAt),
+        gt(sqliteSchema.passwordResetTokens.expiresAt, input.createdAt))).all();
+    if (activeTokens.length >= MAX_ACTIVE_RESET_TOKENS_PER_USER) {
+      throw new Error('Hay demasiados enlaces de recuperación activos');
+    }
     tx.insert(sqliteSchema.passwordResetTokens)
-      .values({ id: uuid(), ...input })
+      .values({ id: uuid(), userId: input.userId, tokenHash: input.tokenHash, expiresAt: input.expiresAt, createdAt: input.createdAt })
       .run();
   });
+}
+
+/** Invalidates one failed-delivery token without touching existing usable links. */
+export async function invalidatePasswordResetToken(tokenHash: string): Promise<void> {
+  const db = await getServerDB();
+  if (db.dialect === 'postgres') {
+    await db.postgres.delete(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.tokenHash, tokenHash));
+    return;
+  }
+  db.sqlite.delete(sqliteSchema.passwordResetTokens).where(eq(sqliteSchema.passwordResetTokens.tokenHash, tokenHash)).run();
 }
 
 export async function consumePasswordResetToken(input: {
@@ -47,6 +136,19 @@ export async function consumePasswordResetToken(input: {
   const db = await getServerDB();
   if (db.dialect === 'postgres') {
     return db.postgres.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ userId: pgSchema.passwordResetTokens.userId })
+        .from(pgSchema.passwordResetTokens)
+        .where(eq(pgSchema.passwordResetTokens.tokenHash, input.tokenHash))
+        .limit(1);
+      if (!candidate) return false;
+
+      // Keep lock order consistent with token replacement: account first, token second.
+      const [user] = await tx.select({ id: pgSchema.users.id }).from(pgSchema.users)
+        .where(and(eq(pgSchema.users.id, candidate.userId), eq(pgSchema.users.status, 'ACTIVE')))
+        .for('update');
+      if (!user) return false;
+
       const tokens = await tx
         .select({ userId: pgSchema.passwordResetTokens.userId })
         .from(pgSchema.passwordResetTokens)
@@ -84,6 +186,7 @@ export async function consumePasswordResetToken(input: {
         .returning({ id: pgSchema.users.id });
       if (updated.length !== 1) throw new Error('No se pudo actualizar la cuenta activa');
       await tx.delete(pgSchema.sessions).where(eq(pgSchema.sessions.userId, token.userId));
+      await tx.delete(pgSchema.passwordResetTokens).where(eq(pgSchema.passwordResetTokens.userId, token.userId));
       return true;
     });
   }
@@ -130,6 +233,9 @@ export async function consumePasswordResetToken(input: {
     }
     tx.delete(sqliteSchema.sessions)
       .where(eq(sqliteSchema.sessions.userId, token.userId))
+      .run();
+    tx.delete(sqliteSchema.passwordResetTokens)
+      .where(eq(sqliteSchema.passwordResetTokens.userId, token.userId))
       .run();
     return true;
   });

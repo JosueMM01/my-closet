@@ -2,6 +2,7 @@ import { processedImageUploadSchema } from '@/lib/domain/validation';
 import { getSessionUser } from '@/server/auth/session';
 import { guardRateLimit } from '@/server/auth/rate-limit';
 import { getImageStorage, ImageOwnershipError } from '@/server/images/storage';
+import { getCloudinaryCredentials } from '@/server/env';
 import { invalidBody, jsonError, jsonOk, requireSameOrigin, unauthorized } from '@/server/http';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,9 @@ export async function POST(request: Request) {
 
   const user = await getSessionUser();
   if (!user) return unauthorized();
+  if (getCloudinaryCredentials()) {
+    return jsonError(409, 'La subida directa necesita una autorización vigente. Intenta sincronizar otra vez.');
+  }
   const limited = await guardRateLimit(`image-upload:${user.userId}`, 60);
   if (limited) return limited;
 

@@ -14,6 +14,7 @@ import { uuid } from '@/lib/domain/ids';
 import { hashPassword } from '@/server/auth/password';
 import * as pgSchema from './schema-pg';
 import * as sqliteSchema from './schema-sqlite';
+import { ensureAccountDeletionSqlite } from './account-deletion-ddl';
 
 export type SqliteDB = BetterSQLite3Database<typeof sqliteSchema>;
 export type PostgresDB = PostgresJsDatabase<typeof pgSchema>;
@@ -384,6 +385,7 @@ function ensureSqliteSchema(
       raw.exec('DROP TABLE images_before_nullable_data');
     })();
   }
+  ensureAccountDeletionSqlite(raw);
 }
 
 async function ensureBootstrapAdmin(

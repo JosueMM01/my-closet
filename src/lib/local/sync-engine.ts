@@ -216,12 +216,13 @@ async function uploadProcessedImageOnce(imageId: string, userId: string): Promis
       cloudinaryForm.append('timestamp', String(signed.timestamp));
       cloudinaryForm.append('folder', signed.folder);
       cloudinaryForm.append('public_id', signed.publicId);
+      cloudinaryForm.append('overwrite', 'false');
       cloudinaryForm.append('signature', signed.signature);
       const uploadedToCloudinary = await fetch(
         `https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloudName)}/image/upload`,
         { method: 'POST', body: cloudinaryForm },
       );
-      if (!uploadedToCloudinary.ok) {
+      if (!uploadedToCloudinary.ok && uploadedToCloudinary.status !== 409) {
         await markFailed();
         return false;
       }
@@ -231,7 +232,7 @@ async function uploadProcessedImageOnce(imageId: string, userId: string): Promis
           'content-type': 'application/json',
           'x-requested-with': 'my-closet',
         },
-        body: JSON.stringify({ id: image.id }),
+        body: JSON.stringify({ id: image.id, authorizationId: signed.authorizationId }),
       });
       if (finalized.status === 401) throw new SessionExpiredError();
       if (!finalized.ok) {

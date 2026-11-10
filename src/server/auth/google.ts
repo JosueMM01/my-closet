@@ -26,17 +26,31 @@ const googleIdentitySchema = z.object({
   sub: z.string().min(1).max(255),
   email: z.email().max(120),
   email_verified: z.literal(true),
+  hd: z.string().trim().min(1).max(255).optional(),
   nonce: z.string().min(32).max(128),
   exp: z.number().int().positive(),
+  auth_time: z.number().int().positive().optional(),
   name: z.string().trim().min(1).max(200).optional(),
   picture: z.url().max(2_048).optional(),
 });
 
 export interface GoogleIdentity {
+  authenticatedAt?: number;
   subject: string;
   email: string;
+  hostedDomain: string | null;
   displayName: string | null;
   pictureUrl: string | null;
+}
+
+/** Gmail and verified Workspace domains are authoritative for automatic account linking. */
+export function isGoogleEmailAuthoritative(identity: Pick<GoogleIdentity, 'email' | 'hostedDomain'>): boolean {
+  const email = identity.email.trim().toLowerCase();
+  if (email.endsWith('@gmail.com')) return true;
+  const hostedDomain = identity.hostedDomain?.trim().toLowerCase();
+  if (!hostedDomain || !/^[a-z0-9.-]+$/.test(hostedDomain)) return false;
+  const emailDomain = email.slice(email.lastIndexOf('@') + 1);
+  return emailDomain === hostedDomain;
 }
 
 export interface GoogleOAuthDependencies {
@@ -69,6 +83,7 @@ export function createGoogleOAuthValues(): {
 }
 
 export function buildGoogleAuthorizationUrl(input: {
+  reauthenticate?: boolean;
   config: GoogleAuthConfig;
   state: string;
   challenge: string;
@@ -86,6 +101,10 @@ export function buildGoogleAuthorizationUrl(input: {
     code_challenge_method: 'S256',
     prompt: 'select_account',
   }).toString();
+  if (input.reauthenticate) {
+    url.searchParams.set('max_age', '0');
+    url.searchParams.set('claims', JSON.stringify({ id_token: { auth_time: { essential: true } } }));
+  }
   return url;
 }
 
@@ -134,7 +153,9 @@ export async function verifyGoogleIdToken(input: {
   }
   return {
     subject: identity.data.sub,
+    ...(identity.data.auth_time === undefined ? {} : { authenticatedAt: identity.data.auth_time }),
     email: identity.data.email.trim().toLowerCase(),
+    hostedDomain: identity.data.hd?.trim().toLowerCase() ?? null,
     displayName: identity.data.name ?? null,
     pictureUrl: identity.data.picture ?? null,
   };

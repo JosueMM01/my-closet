@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { getGoogleIdentityFromCode } from '@/server/auth/google';
+import { getGoogleIdentityFromCode, isGoogleEmailAuthoritative } from '@/server/auth/google';
 import {
   clearGoogleFlowCookies,
   GOOGLE_FLOW_COOKIES,
@@ -11,14 +11,19 @@ import {
   type GoogleFlowIntent,
 } from '@/server/auth/google-flow';
 import { hashPassword } from '@/server/auth/password';
-import { createSession, getSessionUser } from '@/server/auth/session';
-import { getGoogleAuthConfig, type GoogleAuthConfig } from '@/server/env';
+import { createSession, getSessionUser, SESSION_COOKIE } from '@/server/auth/session';
+import { getGoogleAuthConfig, getEnv, type GoogleAuthConfig } from '@/server/env';
+import { clearDeletionFlowCookie, DELETION_FLOW_COOKIE, deletionSessionBinding, freshGoogleDeletionAuthentication, newDeletionProof, readDeletionContext, setDeletionProofCookie } from '@/server/auth/account-deletion';
+import { saveDeletionProof } from '@/server/repositories/account-deletion-repository';
+import { credentialFingerprint } from '@/server/repositories/email-change-repository';
+import { findUserById } from '@/server/repositories/users-repository';
 import type { GoogleFailureReason } from '@/lib/auth/google-feedback';
 import {
   AuthAccountError,
-  findActiveUserByGoogleSubject,
   findGoogleAccountByUserId,
+  findUserByGoogleSubject,
   linkGoogleAccount,
+  linkGoogleAccountByEmail,
 } from '@/server/repositories/auth-accounts-repository';
 import {
   AccountError,
@@ -52,6 +57,7 @@ function redirectTo(request: Request, path: string, configAppUrl?: string): Resp
 }
 
 function failurePath(intent: string | undefined, invitationToken: string | null, reason: GoogleFailureReason = 'denied'): string {
+  if (intent === 'delete') return `/profile?google=${reason}#delete-account`;
   if (intent === 'link' || intent === 'photo') return `/profile?google=${reason}`;
   if (intent === 'invite') {
     const fragment = invitationToken ? `#invite=${encodeURIComponent(invitationToken)}` : '';
@@ -84,7 +90,7 @@ export async function GET(request: Request): Promise<Response> {
       !verifier ||
       !nonce ||
       !storedIntent ||
-      !(['login', 'link', 'invite', 'photo'] as const).includes(storedIntent) ||
+      !(['login', 'link', 'invite', 'photo', 'delete'] as const).includes(storedIntent) ||
       !safeStateEqual(query.data.state, expectedState)
     ) {
       return redirectTo(request, failurePath(storedIntent, null, 'session-invalid'), config.appUrl);
@@ -109,6 +115,23 @@ export async function GET(request: Request): Promise<Response> {
       expectedNonce: nonce,
       config,
     });
+
+    if (storedIntent === 'delete') {
+      const principal = await getSessionUser();
+      const context = readDeletionContext(store.get(DELETION_FLOW_COOKIE)?.value, expectedState, store.get(SESSION_COOKIE)?.value);
+      const linked = principal ? await findGoogleAccountByUserId(principal.userId) : null;
+      const user = principal ? await findUserById(principal.userId) : null;
+      if (!getEnv().ACCOUNT_DELETION_ENABLED || !principal || !context || context.userId !== principal.userId
+        || !user || user.status !== 'ACTIVE' || linked?.providerSubject !== identity.subject
+        || !freshGoogleDeletionAuthentication(identity.authenticatedAt, context.startedAt)) {
+        return redirectTo(request, failurePath(storedIntent, null, 'reauth-required'), config.appUrl);
+      }
+      const proof = newDeletionProof();
+      await saveDeletionProof({ userId: user.id, token: proof, sessionHash: deletionSessionBinding(store.get(SESSION_COOKIE)?.value).sessionHash,
+        credentialHash: credentialFingerprint(user.passwordHash), googleSubject: identity.subject });
+      setDeletionProofCookie(store, proof);
+      return redirectTo(request, '/profile#delete-account', config.appUrl);
+    }
 
     if (storedIntent === 'link') {
       const storedLinkUser = store.get(GOOGLE_FLOW_COOKIES.linkUser)?.value;
@@ -168,7 +191,29 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const user = await findActiveUserByGoogleSubject(identity.subject);
+    const subjectOwner = await findUserByGoogleSubject(identity.subject);
+    if (subjectOwner) {
+      // A subject already bound to a disabled account must never fall back to email matching.
+      if (subjectOwner.user.status !== 'ACTIVE') {
+        return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
+      }
+      await createSession(subjectOwner.user.id);
+      return redirectTo(
+        request,
+        returnTo?.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\')
+          ? returnTo
+          : '/',
+        config.appUrl,
+      );
+    }
+
+    if (!isGoogleEmailAuthoritative(identity)) {
+      return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
+    }
+    const user = await linkGoogleAccountByEmail({
+      providerSubject: identity.subject,
+      providerEmail: identity.email,
+    });
     if (!user) return redirectTo(request, failurePath(storedIntent, null, 'account-unavailable'), config.appUrl);
     await createSession(user.id);
     return redirectTo(
@@ -196,5 +241,6 @@ export async function GET(request: Request): Promise<Response> {
     return redirectTo(request, failurePath(storedIntent, invitationToken, reason), config?.appUrl);
   } finally {
     clearGoogleFlowCookies(store);
+    clearDeletionFlowCookie(store);
   }
 }

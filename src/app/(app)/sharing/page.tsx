@@ -21,6 +21,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button, Chip, Field, TextInput } from '@/components/ui';
 import { EyeIcon, PencilIcon, ShareIcon, TrashIcon } from '@/components/icons';
 import { StatusToast } from '@/components/status-toast';
+import { ProfileModal } from '@/components/profile-modal';
 
 export default function SharingPage() {
   const { profile } = useSession();
@@ -31,6 +32,7 @@ export default function SharingPage() {
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const dismissShareStatus = useCallback(() => setShareStatus(null), []);
   const [toDelete, setToDelete] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const shares = useLiveQuery(
     async () =>
@@ -62,6 +64,7 @@ export default function SharingPage() {
     wardrobeShareInputSchema.parse({ granteeEmail: parsed.data.email, permission });
 
     const share = await createWardrobeShare(profile.userId, parsed.data.email, permission);
+    setInviteOpen(false);
     try {
       await runSync();
     } catch {
@@ -107,11 +110,11 @@ export default function SharingPage() {
       <h1 className="font-heading text-2xl">Compartir armario</h1>
 
       <section className="card-surface p-5">
-        <h2 className="mb-1 font-heading text-base">Nueva invitación</h2>
-        <p className="mb-4 text-sm text-text-secondary">
-          Genera un enlace para dar acceso a tu armario completo. Quien lo acepte podrá{' '}
-          {permission === 'VIEW' ? 'ver' : 'ver y gestionar'} tus prendas y conjuntos.
-        </p>
+        <h2 className="mb-1 font-heading text-base">Compartir acceso</h2>
+        <p className="mb-4 text-sm text-text-secondary">Invita a alguien a ver o gestionar tu armario completo.</p>
+        <Button type="button" onClick={() => setInviteOpen(true)} disabled={!online}>Nueva invitación</Button>
+        <ProfileModal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Nueva invitación">
+        <p className="mb-4 text-sm text-text-secondary">Quien acepte podrá {permission === 'VIEW' ? 'ver' : 'ver y gestionar'} tus prendas y conjuntos.</p>
         <form onSubmit={handleInvite} className="space-y-4" noValidate>
           <Field label="Correo de la persona">
             <TextInput
@@ -144,6 +147,7 @@ export default function SharingPage() {
             Crear invitación
           </Button>
         </form>
+        </ProfileModal>
 
       </section>
 

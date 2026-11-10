@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { googleInvitationStartSchema, googleInvitationStartResponseSchema } from '@/lib/domain/validation';
 import { buildGoogleAuthorizationUrl, createGoogleOAuthValues } from '@/server/auth/google';
 import { setGoogleFlowCookies } from '@/server/auth/google-flow';
-import { getSessionUser } from '@/server/auth/session';
+import { getSessionUser, SESSION_COOKIE } from '@/server/auth/session';
+import { setDeletionFlowCookie, signDeletionContext } from '@/server/auth/account-deletion';
 import { guardRateLimit, requestRateLimitIdentity } from '@/server/auth/rate-limit';
-import { getGoogleAuthConfig } from '@/server/env';
+import { getGoogleAuthConfig, getEnv } from '@/server/env';
 import { jsonError, jsonOk, requireSameOrigin } from '@/server/http';
 import { inspectInvitationToken } from '@/server/repositories/invitations-repository';
 
@@ -18,12 +19,12 @@ const safeReturnPathSchema = z
   .refine((value) => value.startsWith('/') && !value.startsWith('//') && !value.includes('\\'));
 
 const startQuerySchema = z.object({
-  intent: z.enum(['login', 'link', 'photo']),
+  intent: z.enum(['login', 'link', 'photo', 'delete']),
   returnTo: safeReturnPathSchema.optional(),
 }).strict();
 
-function oauthRedirect(config: NonNullable<ReturnType<typeof getGoogleAuthConfig>>, values: ReturnType<typeof createGoogleOAuthValues>): Response {
-  const authorizationUrl = buildGoogleAuthorizationUrl({ config, ...values });
+function oauthRedirect(config: NonNullable<ReturnType<typeof getGoogleAuthConfig>>, values: ReturnType<typeof createGoogleOAuthValues>, reauthenticate = false): Response {
+  const authorizationUrl = buildGoogleAuthorizationUrl({ config, ...values, reauthenticate });
   return new Response(null, {
     status: 302,
     headers: { location: authorizationUrl.toString(), 'cache-control': 'no-store' },
@@ -41,7 +42,8 @@ export async function GET(request: Request): Promise<Response> {
   const limited = await guardRateLimit(`oauth-start:${requestRateLimitIdentity(request)}`, 30);
   if (limited) return limited;
 
-  const requiresSession = query.data.intent === 'link' || query.data.intent === 'photo';
+  if (query.data.intent === 'delete' && !getEnv().ACCOUNT_DELETION_ENABLED) return jsonError(404, 'No disponible');
+  const requiresSession = query.data.intent === 'link' || query.data.intent === 'photo' || query.data.intent === 'delete';
   const principal = requiresSession ? await getSessionUser() : null;
   if (requiresSession && !principal) {
     return jsonError(401, 'No autenticado o sesión expirada');
@@ -54,7 +56,11 @@ export async function GET(request: Request): Promise<Response> {
     linkUserId: principal?.userId,
     returnTo: query.data.intent === 'login' ? query.data.returnTo : undefined,
   });
-  return oauthRedirect(config, values);
+  if (query.data.intent === 'delete' && principal) {
+    const store = await cookies();
+    setDeletionFlowCookie(store, signDeletionContext(principal.userId, values.state, store.get(SESSION_COOKIE)?.value));
+  }
+  return oauthRedirect(config, values, query.data.intent === 'delete');
 }
 
 export async function POST(request: Request): Promise<Response> {

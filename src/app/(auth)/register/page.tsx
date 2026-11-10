@@ -13,6 +13,7 @@ import { GoogleIcon } from '@/components/google-icon';
 import { useSession } from '@/components/providers';
 import { LegalLinks } from '@/components/legal-links';
 import { googleFailureMessage } from '@/lib/auth/google-feedback';
+import { newPasswordPolicyError, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, PASSWORD_POLICY_HINT } from '@/lib/domain/password-policy';
 
 interface InvitationView {
   email: string;
@@ -27,6 +28,7 @@ export default function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [invitationToken, setInvitationToken] = useState<string | null>(null);
@@ -83,14 +85,19 @@ export default function RegisterPage() {
       .finally(() => setRegistrationReady(true));
   }, []);
 
-  const passwordWeak = password.length > 0 && password.length < 8;
+  const passwordError = password.length > 0 ? newPasswordPolicyError(password) : null;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (profile || loading || submitting) return;
     setError(null);
-    if (passwordWeak) {
-      setError('La contraseña debe tener al menos 8 caracteres');
+    const policyError = newPasswordPolicyError(password);
+    if (policyError) {
+      setError(policyError);
+      return;
+    }
+    if (invitation && password !== confirmation) {
+      setError('Las contraseñas no coinciden');
       return;
     }
     setSubmitting(true);
@@ -177,6 +184,7 @@ export default function RegisterPage() {
               <div className="rounded-2xl bg-primary-soft p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-primary">Invitación verificada</p>
                 <p className="mt-1 break-all text-sm font-semibold text-text-primary">{invitation.email}</p>
+                <p className="mt-1 text-xs text-text-secondary">Esta invitación es exclusivamente para este correo y no se puede cambiar. Si no te corresponde, ignórala o pide una nueva al administrador.</p>
                 <p className="mt-1 text-xs text-text-secondary">
                   Rol: {invitation.role === 'ADMIN' ? 'Administrador' : 'Usuario'}
                 </p>
@@ -230,8 +238,8 @@ export default function RegisterPage() {
               )}
               <Field
                 label="Contraseña"
-                hint="Mínimo 8 caracteres"
-                error={passwordWeak ? 'Al menos 8 caracteres' : undefined}
+                hint={PASSWORD_POLICY_HINT}
+                error={passwordError ?? undefined}
                 htmlFor="register-password"
               >
                 <PasswordInput
@@ -240,12 +248,17 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => { setPassword(event.target.value); setError(null); }}
                   required
-                  minLength={8}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
                 />
               </Field>
-              {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+              {invitation ? <Field label="Confirmar contraseña" htmlFor="register-password-confirmation">
+                <PasswordInput id="register-password-confirmation" name="passwordConfirmation" autoComplete="new-password"
+                  value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={PASSWORD_MIN_LENGTH} maxLength={PASSWORD_MAX_LENGTH} />
+              </Field> : null}
+              {error && error !== passwordError ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
               <Button type="submit" size="lg" className="w-full" loading={submitting}>
                 Crear cuenta
               </Button>

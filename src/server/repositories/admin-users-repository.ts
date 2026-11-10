@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { UserRole, UserStatus } from '@/lib/domain/types';
 import { getServerDB, pgSchema, sqliteSchema, type PostgresDB } from '@/server/db';
 import { AdminAuthorizationError } from './invitations-repository';
@@ -56,7 +56,9 @@ export async function listUsersForAdmin(actorId: string): Promise<AdminUserRecor
         .where(eq(pgSchema.users.id, actorId))
         .limit(1);
       assertActor(actor[0]);
-      return (await tx.select().from(pgSchema.users).orderBy(asc(pgSchema.users.createdAt)))
+      return (await tx.select().from(pgSchema.users)
+        .where(sql`NOT EXISTS (SELECT 1 FROM account_deletions d WHERE d.user_id=${pgSchema.users.id})`)
+        .orderBy(asc(pgSchema.users.createdAt)))
         .map(publicUser);
     });
   }
@@ -68,6 +70,7 @@ export async function listUsersForAdmin(actorId: string): Promise<AdminUserRecor
     return tx
       .select()
       .from(sqliteSchema.users)
+      .where(sql`NOT EXISTS (SELECT 1 FROM account_deletions d WHERE d.user_id=${sqliteSchema.users.id})`)
       .orderBy(asc(sqliteSchema.users.createdAt))
       .all()
       .map(publicUser);

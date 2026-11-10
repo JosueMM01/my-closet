@@ -252,3 +252,43 @@ export const images = sqliteTable('images', {
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+/** Cloudinary signature inventory, retained as a tombstone after account removal. */
+export const cloudinaryUploadAuthorizations = sqliteTable('cloudinary_upload_authorizations', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  imageId: text('image_id').notNull(),
+  publicId: text('public_id').notNull().unique(),
+  folder: text('folder').notNull(),
+  signedAt: integer('signed_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  state: text('state', { enum: ['AUTHORIZED', 'FINALIZED', 'REVOKED', 'RECONCILE'] }).notNull().default('AUTHORIZED'),
+  nextCheckAt: text('next_check_at').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+// Durable lifecycle records deliberately do not cascade with user/image rows.
+export const accountDeletions = sqliteTable('account_deletions', {
+  userId: text('user_id').primaryKey(),
+  deletedAt: text('deleted_at').notNull(),
+});
+
+export const accountDeletionProofs = sqliteTable('account_deletion_proofs', {
+  userId: text('user_id').primaryKey(),
+  tokenHash: text('token_hash').notNull(),
+  sessionHash: text('session_hash').notNull(),
+  credentialHash: text('credential_hash').notNull(),
+  googleSubject: text('google_subject').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
+
+export const imageDeletionJobs = sqliteTable('image_deletion_jobs', {
+  imageId: text('image_id').primaryKey(),
+  storageProvider: text('storage_provider').notNull(),
+  storageKey: text('storage_key'),
+  remoteUrl: text('remote_url'),
+  state: text('state').notNull().default('PENDING'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: text('next_attempt_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, table => [index('image_deletion_jobs_due_idx').on(table.state, table.nextAttemptAt)]);

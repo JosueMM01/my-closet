@@ -4,6 +4,8 @@ import {
   AuthAccountError,
   findActiveUserByGoogleSubject,
   findGoogleAccountByUserId,
+  findUserByGoogleSubject,
+  linkGoogleAccountByEmail,
   linkGoogleAccount,
   unlinkGoogleAccount,
 } from '@/server/repositories/auth-accounts-repository';
@@ -112,5 +114,36 @@ describe('repositorio de cuentas Google', () => {
     ).rejects.toBeInstanceOf(AuthAccountError);
     await expect(findActiveUserByGoogleSubject('subject-disabled')).resolves.toBeNull();
     await expect(unlinkGoogleAccount(user.id)).rejects.toMatchObject({ code: 'ACTOR_INVALID' });
+  });
+
+  it('resuelve subjects deshabilitados y no los oculta como subjects desconocidos', async () => {
+    const user = await createUser({ email: 'disabled-subject@example.test', displayName: 'Disabled', passwordHash: 'hash' });
+    await linkGoogleAccount({ userId: user.id, providerSubject: 'disabled-subject', providerEmail: user.email });
+    const sqlite = await getSqlite();
+    await sqlite.update(sqliteSchema.users).set({ status: 'DISABLED' }).where(eq(sqliteSchema.users.id, user.id));
+    await expect(findActiveUserByGoogleSubject('disabled-subject')).resolves.toBeNull();
+    await expect(findUserByGoogleSubject('disabled-subject')).resolves.toMatchObject({ user: { id: user.id, status: 'DISABLED' } });
+    await expect(findUserByGoogleSubject('unknown-subject')).resolves.toBeNull();
+  });
+
+  it('auto-link por correo es idempotente bajo callbacks concurrentes y no reemplaza otro subject', async () => {
+    const user = await createUser({ email: 'parallel@gmail.com', displayName: 'Parallel', passwordHash: 'hash' });
+    const results = await Promise.all([
+      linkGoogleAccountByEmail({ providerSubject: 'parallel-subject', providerEmail: user.email }),
+      linkGoogleAccountByEmail({ providerSubject: 'parallel-subject', providerEmail: user.email }),
+    ]);
+    expect(results.map((result) => result?.id)).toEqual([user.id, user.id]);
+    await expect(linkGoogleAccountByEmail({ providerSubject: 'replacement-subject', providerEmail: user.email }))
+      .rejects.toMatchObject({ code: 'ALREADY_LINKED' });
+    await expect(findGoogleAccountByUserId(user.id)).resolves.toMatchObject({ providerSubject: 'parallel-subject' });
+  });
+
+  it('rechaza si un subject vinculado a otro usuario intenta tomar un correo existente', async () => {
+    const owner = await createUser({ email: 'owner@gmail.com', displayName: 'Owner', passwordHash: 'hash' });
+    const target = await createUser({ email: 'target@gmail.com', displayName: 'Target', passwordHash: 'hash' });
+    await linkGoogleAccount({ userId: owner.id, providerSubject: 'owned-subject', providerEmail: owner.email });
+    await expect(linkGoogleAccountByEmail({ providerSubject: 'owned-subject', providerEmail: target.email }))
+      .rejects.toMatchObject({ code: 'ALREADY_LINKED' });
+    await expect(findGoogleAccountByUserId(target.id)).resolves.toBeNull();
   });
 });
