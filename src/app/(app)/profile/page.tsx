@@ -20,6 +20,7 @@ import { ProfileAdmin } from '@/components/profile-admin';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileGoogle } from '@/components/profile-google';
 import { ProfileAccountDeletion } from '@/components/profile-account-deletion';
+import { ProfileInstallApp } from '@/components/pwa-install';
 import { PencilIcon, ShareIcon } from '@/components/icons';
 import { Button, Field, PasswordInput, TextInput } from '@/components/ui';
 import { VerificationCodeInput } from '@/components/verification-code-input';
@@ -460,6 +461,8 @@ export default function ProfilePage() {
               : `${stats.pending + stats.failed} cambios pendientes`}
           </p>
         </section>
+
+        <ProfileInstallApp />
 
         <section className="card-surface p-5">
           <h2 className="font-heading text-base">Compartir</h2>

@@ -52,7 +52,7 @@ y recuperación validan la misma regla en formulario y API, sin normalizar ni
 truncar la contraseña almacenada. El acceso y las comprobaciones de contraseña
 actual mantienen compatibilidad con credenciales anteriores: no se cambian
 hashes ni se bloquean cuentas por actualizar la política. Esta mejora está
-implementada localmente y pendiente de publicación.
+integrada en develop mediante PR #20 y pendiente de promoción a producción.
 
 El cambio de correo exige contraseña actual y un código numérico de 6 dígitos
 enviado al nuevo buzón, con caducidad de 10 minutos y HMAC-SHA256 con el secreto
