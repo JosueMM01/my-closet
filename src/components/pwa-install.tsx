@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Button } from '@/components/ui';
 
 // Chromium-only enhancement. Safari and other browsers receive manual instructions.
@@ -19,6 +19,8 @@ interface InstallState {
 }
 
 const InstallContext = createContext<InstallState | null>(null);
+const subscribeToFrameChanges = () => () => undefined;
+const isEmbedded = () => window.self !== window.top;
 
 /** Capture the one-shot event before the user navigates to Profile. No storage or network. */
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
@@ -88,20 +90,34 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
 
 export function ProfileInstallApp() {
   const state = useContext(InstallContext);
+  const embedded = useSyncExternalStore(subscribeToFrameChanges, isEmbedded, () => false);
+  const guide = useRef<HTMLDetailsElement>(null);
   if (!state || state.installed) return null;
   return (
-    <section className="card-surface p-5" aria-labelledby="install-app-title">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+    <section className="card-surface p-5 md:col-span-2" aria-labelledby="install-app-title">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 id="install-app-title" className="font-heading text-base">My Closet en tu dispositivo</h2>
           <p className="mt-1 text-sm text-text-secondary">Ábrelo desde tu pantalla de inicio, como una app.</p>
         </div>
-        {state.available || state.busy ? <Button type="button" onClick={() => void state.install()} loading={state.busy}>
+        {state.available || state.busy ? <Button className="w-full shrink-0 sm:w-auto" type="button" onClick={() => void state.install()} loading={state.busy}>
           Instalar app
-        </Button> : null}
+        </Button> : <Button className="w-full shrink-0 sm:w-auto" type="button" variant="secondary" aria-controls="install-app-guide" onClick={() => {
+          if (!guide.current) return;
+          guide.current.open = true;
+          guide.current.querySelector('summary')?.focus();
+        }}>
+          Ver opciones de instalación
+        </Button>}
       </div>
       {state.message ? <p role="status" className="mt-3 text-sm text-text-secondary">{state.message}</p> : null}
-      <details className="mt-3 rounded-2xl bg-surface-alt px-4">
+      {!state.available && !state.busy ? embedded ? <div className="mt-3 rounded-xl bg-surface-alt p-3 text-xs text-text-secondary">
+        <p>Esta vista está dentro de un marco y no permite comprobar la instalación nativa. Abre My Closet en una pestaña propia para probarla.</p>
+        <a href="/profile" target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-11 items-center font-semibold text-primary underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+          Abrir My Closet en una pestaña
+        </a>
+      </div> : <p className="mt-3 text-xs text-text-secondary">El navegador no ha ofrecido el aviso de instalación. Puedes consultar cómo instalar desde su menú.</p> : null}
+      <details ref={guide} id="install-app-guide" className="mt-3 rounded-2xl bg-surface-alt px-4">
         <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
           {state.appleMobile ? 'Instalar en iPhone o iPad' : 'Cómo instalar la app'}
         </summary>

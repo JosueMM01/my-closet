@@ -20,7 +20,7 @@ son deterministas y locales, sin llamadas a modelos de lenguaje.
 | 5A — Invitaciones y cupo ADMIN | Lista funcionalmente; aceptación del propietario y protección transaccional del cupo de dos ADMIN, incluidas reservas vigentes | El cálculo de los siete días en servidor ya está integrado en develop; pendiente su promoción revisada a producción |
 | 5B — Seguridad e identidad | Lista en su alcance funcional, aceptado por el propietario: cambio de correo verificado y Turnstile operativos en producción | Las comprobaciones adicionales de permisos, política de imágenes y ensayo de reutilización real se siguen en 6, sin afirmar que ya se ejecutaron |
 | 5C — Baja de cuentas | Baja propia, administrativa e inventario de subidas integrados en develop mediante PR #20; staging migrado y limpieza sintética real comprobada; no habilitada en producción | Implementar ejecución periódica del worker y recepción fiable de la baja en otro dispositivo; validar Google y baja administrativa reales, subidas tardías y firmas anteriores al inventario; ensayar recuperación manual. El registro externo automático queda pospuesto |
-| 6 — Experiencia y documentación | En proceso; contraseña por enlace, perfil compacto, Google simplificado y política nueva de contraseñas integrados en develop mediante PR #18/#19/#20 | Validar primera asociación real con Google y experiencia Crear contraseña; completar matriz de permisos y revocación, claridad de imágenes públicas y reutilización real de Turnstile; resolver o aceptar explícitamente el canal temporal de recuperación antes de producción; corregir scroll de fondo en modales. Web Push se evalúa aparte |
+| 6 — Experiencia y documentación | En proceso; contraseña por enlace, perfil compacto, Google simplificado y política nueva de contraseñas integrados en develop mediante PR #18/#19/#20; instalación desde Perfil mediante PR #21 | Validar primera asociación real con Google, experiencia Crear contraseña e instalación en teléfono físico; completar matriz de permisos y revocación, claridad de imágenes públicas y reutilización real de Turnstile; seguir el endurecimiento del canal temporal de recuperación ya existente en main, sin presentarlo como regresión de esta entrega; corregir scroll de fondo en modales. Web Push se evalúa aparte |
 | 7 — Avatar personalizable | Pendiente; siguiente objetivo prioritario del propietario | Prototipo local medido, controles de personalización y decisión de viabilidad |
 | 8 — Rendimiento y compatibilidad | En proceso; cámara móvil y recuperación del pipeline integradas; encuadre completo integrado en develop mediante PR #19, no promovido a main | Validación física del encuadre/lente en teléfonos, incluido iPhone, y mediciones de tiempo, memoria y calidad |
 
@@ -241,12 +241,13 @@ ni de dispositivos offline; el origen actual se limpia tras recargar, antes del 
 
 ## Orden de entrega
 
-La rama local `feat/profile-pwa-install` añade instalación desde Perfil: guarda
+El PR #21, `feat/profile-pwa-install` → `develop`, integra instalación desde Perfil: guarda
 en memoria el aviso de Chromium antes de navegar al perfil, lo consume una sola
 vez y ofrece instrucciones cuando no hay instalador nativo. En iPhone/iPad guía
 por Safari y «Añadir a pantalla de inicio»; al ejecutarse en modo app oculta la
 oferta. No cambia sesiones, IndexedDB, sincronización, manifest ni service worker.
-No está publicada ni incluida todavía en el PR #17. La instalación nativa en
+Está publicada en develop e incluida en el PR #17, que sigue en borrador sin
+fusionar a main. La instalación nativa en
 teléfonos reales sigue pendiente, aunque los eventos se puedan probar simulados.
 Validación local: TypeScript, lint y build aprobados; Vitest 410 aprobadas y
 30 contratos PostgreSQL omitidos en esta ejecución general (su ensayo separado
@@ -255,6 +256,32 @@ previo no se repitió para el botón). Los 48 E2E seleccionados pasan sin omitid
 en Chromium móvil emulado y escritorio. El primer intento no abrió el navegador
 por una ruta local inexistente; la repetición usa el Chromium ya instalado,
 sin cambiar pruebas ni expectativas para ocultar ese fallo de entorno.
+
+Preparación posterior del botón: `fix/profile-install-layout` reorganiza las
+tarjetas y mantiene una acción visible cuando el navegador no ofrece instalación.
+En simuladores que incrustan el perfil en un iframe, ofrece abrirlo en una pestaña
+propia, sin simular un instalador ni relajar CSP o X-Frame-Options. Se comprobó
+en Brave real la apertura desde ese enlace y la oferta nativa a ancho móvil;
+esto no equivale a una instalación terminada en un teléfono físico. Se reinició
+la compilación local con configuración SQLite/imagen local y correo desactivado,
+limpiando solo las cachés estática/runtime mediante el modo de desarrollo; no se
+borraron IndexedDB, outbox ni cachés de fotos/modelos. El archivo de configuración
+de esa prueba queda ignorado por Git y nunca debe subirse como configuración real.
+Los ajustes permanecen locales hasta su aprobación e integración; la rama tiene
+el auto-deployment desactivado para no crear otro Preview.
+La repetición completa terminó con 62/62 E2E aprobadas, sin reintentos ni omitidas
+(31 por tamaño), más typecheck, lint, build y 34 pruebas de respaldo, migración
+SQLite y reglas de despliegue. El fixture embebido reproduce la extensión solo
+en el navegador aislado del test; las cabeceras reales conservan `DENY` y
+`frame-ancestors 'none'`. Las ejecuciones iniciales del fixture fallaron por las
+protecciones de incrustación y por omitir UTF-8 en su HTML; se corrigió la fixture,
+no las expectativas ni la seguridad de la aplicación. No es una prueba de Google,
+SMTP o Cloudinary reales ni de instalación física.
+
+El candidato remoto `d856ee8` tiene CI aprobado: calidad/build, PostgreSQL y
+154 E2E aprobadas con 6 omitidas. Los ajustes locales necesitan su propio CI
+después de publicarse; no heredan ese resultado. Producción sigue en `4b760a4`.
+La fase 7 no se inicia hasta nueva indicación expresa del propietario.
 
 La inspección de producción confirmó que aún no existen las tablas de `0006` y
 `0007`. Deben migrarse antes de servir el código nuevo, incluso con bajas apagadas:
