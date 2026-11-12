@@ -222,6 +222,18 @@ automática implementada. Un eventual registro privado del propietario debe qued
 fuera de Git y fuera de la restauración que podría sobrescribirlo. No se usa la
 ausencia de fotos de Cloudinary como prueba de una cuenta eliminada.
 
+## Instalación desde Perfil
+
+El proveedor raíz conserva en memoria el evento de instalación de Chromium antes
+de navegar al perfil. El botón consume ese evento una sola vez; aceptar el aviso
+no se presenta como instalación terminada hasta recibir `appinstalled`. Sin oferta
+nativa se muestran opciones manuales; en modo standalone se oculta la oferta.
+Si un simulador incrusta la app, se ofrece abrir el mismo perfil en una pestaña
+propia. No se relajan las protecciones anti-iframe del servidor para soportarlo.
+El modo de desarrollo desregistra el service worker y limpia únicamente cachés
+estática/runtime: la instalación se valida con una compilación final local o
+Preview, sin borrar IndexedDB ni confundir emulación con un dispositivo físico.
+
 ## Recuperación y compatibilidad
 
 Los respaldos de PostgreSQL se cifran con age antes de subir a Drive. La política

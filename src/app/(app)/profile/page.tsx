@@ -447,7 +447,7 @@ export default function ProfilePage() {
       </div> : null}
 
       <div id="profile-panel-profile" role="tabpanel" aria-labelledby="profile-tab-profile" hidden={activeTab !== 'profile'}>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid items-start gap-5 md:grid-cols-2">
         <section className="card-surface p-5">
           <h2 className="font-heading text-base">Tus datos en este dispositivo</h2>
           <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -462,8 +462,6 @@ export default function ProfilePage() {
           </p>
         </section>
 
-        <ProfileInstallApp />
-
         <section className="card-surface p-5">
           <h2 className="font-heading text-base">Compartir</h2>
           <p className="mt-2 text-sm text-text-secondary">
@@ -477,6 +475,7 @@ export default function ProfilePage() {
             Gestionar accesos
           </Link>
         </section>
+        <ProfileInstallApp />
       </div>
 
       </div>

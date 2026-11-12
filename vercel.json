@@ -3,6 +3,7 @@
   "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
   "git": {
     "deploymentEnabled": {
+      "fix/profile-install-layout": false,
       "feat/profile-pwa-install": false,
       "feat/account-lifecycle-hardening": false,
       "feat/profile-organization": false,

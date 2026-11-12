@@ -67,8 +67,69 @@ test('sin aviso nativo ofrece una guía sin botón de instalación inoperante', 
   await registerAndLogin(page);
   await openProfile(page);
   await expect(page.getByRole('button', { name: 'Instalar app', exact: true })).toHaveCount(0);
-  await page.getByText('Cómo instalar la app', { exact: true }).click();
+  const options = page.getByRole('button', { name: 'Ver opciones de instalación', exact: true });
+  await expect(options).toBeVisible();
+  await options.click();
+  await expect(page.locator('#install-app-guide')).toHaveAttribute('open', '');
   await expect(page.getByText(/inicia sesión con el mismo correo/)).toBeVisible();
+});
+
+test.describe('vista embebida', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('desde un marco ofrece abrir el perfil en una pestaña propia', async ({ page }) => {
+    await registerAndLogin(page);
+    const origin = new URL(page.url()).origin;
+    // La extensión del simulador puede incrustar la página. Reproducirlo solo
+    // en este navegador de pruebas, sin modificar las cabeceras del servidor.
+    await page.route(`${origin}/__pwa-frame-test`, route => route.fulfill({
+      contentType: 'text/html; charset=utf-8',
+      body: '<iframe title="Simulador móvil" src="/profile" style="width:360px;height:800px"></iframe>',
+    }));
+    await page.route(`${origin}/profile`, async route => {
+      const response = await route.fetch();
+      const headers = response.headers();
+      delete headers['x-frame-options'];
+      if (headers['content-security-policy']) {
+        headers['content-security-policy'] = headers['content-security-policy'].replace(/(?:^|;\s*)frame-ancestors[^;]*/, '');
+      }
+      await route.fulfill({ response, headers });
+    });
+    await page.goto('/__pwa-frame-test');
+    const profile = page.frameLocator('iframe[title="Simulador móvil"]');
+    await expect(profile.getByRole('heading', { name: 'Perfil', exact: true })).toBeVisible();
+    const openInTab = profile.getByRole('link', { name: 'Abrir My Closet en una pestaña' });
+    await expect(openInTab).toBeVisible();
+    await expect(openInTab).toHaveAttribute('href', '/profile');
+    await expect(openInTab).toHaveAttribute('target', '_blank');
+    await expect(profile.getByRole('button', { name: 'Instalar app', exact: true })).toHaveCount(0);
+  });
+});
+
+test('ordena las tarjetas sin desbordamiento en móvil y escritorio', async ({ page }) => {
+  await registerAndLogin(page);
+  await openProfile(page);
+  const summary = page.getByRole('heading', { name: 'Tus datos en este dispositivo' });
+  const sharing = page.getByRole('heading', { name: 'Compartir', exact: true });
+  const installation = page.getByRole('region', { name: 'My Closet en tu dispositivo' });
+  const summaryBox = await summary.boundingBox();
+  const sharingBox = await sharing.boundingBox();
+  const installationBox = await installation.boundingBox();
+  expect(summaryBox).not.toBeNull();
+  expect(sharingBox).not.toBeNull();
+  expect(installationBox).not.toBeNull();
+  if (!summaryBox || !sharingBox || !installationBox) throw new Error('Faltan tarjetas del perfil');
+  if ((page.viewportSize()?.width ?? 0) >= 768) {
+    expect(Math.abs(summaryBox.y - sharingBox.y)).toBeLessThan(2);
+    expect(sharingBox.x).toBeGreaterThan(summaryBox.x);
+  } else {
+    expect(sharingBox.y).toBeGreaterThan(summaryBox.y);
+  }
+  expect(installationBox.y).toBeGreaterThan(sharingBox.y);
+  const options = installation.getByRole('button', { name: 'Ver opciones de instalación' });
+  await options.scrollIntoViewIfNeeded();
+  await expect(options).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('en iPhone explica el flujo de Safari', async ({ page }) => {
